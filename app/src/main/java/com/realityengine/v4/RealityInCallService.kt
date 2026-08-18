@@ -19,17 +19,19 @@ class RealityInCallService : InCallService() {
     }
 
     private fun launchCallUi() {
-        startActivity(
-            Intent(this, CallActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            }
-        )
+        startActivity(Intent(this, CallActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        })
     }
 
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
-            CallSessionRegistry.add(call)
+            if (state == Call.STATE_DISCONNECTED) {
+                CallSessionRegistry.removeIfDisconnected(call)
+            } else {
+                CallSessionRegistry.add(call)
+            }
         }
     }
 }
