@@ -17,19 +17,17 @@ object CallSessionRegistry {
         notifyChanged()
     }
 
+    fun removeIfDisconnected(call: Call) {
+        if (call.state == Call.STATE_DISCONNECTED) calls.remove(call)
+        notifyChanged()
+    }
+
     fun all(): List<Call> = calls.toList()
 
-    fun primary(): Call? = calls.firstOrNull { it.state != Call.STATE_DISCONNECTED } ?: calls.firstOrNull()
+    fun primary(): Call? = calls.firstOrNull { it.state != Call.STATE_DISCONNECTED }
 
-    fun addListener(listener: () -> Unit) {
-        listeners.add(listener)
-    }
+    fun addListener(listener: () -> Unit) { listeners.add(listener) }
+    fun removeListener(listener: () -> Unit) { listeners.remove(listener) }
 
-    fun removeListener(listener: () -> Unit) {
-        listeners.remove(listener)
-    }
-
-    private fun notifyChanged() {
-        listeners.forEach { it.invoke() }
-    }
+    private fun notifyChanged() { listeners.forEach { it.invoke() } }
 }
