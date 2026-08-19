@@ -9,9 +9,14 @@ class RealityInCallService : InCallService() {
         @Volatile var instance: RealityInCallService? = null
     }
 
+    @Volatile
+    private var audioReadiness: CallAudioBridge.State = CallAudioBridge.State.UNAVAILABLE
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+        ShizukuAudioStatus.requestPermission()
+        refreshAudioReadiness()
     }
 
     override fun onDestroy() {
@@ -21,6 +26,7 @@ class RealityInCallService : InCallService() {
 
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
+        refreshAudioReadiness()
         CallSessionRegistry.add(call)
         call.registerCallback(callback)
         launchCallUi()
@@ -29,10 +35,17 @@ class RealityInCallService : InCallService() {
     override fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
+        refreshAudioReadiness()
         super.onCallRemoved(call)
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
+
+    fun audioState(): CallAudioBridge.State = audioReadiness
+
+    private fun refreshAudioReadiness() {
+        audioReadiness = CallAudioBridge.state()
+    }
 
     private fun launchCallUi() {
         startActivity(Intent(this, CallActivity::class.java).apply {
@@ -43,6 +56,7 @@ class RealityInCallService : InCallService() {
 
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
+            refreshAudioReadiness()
             if (state == Call.STATE_DISCONNECTED) {
                 CallSessionRegistry.removeIfDisconnected(call)
             } else {
