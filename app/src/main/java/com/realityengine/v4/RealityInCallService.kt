@@ -44,7 +44,7 @@ class RealityInCallService : InCallService() {
     fun audioState(): CallAudioBridge.State = audioReadiness
 
     private fun refreshAudioReadiness() {
-        audioReadiness = CallAudioBridge.state()
+        audioReadiness = CallAudioBridge.state(this)
     }
 
     private fun launchCallUi() {
