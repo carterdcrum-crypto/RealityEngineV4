@@ -24,17 +24,20 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
+    private lateinit var shizukuStatus: TextView
     private lateinit var number: EditText
     private lateinit var error: TextView
     private lateinit var content: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); buildPhoneUi() }
-    override fun onResume() { super.onResume(); if (::status.isInitialized) { updateRoleStatus(); refreshLists() } }
+    override fun onResume() { super.onResume(); if (::status.isInitialized) { updateRoleStatus(); updateShizukuStatus(); refreshLists() } }
 
     private fun buildPhoneUi() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24,24,24,20); setBackgroundColor(Color.rgb(10,10,14)) }
         root.addView(TextView(this).apply { text="REALITY ENGINE"; textSize=25f; setTextColor(Color.WHITE); gravity=Gravity.CENTER }, LinearLayout.LayoutParams(-1, -2))
         status = TextView(this).apply { textSize=14f; setTextColor(Color.LTGRAY); gravity=Gravity.CENTER; setPadding(0,8,0,8) }; root.addView(status)
+        shizukuStatus = TextView(this).apply { textSize=13f; setTextColor(Color.LTGRAY); gravity=Gravity.CENTER; setPadding(0,4,0,8) }; root.addView(shizukuStatus)
+        root.addView(Button(this).apply { text="SHIZUKU AUDIO ACCESS"; setOnClickListener { requestShizuku() } })
         val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER }
         tabs.addView(Button(this).apply { text="PHONE"; setOnClickListener { showPhone() } }, LinearLayout.LayoutParams(0,52.dp(),1f))
         tabs.addView(Button(this).apply { text="RECENTS"; setOnClickListener { showRecents() } }, LinearLayout.LayoutParams(0,52.dp(),1f))
@@ -42,7 +45,25 @@ class MainActivity : Activity() {
         val scroll=ScrollView(this); content=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }; scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1,0,1f))
         root.addView(Button(this).apply { text="MAKE DEFAULT PHONE APP"; setOnClickListener { requestDefaultPhoneRole() } })
         root.addView(Button(this).apply { text="PHONE SETTINGS"; setOnClickListener { startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) } })
-        setContentView(root); updateRoleStatus(); showPhone()
+        setContentView(root); updateRoleStatus(); updateShizukuStatus(); showPhone()
+    }
+
+    private fun updateShizukuStatus() {
+        shizukuStatus.text = when {
+            !ShizukuAudioStatus.binderAvailable() -> "Shizuku: NOT RUNNING — audio bridge unavailable"
+            !ShizukuAudioStatus.permissionGranted() -> "Shizuku: RUNNING — permission not granted"
+            else -> "Shizuku: CONNECTED — permission granted"
+        }
+    }
+
+    private fun requestShizuku() {
+        if (!ShizukuAudioStatus.binderAvailable()) {
+            error.text = "Start Shizuku first, then tap this again."
+            updateShizukuStatus()
+            return
+        }
+        if (!ShizukuAudioStatus.permissionGranted()) ShizukuAudioStatus.requestPermission()
+        updateShizukuStatus()
     }
 
     private fun showPhone() {
@@ -60,7 +81,7 @@ class MainActivity : Activity() {
         content.removeAllViews(); content.addView(TextView(this).apply{text="RECENTS";textSize=22f;setTextColor(Color.WHITE);setPadding(0,12,0,12)})
         if(checkSelfPermission(Manifest.permission.READ_CALL_LOG)!=PackageManager.PERMISSION_GRANTED){content.addView(Button(this).apply{text="ALLOW CALL HISTORY";setOnClickListener{requestPermissions(arrayOf(Manifest.permission.READ_CALL_LOG),REQ_CALL_LOG)}});return}
         val c:Cursor?=contentResolver.query(CallLog.Calls.CONTENT_URI,arrayOf(CallLog.Calls.NUMBER,CallLog.Calls.TYPE,CallLog.Calls.DATE,CallLog.Calls.DURATION),null,null,"${CallLog.Calls.DATE} DESC")
-        c?.use{var count=0;while(it.moveToNext()&&count<30){val n=it.getString(0)?:"Unknown";val type=when(it.getInt(1)){CallLog.Calls.INCOMING_TYPE->"Incoming";CallLog.Calls.OUTGOING_TYPE->"Outgoing";CallLog.Calls.MISSED_TYPE->"Missed";else->"Call"};val d=it.getLong(2);val dur=it.getLong(3);content.addView(TextView(this).apply{text="$type\n$n\nDuration: ${dur}s";textSize=16f;setTextColor(Color.LTGRAY);setPadding(8,12,8,12)});count++}}
+        c?.use{var count=0;while(it.moveToNext()&&count<30){val n=it.getString(0)?:"Unknown";val type=when(it.getInt(1)){CallLog.Calls.INCOMING_TYPE->"Incoming";CallLog.Calls.OUTGOING_TYPE->"Outgoing";CallLog.Calls.MISSED_TYPE->"Missed";else->"Call"};val dur=it.getLong(3);content.addView(TextView(this).apply{text="$type\n$n\nDuration: ${dur}s";textSize=16f;setTextColor(Color.LTGRAY);setPadding(8,12,8,12)});count++}}
         if(content.childCount==1)content.addView(TextView(this).apply{text="No call history yet.";setTextColor(Color.LTGRAY)})
     }
 
@@ -77,7 +98,7 @@ class MainActivity : Activity() {
     private fun updateRoleStatus(){val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;status.text=if(t.defaultDialerPackage==packageName)"✓ DEFAULT PHONE APP" else "PHONE APP NOT SET"}
     private fun requestDefaultPhoneRole(){val r=getSystemService(RoleManager::class.java);if(r!=null&&r.isRoleAvailable(RoleManager.ROLE_DIALER)&&!r.isRoleHeld(RoleManager.ROLE_DIALER))startActivityForResult(r.createRequestRoleIntent(RoleManager.ROLE_DIALER),REQ_ROLE)else updateRoleStatus()}
     private fun placeCall(v:String){if(v.isEmpty()){error.text="Enter a phone number first.";return};val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;if(t.defaultDialerPackage!=packageName){error.text="Reality Engine is not the default phone app.";return};if(checkSelfPermission(Manifest.permission.CALL_PHONE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.CALL_PHONE),REQ_CALL);return};try{t.placeCall(Uri.fromParts("tel",v,null),null)}catch(e:Exception){error.text="Unable to place call: ${e.javaClass.simpleName}"}}
-    private fun refreshLists(){if(::content.isInitialized){}}
+    private fun refreshLists(){}
     override fun onRequestPermissionsResult(rc:Int,p:Array<out String>,g:IntArray){super.onRequestPermissionsResult(rc,p,g);when(rc){REQ_CALL->if(g.firstOrNull()==PackageManager.PERMISSION_GRANTED)placeCall(number.text.toString().trim());REQ_CALL_LOG->showRecents();REQ_CONTACTS->showContacts()}}
     companion object{private const val REQ_ROLE=1001;private const val REQ_CALL=1002;private const val REQ_CALL_LOG=1003;private const val REQ_CONTACTS=1004}
 }
