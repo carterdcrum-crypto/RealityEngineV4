@@ -5,6 +5,20 @@ import android.telecom.Call
 import android.telecom.InCallService
 
 class RealityInCallService : InCallService() {
+    companion object {
+        @Volatile var instance: RealityInCallService? = null
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
+    override fun onDestroy() {
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
+
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         CallSessionRegistry.add(call)
@@ -17,6 +31,8 @@ class RealityInCallService : InCallService() {
         CallSessionRegistry.remove(call)
         super.onCallRemoved(call)
     }
+
+    fun isMutedNow(): Boolean = callAudioState?.isMuted == true
 
     private fun launchCallUi() {
         startActivity(Intent(this, CallActivity::class.java).apply {
