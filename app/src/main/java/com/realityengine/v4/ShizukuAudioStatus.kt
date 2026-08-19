@@ -1,7 +1,7 @@
 package com.realityengine.v4
 
 import android.content.pm.PackageManager
-import moe.shizuku.api.Shizuku
+import rikka.shizuku.Shizuku
 
 object ShizukuAudioStatus {
     const val REQUEST_CODE = 7001
