@@ -34,14 +34,6 @@ class RealityInCallService : InCallService() {
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
 
-    fun setMuted(muted: Boolean) {
-        setMuted(muted)
-    }
-
-    fun setAudioRoute(route: Int) {
-        setAudioRoute(route)
-    }
-
     private fun launchCallUi() {
         startActivity(Intent(this, CallActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
