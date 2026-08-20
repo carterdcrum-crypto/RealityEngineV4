@@ -1,11 +1,15 @@
 package com.realityengine.v4
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.view.Gravity
@@ -26,12 +30,7 @@ class CallActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var activeStartedAt: Long? = null
     private val registryListener: () -> Unit = { runOnUiThread { refresh() } }
-    private val timerTick = object : Runnable {
-        override fun run() {
-            updateTimer()
-            handler.postDelayed(this, 1000L)
-        }
-    }
+    private val timerTick = object : Runnable { override fun run() { updateTimer(); handler.postDelayed(this, 1000L) } }
 
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); buildUi(); refresh() }
     override fun onResume() { super.onResume(); CallSessionRegistry.addListener(registryListener); refresh(); handler.removeCallbacks(timerTick); handler.post(timerTick) }
@@ -60,7 +59,8 @@ class CallActivity : Activity() {
     private fun refresh(){
         call=CallSessionRegistry.primary();val current=call
         if(current==null){finish();return}
-        caller.text=current.details?.handle?.schemeSpecificPart?:"UNKNOWN CALLER"
+        val number=current.details?.handle?.schemeSpecificPart?:"UNKNOWN CALLER"
+        caller.text=resolveCallerLabel(number)
         state.text=when(current.state){Call.STATE_RINGING->"INCOMING CALL";Call.STATE_DIALING->"DIALING";Call.STATE_CONNECTING->"CONNECTING";Call.STATE_ACTIVE->"ACTIVE CALL";Call.STATE_HOLDING->"ON HOLD";Call.STATE_DISCONNECTED->"CALL ENDED";else->"CALL"}
         if(current.state==Call.STATE_ACTIVE&&activeStartedAt==null)activeStartedAt=SystemClock.elapsedRealtime()
         if(current.state==Call.STATE_DISCONNECTED)activeStartedAt=null
@@ -68,13 +68,17 @@ class CallActivity : Activity() {
         val service=RealityInCallService.instance;muteButton.text=if(service?.isMutedNow()==true)"UNMUTE" else "MUTE";speakerButton.text=if(service?.callAudioState?.route==CallAudioState.ROUTE_SPEAKER)"EARPIECE" else "SPEAKER"
     }
 
-    private fun updateTimer(){
-        val started=activeStartedAt
-        if(started==null){timer.text="00:00";return}
-        val total=(SystemClock.elapsedRealtime()-started)/1000L
-        val hours=total/3600L;val minutes=(total%3600L)/60L;val seconds=total%60L
-        timer.text=if(hours>0)String.format("%d:%02d:%02d",hours,minutes,seconds) else String.format("%02d:%02d",minutes,seconds)
+    private fun resolveCallerLabel(number:String):String {
+        if(number=="UNKNOWN CALLER"||checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED)return number
+        return try {
+            val lookup=Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI,Uri.encode(number))
+            contentResolver.query(lookup,arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),null,null,null)?.use { c ->
+                if(c.moveToFirst()) c.getString(0)?.takeIf{it.isNotBlank()}?.let{return "$it\n$number"}
+            }
+            number
+        } catch (_:Throwable) { number }
     }
 
+    private fun updateTimer(){val started=activeStartedAt;if(started==null){timer.text="00:00";return};val total=(SystemClock.elapsedRealtime()-started)/1000L;val hours=total/3600L;val minutes=(total%3600L)/60L;val seconds=total%60L;timer.text=if(hours>0)String.format("%d:%02d:%02d",hours,minutes,seconds) else String.format("%02d:%02d",minutes,seconds)}
     private fun Int.dp():Int=(this*resources.displayMetrics.density).toInt()
 }
