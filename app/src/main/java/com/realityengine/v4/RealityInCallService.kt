@@ -30,6 +30,7 @@ class RealityInCallService : InCallService() {
     override fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
+        launchCallUi()
         super.onCallRemoved(call)
     }
 
@@ -49,6 +50,7 @@ class RealityInCallService : InCallService() {
             } else {
                 CallSessionRegistry.add(call)
             }
+            launchCallUi()
         }
     }
 }
