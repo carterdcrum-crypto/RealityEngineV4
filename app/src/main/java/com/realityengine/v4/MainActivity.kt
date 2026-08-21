@@ -22,102 +22,29 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 class MainActivity : Activity() {
-    private lateinit var status: TextView
-    private lateinit var shizukuStatus: TextView
-    private lateinit var audioStatus: TextView
-    private lateinit var number: EditText
-    private lateinit var error: TextView
-    private lateinit var content: LinearLayout
-
-    override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); buildPhoneUi() }
-    override fun onResume() { super.onResume(); if (::status.isInitialized) { updateRoleStatus(); updateShizukuStatus(); updateAudioStatus(); refreshLists() } }
-
-    private fun buildPhoneUi() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24,24,24,20); setBackgroundColor(Color.rgb(10,10,14)) }
-        root.addView(TextView(this).apply { text="REALITY ENGINE"; textSize=25f; setTextColor(Color.WHITE); gravity=Gravity.CENTER }, LinearLayout.LayoutParams(-1, -2))
-        status = TextView(this).apply { textSize=14f; setTextColor(Color.LTGRAY); gravity=Gravity.CENTER; setPadding(0,8,0,8) }; root.addView(status)
-        shizukuStatus = TextView(this).apply { textSize=13f; setTextColor(Color.LTGRAY); gravity=Gravity.CENTER; setPadding(0,4,0,4) }; root.addView(shizukuStatus)
-        audioStatus = TextView(this).apply { textSize=13f; setTextColor(Color.LTGRAY); gravity=Gravity.CENTER; setPadding(0,4,0,8) }; root.addView(audioStatus)
-        root.addView(Button(this).apply { text="SHIZUKU AUDIO ACCESS"; setOnClickListener { requestShizuku() } })
-        root.addView(Button(this).apply { text="CHECK CALL AUDIO"; setOnClickListener { checkCallAudio() } })
-        val tabs=LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; gravity=Gravity.CENTER }
-        tabs.addView(Button(this).apply { text="PHONE"; setOnClickListener { showPhone() } }, LinearLayout.LayoutParams(0,52.dp(),1f))
-        tabs.addView(Button(this).apply { text="RECENTS"; setOnClickListener { showRecents() } }, LinearLayout.LayoutParams(0,52.dp(),1f))
-        tabs.addView(Button(this).apply { text="CONTACTS"; setOnClickListener { showContacts() } }, LinearLayout.LayoutParams(0,52.dp(),1f)); root.addView(tabs)
-        val scroll=ScrollView(this); content=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL }; scroll.addView(content); root.addView(scroll, LinearLayout.LayoutParams(-1,0,1f))
-        root.addView(Button(this).apply { text="MAKE DEFAULT PHONE APP"; setOnClickListener { requestDefaultPhoneRole() } })
-        root.addView(Button(this).apply { text="PHONE SETTINGS"; setOnClickListener { startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)) } })
-        setContentView(root); updateRoleStatus(); updateShizukuStatus(); updateAudioStatus(); showPhone()
+    private lateinit var status:TextView;private lateinit var shizukuStatus:TextView;private lateinit var audioStatus:TextView;private lateinit var number:EditText;private lateinit var error:TextView;private lateinit var content:LinearLayout
+    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);buildPhoneUi()}
+    override fun onResume(){super.onResume();if(::status.isInitialized){updateRoleStatus();updateShizukuStatus();updateAudioStatus();refreshLists()}}
+    private fun buildPhoneUi(){
+        val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(24,24,24,20);setBackgroundColor(Color.rgb(10,10,14))};root.addView(TextView(this).apply{text="REALITY ENGINE";textSize=25f;setTextColor(Color.WHITE);gravity=Gravity.CENTER},LinearLayout.LayoutParams(-1,-2))
+        status=TextView(this).apply{textSize=14f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,8,0,8)};root.addView(status);shizukuStatus=TextView(this).apply{textSize=13f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,4,0,4)};root.addView(shizukuStatus);audioStatus=TextView(this).apply{textSize=13f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER;setPadding(0,4,0,8)};root.addView(audioStatus)
+        root.addView(Button(this).apply{text="SHIZUKU AUDIO ACCESS";setOnClickListener{requestShizuku()}});root.addView(Button(this).apply{text="CHECK CALL AUDIO";setOnClickListener{checkCallAudio()}})
+        val tabs=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER};tabs.addView(Button(this).apply{text="PHONE";setOnClickListener{showPhone()}},LinearLayout.LayoutParams(0,52.dp(),1f));tabs.addView(Button(this).apply{text="RECENTS";setOnClickListener{showRecents()}},LinearLayout.LayoutParams(0,52.dp(),1f));tabs.addView(Button(this).apply{text="CONTACTS";setOnClickListener{showContacts()}},LinearLayout.LayoutParams(0,52.dp(),1f));root.addView(tabs)
+        val scroll=ScrollView(this);content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};scroll.addView(content);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f));root.addView(Button(this).apply{text="MAKE DEFAULT PHONE APP";setOnClickListener{requestDefaultPhoneRole()}});root.addView(Button(this).apply{text="PHONE SETTINGS";setOnClickListener{startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))}});setContentView(root);updateRoleStatus();updateShizukuStatus();updateAudioStatus();showPhone()
     }
-
-    private fun updateShizukuStatus() {
-        shizukuStatus.text = when {
-            !ShizukuAudioStatus.binderAvailable() -> "Shizuku: NOT RUNNING — audio bridge unavailable"
-            !ShizukuAudioStatus.permissionGranted() -> "Shizuku: RUNNING — permission not granted"
-            else -> "Shizuku: CONNECTED — permission granted"
-        }
-    }
-
-    private fun updateAudioStatus() {
-        audioStatus.text = when (CallAudioBridge.state(this)) {
-            CallAudioBridge.State.UNAVAILABLE -> "Call audio: waiting for Shizuku"
-            CallAudioBridge.State.SHIZUKU_READY -> "Call audio: Shizuku ready"
-            CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED -> "Call audio: microphone permission required"
-            CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE -> "Call audio: VOICE_CALL source available"
-            CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED -> "Call audio: VOICE_CALL source blocked"
-        }
-    }
-
-    private fun checkCallAudio() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO)
-            return
-        }
-        updateAudioStatus()
-    }
-
-    private fun requestShizuku() {
-        if (!ShizukuAudioStatus.binderAvailable()) {
-            error.text = "Start Shizuku first, then tap this again."
-            updateShizukuStatus(); updateAudioStatus(); return
-        }
-        if (!ShizukuAudioStatus.permissionGranted()) ShizukuAudioStatus.requestPermission()
-        updateShizukuStatus(); updateAudioStatus()
-    }
-
-    private fun showPhone() {
-        content.removeAllViews()
-        number=EditText(this).apply { hint="Phone number"; setHintTextColor(Color.GRAY); setTextColor(Color.WHITE); textSize=26f; gravity=Gravity.CENTER; inputType=android.text.InputType.TYPE_CLASS_PHONE; isSingleLine=true }
-        content.addView(number,LinearLayout.LayoutParams(-1,58.dp()))
-        val keypad=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER }
-        val keys=arrayOf("1","2","3","4","5","6","7","8","9","*","0","#")
-        for(row in 0 until 4){ val r=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER}; for(col in 0 until 3){val k=keys[row*3+col];r.addView(Button(this).apply{text=k;textSize=22f;minWidth=0;minHeight=0;setOnClickListener{number.append(k)}},LinearLayout.LayoutParams(0,58.dp(),1f).apply{setMargins(4,4,4,4)})};keypad.addView(r,LinearLayout.LayoutParams(-1,66.dp())) }; content.addView(keypad)
-        val controls=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER}; controls.addView(Button(this).apply{text="⌫";setOnClickListener{val t=number.text;if(t.isNotEmpty())t.delete(t.length-1,t.length)}},LinearLayout.LayoutParams(0,58.dp(),1f)); controls.addView(Button(this).apply{text="CALL";textSize=18f;setOnClickListener{placeCall(number.text.toString().trim())}},LinearLayout.LayoutParams(0,58.dp(),2f)); content.addView(controls)
-        error=TextView(this).apply{textSize=14f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER};content.addView(error)
-    }
-
-    private fun showRecents(){
-        content.removeAllViews(); content.addView(TextView(this).apply{text="RECENTS";textSize=22f;setTextColor(Color.WHITE);setPadding(0,12,0,12)})
-        if(checkSelfPermission(Manifest.permission.READ_CALL_LOG)!=PackageManager.PERMISSION_GRANTED){content.addView(Button(this).apply{text="ALLOW CALL HISTORY";setOnClickListener{requestPermissions(arrayOf(Manifest.permission.READ_CALL_LOG),REQ_CALL_LOG)}});return}
-        val c:Cursor?=contentResolver.query(CallLog.Calls.CONTENT_URI,arrayOf(CallLog.Calls.NUMBER,CallLog.Calls.TYPE,CallLog.Calls.DATE,CallLog.Calls.DURATION),null,null,"${CallLog.Calls.DATE} DESC")
-        c?.use{var count=0;while(it.moveToNext()&&count<30){val n=it.getString(0)?:"Unknown";val type=when(it.getInt(1)){CallLog.Calls.INCOMING_TYPE->"Incoming";CallLog.Calls.OUTGOING_TYPE->"Outgoing";CallLog.Calls.MISSED_TYPE->"Missed";else->"Call"};val dur=it.getLong(3);content.addView(TextView(this).apply{text="$type\n$n\nDuration: ${dur}s";textSize=16f;setTextColor(Color.LTGRAY);setPadding(8,12,8,12)});count++}}
-        if(content.childCount==1)content.addView(TextView(this).apply{text="No call history yet.";setTextColor(Color.LTGRAY)})
-    }
-
-    private fun showContacts(){
-        content.removeAllViews();content.addView(TextView(this).apply{text="CONTACTS";textSize=22f;setTextColor(Color.WHITE);setPadding(0,12,0,12)})
-        if(checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){content.addView(Button(this).apply{text="ALLOW CONTACTS";setOnClickListener{requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS),REQ_CONTACTS)}});return}
-        val c=contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,ContactsContract.CommonDataKinds.Phone.NUMBER),null,null,ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME+" ASC")
-        c?.use{var count=0;while(it.moveToNext()&&count<100){val name=it.getString(0)?:"Unknown";val phone=it.getString(1)?:"";content.addView(Button(this).apply{text="$name\n$phone";setOnClickListener{numberFromContact(phone)}});count++}}
-        if(content.childCount==1)content.addView(TextView(this).apply{text="No contacts found.";setTextColor(Color.LTGRAY)})
-    }
-
+    private fun updateShizukuStatus(){shizukuStatus.text=when{!ShizukuAudioStatus.binderAvailable()->"Shizuku: NOT RUNNING — audio bridge unavailable";!ShizukuAudioStatus.permissionGranted()->"Shizuku: RUNNING — permission not granted";else->"Shizuku: CONNECTED — permission granted"}}
+    private fun updateAudioStatus(){audioStatus.text=when(CallAudioBridge.state(this)){CallAudioBridge.State.UNAVAILABLE->"Call audio: waiting for Shizuku";CallAudioBridge.State.SHIZUKU_READY->"Call audio: Shizuku ready";CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED->"Call audio: microphone permission required";CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE->"Call audio: VOICE_CALL source available";CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED->"Call audio: VOICE_CALL source blocked"}}
+    private fun checkCallAudio(){if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),REQ_AUDIO);return};updateAudioStatus()}
+    private fun requestShizuku(){if(!ShizukuAudioStatus.binderAvailable()){error.text="Start Shizuku first, then tap this again.";updateShizukuStatus();updateAudioStatus();return};if(!ShizukuAudioStatus.permissionGranted())ShizukuAudioStatus.requestPermission();updateShizukuStatus();updateAudioStatus()}
+    private fun showPhone(){content.removeAllViews();number=EditText(this).apply{hint="Phone number";setHintTextColor(Color.GRAY);setTextColor(Color.WHITE);textSize=26f;gravity=Gravity.CENTER;inputType=android.text.InputType.TYPE_CLASS_PHONE;isSingleLine=true};content.addView(number,LinearLayout.LayoutParams(-1,58.dp()));val keypad=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER};val keys=arrayOf("1","2","3","4","5","6","7","8","9","*","0","#");for(row in 0 until 4){val r=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER};for(col in 0 until 3){val k=keys[row*3+col];r.addView(Button(this).apply{text=k;textSize=22f;minWidth=0;minHeight=0;setOnClickListener{number.append(k)}},LinearLayout.LayoutParams(0,58.dp(),1f).apply{setMargins(4,4,4,4)})};keypad.addView(r,LinearLayout.LayoutParams(-1,66.dp()))};content.addView(keypad);val controls=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER};controls.addView(Button(this).apply{text="⌫";setOnClickListener{val t=number.text;if(t.isNotEmpty())t.delete(t.length-1,t.length)}},LinearLayout.LayoutParams(0,58.dp(),1f));controls.addView(Button(this).apply{text="CALL";textSize=18f;setOnClickListener{placeCall(number.text.toString().trim())}},LinearLayout.LayoutParams(0,58.dp(),2f));content.addView(controls);error=TextView(this).apply{textSize=14f;setTextColor(Color.LTGRAY);gravity=Gravity.CENTER};content.addView(error)}
+    private fun showRecents(){content.removeAllViews();content.addView(TextView(this).apply{text="RECENTS";textSize=22f;setTextColor(Color.WHITE);setPadding(0,12,0,12)});if(checkSelfPermission(Manifest.permission.READ_CALL_LOG)!=PackageManager.PERMISSION_GRANTED){content.addView(Button(this).apply{text="ALLOW CALL HISTORY";setOnClickListener{requestPermissions(arrayOf(Manifest.permission.READ_CALL_LOG),REQ_CALL_LOG)}});return};val c:Cursor?=contentResolver.query(CallLog.Calls.CONTENT_URI,arrayOf(CallLog.Calls.NUMBER,CallLog.Calls.TYPE,CallLog.Calls.DATE,CallLog.Calls.DURATION),null,null,"${CallLog.Calls.DATE} DESC");c?.use{var count=0;while(it.moveToNext()&&count<30){val n=it.getString(0)?:"Unknown";val type=when(it.getInt(1)){CallLog.Calls.INCOMING_TYPE->"Incoming";CallLog.Calls.OUTGOING_TYPE->"Outgoing";CallLog.Calls.MISSED_TYPE->"Missed";else->"Call"};val dur=it.getLong(3);content.addView(Button(this).apply{text="$type\n$n\nDuration: ${dur}s";textSize=16f;gravity=Gravity.START;setOnClickListener{openRecent(n)};setOnLongClickListener{placeCall(n);true}});count++}};if(content.childCount==1)content.addView(TextView(this).apply{text="No call history yet.";setTextColor(Color.LTGRAY)})}
+    private fun openRecent(phone:String){showPhone();number.setText(phone);number.setSelection(number.length())}
+    private fun showContacts(){content.removeAllViews();content.addView(TextView(this).apply{text="CONTACTS";textSize=22f;setTextColor(Color.WHITE);setPadding(0,12,0,12)});if(checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){content.addView(Button(this).apply{text="ALLOW CONTACTS";setOnClickListener{requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS),REQ_CONTACTS)}});return};val c=contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI,arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,ContactsContract.CommonDataKinds.Phone.NUMBER),null,null,ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME+" ASC");c?.use{var count=0;while(it.moveToNext()&&count<100){val name=it.getString(0)?:"Unknown";val phone=it.getString(1)?:"";content.addView(Button(this).apply{text="$name\n$phone";setOnClickListener{numberFromContact(phone)}});count++}};if(content.childCount==1)content.addView(TextView(this).apply{text="No contacts found.";setTextColor(Color.LTGRAY)})}
     private fun numberFromContact(phone:String){showPhone();number.setText(phone);number.setSelection(number.length())}
-    private fun Int.dp():Int=(this*resources.displayMetrics.density).toInt()
-    private fun updateRoleStatus(){val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;status.text=if(t.defaultDialerPackage==packageName)"✓ DEFAULT PHONE APP" else "PHONE APP NOT SET"}
+    private fun Int.dp():Int=(this*resources.displayMetrics.density).toInt();private fun updateRoleStatus(){val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;status.text=if(t.defaultDialerPackage==packageName)"✓ DEFAULT PHONE APP" else "PHONE APP NOT SET"}
     private fun requestDefaultPhoneRole(){val r=getSystemService(RoleManager::class.java);if(r!=null&&r.isRoleAvailable(RoleManager.ROLE_DIALER)&&!r.isRoleHeld(RoleManager.ROLE_DIALER))startActivityForResult(r.createRequestRoleIntent(RoleManager.ROLE_DIALER),REQ_ROLE)else updateRoleStatus()}
-    private fun placeCall(v:String){if(v.isEmpty()){error.text="Enter a phone number first.";return};val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;if(t.defaultDialerPackage!=packageName){error.text="Reality Engine is not the default phone app.";return};if(checkSelfPermission(Manifest.permission.CALL_PHONE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.CALL_PHONE),REQ_CALL);return};try{t.placeCall(Uri.fromParts("tel",v,null),null)}catch(e:Exception){error.text="Unable to place call: ${e.javaClass.simpleName}"}}
+    private fun placeCall(v:String){if(v.isEmpty()){if(::error.isInitialized)error.text="Enter a phone number first.";return};val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;if(t.defaultDialerPackage!=packageName){if(::error.isInitialized)error.text="Reality Engine is not the default phone app.";return};if(checkSelfPermission(Manifest.permission.CALL_PHONE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.CALL_PHONE),REQ_CALL);return};try{t.placeCall(Uri.fromParts("tel",v,null),null)}catch(e:Exception){if(::error.isInitialized)error.text="Unable to place call: ${e.javaClass.simpleName}"}}
     private fun refreshLists(){}
-    override fun onRequestPermissionsResult(rc:Int,p:Array<out String>,g:IntArray){super.onRequestPermissionsResult(rc,p,g);when(rc){REQ_CALL->if(g.firstOrNull()==PackageManager.PERMISSION_GRANTED)placeCall(number.text.toString().trim());REQ_CALL_LOG->showRecents();REQ_CONTACTS->showContacts();REQ_AUDIO->updateAudioStatus()}}
+    override fun onRequestPermissionsResult(rc:Int,p:Array<out String>,g:IntArray){super.onRequestPermissionsResult(rc,p,g);when(rc){REQ_CALL->if(g.firstOrNull()==PackageManager.PERMISSION_GRANTED&&::number.isInitialized)placeCall(number.text.toString().trim());REQ_CALL_LOG->showRecents();REQ_CONTACTS->showContacts();REQ_AUDIO->updateAudioStatus()}}
     companion object{private const val REQ_ROLE=1001;private const val REQ_CALL=1002;private const val REQ_CALL_LOG=1003;private const val REQ_CONTACTS=1004;private const val REQ_AUDIO=1005}
 }
