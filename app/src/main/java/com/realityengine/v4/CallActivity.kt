@@ -25,10 +25,10 @@ class CallActivity : Activity() {
     private var call:Call?=null
     private lateinit var caller:TextView;private lateinit var state:TextView;private lateinit var timer:TextView
     private lateinit var answerButton:Button;private lateinit var rejectButton:Button;private lateinit var muteButton:Button;private lateinit var speakerButton:Button;private lateinit var bluetoothButton:Button;private lateinit var holdButton:Button;private lateinit var keypadButton:Button;private lateinit var endButton:Button;private lateinit var keypadContainer:LinearLayout
-    private val handler=Handler(Looper.getMainLooper());private var connectedStartedAt:Long?=null;private var finishScheduled=false;private var lastNumber:String?=null
+    private val handler=Handler(Looper.getMainLooper());private var connectedStartedAt:Long?=null;private var finishScheduled=false;private var lastNumber:String?=null;private var restoreKeypadOpen=false
     private val registryListener:()->Unit={runOnUiThread{refresh()}};private val timerTick=object:Runnable{override fun run(){updateTimer();handler.postDelayed(this,1000L)}}
-    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);connectedStartedAt=savedInstanceState?.getLong(KEY_CONNECTED_AT)?.takeIf{it>0};buildUi();refresh()}
-    override fun onSaveInstanceState(outState:Bundle){connectedStartedAt?.let{outState.putLong(KEY_CONNECTED_AT,it)};super.onSaveInstanceState(outState)}
+    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);connectedStartedAt=savedInstanceState?.getLong(KEY_CONNECTED_AT)?.takeIf{it>0};restoreKeypadOpen=savedInstanceState?.getBoolean(KEY_KEYPAD_OPEN,false)==true;buildUi();refresh()}
+    override fun onSaveInstanceState(outState:Bundle){connectedStartedAt?.let{outState.putLong(KEY_CONNECTED_AT,it)};outState.putBoolean(KEY_KEYPAD_OPEN,::keypadContainer.isInitialized&&keypadContainer.visibility==View.VISIBLE);super.onSaveInstanceState(outState)}
     override fun onResume(){super.onResume();CallSessionRegistry.addListener(registryListener);refresh();handler.removeCallbacks(timerTick);handler.post(timerTick)}
     override fun onPause(){call?.stopDtmfTone();handler.removeCallbacks(timerTick);CallSessionRegistry.removeListener(registryListener);super.onPause()}
 
@@ -45,7 +45,7 @@ class CallActivity : Activity() {
         muteButton=Button(this).apply{setOnClickListener{toggleMute()}};speakerButton=Button(this).apply{setOnClickListener{toggleSpeaker()}};bluetoothButton=Button(this).apply{setOnClickListener{toggleBluetooth()}};holdButton=Button(this).apply{setOnClickListener{toggleHold()}}
         controls.addView(muteButton,LinearLayout.LayoutParams(0,58.dp(),1f).apply{setMargins(4,4,4,4)});controls.addView(speakerButton,LinearLayout.LayoutParams(0,58.dp(),1f).apply{setMargins(4,4,4,4)});controls.addView(bluetoothButton,LinearLayout.LayoutParams(0,58.dp(),1f).apply{setMargins(4,4,4,4)});controls.addView(holdButton,LinearLayout.LayoutParams(0,58.dp(),1f).apply{setMargins(4,4,4,4)});root.addView(controls)
         keypadButton=Button(this).apply{text="KEYPAD";setOnClickListener{keypadContainer.visibility=if(keypadContainer.visibility==View.VISIBLE)View.GONE else View.VISIBLE}};root.addView(keypadButton)
-        keypadContainer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;visibility=View.GONE};val digits=arrayOf("1","2","3","4","5","6","7","8","9","*","0","#");val grid=GridLayout(this).apply{columnCount=3;useDefaultMargins=true}
+        keypadContainer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;visibility=if(restoreKeypadOpen)View.VISIBLE else View.GONE};val digits=arrayOf("1","2","3","4","5","6","7","8","9","*","0","#");val grid=GridLayout(this).apply{columnCount=3;useDefaultMargins=true}
         digits.forEach{digit->grid.addView(Button(this).apply{text=digit;textSize=20f;minWidth=0;minHeight=0;setOnTouchListener{_,event->when(event.actionMasked){MotionEvent.ACTION_DOWN->{call?.playDtmfTone(digit[0]);true};MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->{call?.stopDtmfTone();performClick();true};else->false}}},GridLayout.LayoutParams().apply{width=0;height=56.dp();columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f)})};keypadContainer.addView(grid);root.addView(keypadContainer)
         endButton=Button(this).apply{text="END CALL";setOnClickListener{call?.disconnect()}};root.addView(endButton);setContentView(root)
     }
@@ -74,5 +74,5 @@ class CallActivity : Activity() {
     private fun resolveCallerLabel(number:String):String{if(number=="UNKNOWN CALLER"||checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED)return number;return try{val lookup=Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI,Uri.encode(number));contentResolver.query(lookup,arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),null,null,null)?.use{c->if(c.moveToFirst())c.getString(0)?.takeIf{it.isNotBlank()}?.let{return "$it\n$number"}};number}catch(_:Throwable){number}}
     private fun updateTimer(){val started=connectedStartedAt;if(started==null){timer.text="00:00";return};val total=(SystemClock.elapsedRealtime()-started)/1000L;val hours=total/3600L;val minutes=(total%3600L)/60L;val seconds=total%60L;timer.text=if(hours>0)String.format("%d:%02d:%02d",hours,minutes,seconds)else String.format("%02d:%02d",minutes,seconds)}
     private fun Int.dp():Int=(this*resources.displayMetrics.density).toInt()
-    companion object{private const val KEY_CONNECTED_AT="connected_started_at"}
+    companion object{private const val KEY_CONNECTED_AT="connected_started_at";private const val KEY_KEYPAD_OPEN="keypad_open"}
 }
