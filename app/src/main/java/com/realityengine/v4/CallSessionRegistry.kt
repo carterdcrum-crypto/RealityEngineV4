@@ -24,7 +24,14 @@ object CallSessionRegistry {
 
     fun all(): List<Call> = calls.toList()
 
-    fun primary(): Call? = calls.firstOrNull { it.state != Call.STATE_DISCONNECTED }
+    fun primary(): Call? {
+        val live = calls.filter { it.state != Call.STATE_DISCONNECTED }
+        return live.firstOrNull { it.state == Call.STATE_RINGING }
+            ?: live.firstOrNull { it.state == Call.STATE_ACTIVE }
+            ?: live.firstOrNull { it.state == Call.STATE_DIALING || it.state == Call.STATE_CONNECTING }
+            ?: live.firstOrNull { it.state == Call.STATE_HOLDING }
+            ?: live.firstOrNull()
+    }
 
     fun addListener(listener: () -> Unit) { listeners.add(listener) }
     fun removeListener(listener: () -> Unit) { listeners.remove(listener) }
