@@ -42,7 +42,7 @@ class MainActivity : Activity() {
         root.addView(nav);setContentView(root);updateRoleStatus();updateShizukuStatus();updateAudioStatus();showPhone()
     }
     private fun showPhone(){content.removeAllViews();content.gravity=Gravity.TOP
-        number=EditText(this).apply{hint="Enter number";setHintTextColor(muted);setTextColor(Color.WHITE);textSize=30f;gravity=Gravity.CENTER;backgroundColor(Color.TRANSPARENT);inputType=android.text.InputType.TYPE_CLASS_PHONE;isSingleLine=true;setPadding(0,22.dp(),0,18.dp())};content.addView(number,LinearLayout.LayoutParams(-1,78.dp()))
+        number=EditText(this).apply{hint="Enter number";setHintTextColor(muted);setTextColor(Color.WHITE);textSize=30f;gravity=Gravity.CENTER;background=null;inputType=android.text.InputType.TYPE_CLASS_PHONE;isSingleLine=true;setPadding(0,22.dp(),0,18.dp())};content.addView(number,LinearLayout.LayoutParams(-1,78.dp()))
         val grid=GridLayout(this).apply{columnCount=3;rowCount=4;alignmentMode=GridLayout.ALIGN_BOUNDS;useDefaultMargins=false};val keys=arrayOf("1","2","3","4","5","6","7","8","9","*","0","#")
         keys.forEach{key->val b=Button(this).apply{text=key;textSize=25f;setTextColor(Color.WHITE);background=rounded(panel,40f);stateListAnimator=null;setOnClickListener{number.append(key)}};grid.addView(b,GridLayout.LayoutParams().apply{width=0;height=72.dp();columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);setMargins(7.dp(),7.dp(),7.dp(),7.dp())})};content.addView(grid)
         val actions=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER;setPadding(0,12.dp(),0,0)}
