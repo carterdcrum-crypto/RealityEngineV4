@@ -24,7 +24,7 @@ import android.widget.TextView
 class CallActivity : Activity() {
     private var call:Call?=null;private lateinit var caller:TextView;private lateinit var state:TextView;private lateinit var timer:TextView
     private lateinit var answerButton:Button;private lateinit var rejectButton:Button;private lateinit var muteButton:Button;private lateinit var speakerButton:Button;private lateinit var bluetoothButton:Button;private lateinit var holdButton:Button;private lateinit var keypadContainer:LinearLayout
-    private val handler=Handler(Looper.getMainLooper());private var connectedStartedAt:Long?=null;private var finishScheduled=false
+    private val handler=Handler(Looper.getMainLooper());private var connectedStartedAt:Long?=null;private var finishScheduled=false;private var lastNumber:String?=null
     private val registryListener:()->Unit={runOnUiThread{refresh()}};private val timerTick=object:Runnable{override fun run(){updateTimer();handler.postDelayed(this,1000L)}}
     override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);connectedStartedAt=savedInstanceState?.getLong(KEY_CONNECTED_AT)?.takeIf{it>0};buildUi();refresh()}
     override fun onSaveInstanceState(outState:Bundle){connectedStartedAt?.let{outState.putLong(KEY_CONNECTED_AT,it)};super.onSaveInstanceState(outState)}
@@ -48,7 +48,7 @@ class CallActivity : Activity() {
     private fun toggleHold(){val current=call?:return;when(current.state){Call.STATE_ACTIVE->current.hold();Call.STATE_HOLDING->current.unhold()}}
     private fun refresh(){
         call=CallSessionRegistry.primary();val current=call;if(current==null){scheduleFinish();return}
-        val number=current.details?.handle?.schemeSpecificPart?:"UNKNOWN CALLER";caller.text=resolveCallerLabel(number);state.text=when(current.state){Call.STATE_RINGING->"INCOMING CALL";Call.STATE_DIALING->"DIALING";Call.STATE_CONNECTING->"CONNECTING";Call.STATE_ACTIVE->"ACTIVE CALL";Call.STATE_HOLDING->"ON HOLD";Call.STATE_DISCONNECTED->"CALL ENDED";else->"CALL"}
+        val number=current.details?.handle?.schemeSpecificPart?:"UNKNOWN CALLER";if(number!=lastNumber){lastNumber=number;caller.text=resolveCallerLabel(number)};state.text=when(current.state){Call.STATE_RINGING->"INCOMING CALL";Call.STATE_DIALING->"DIALING";Call.STATE_CONNECTING->"CONNECTING";Call.STATE_ACTIVE->"ACTIVE CALL";Call.STATE_HOLDING->"ON HOLD";Call.STATE_DISCONNECTED->"CALL ENDED";else->"CALL"}
         if(current.state==Call.STATE_DISCONNECTED){connectedStartedAt=null;scheduleFinish()}else finishScheduled=false
         val ringing=current.state==Call.STATE_RINGING;answerButton.visibility=if(ringing)View.VISIBLE else View.GONE;rejectButton.visibility=if(ringing)View.VISIBLE else View.GONE;holdButton.text=if(current.state==Call.STATE_HOLDING)"RESUME" else "HOLD";holdButton.isEnabled=current.state==Call.STATE_ACTIVE||current.state==Call.STATE_HOLDING
         if((current.state==Call.STATE_ACTIVE||current.state==Call.STATE_HOLDING)&&connectedStartedAt==null)connectedStartedAt=SystemClock.elapsedRealtime();updateTimer();val service=RealityInCallService.instance;muteButton.text=if(service?.isMutedNow()==true)"UNMUTE" else "MUTE";refreshAudioButtons()
