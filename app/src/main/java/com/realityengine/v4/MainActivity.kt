@@ -30,7 +30,7 @@ class MainActivity : Activity() {
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(20.dp(),18.dp(),20.dp(),12.dp());setBackgroundColor(bg)}
         val top=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         top.addView(TextView(this).apply{text="Reality Engine";textSize=24f;setTextColor(Color.WHITE);typeface=android.graphics.Typeface.DEFAULT_BOLD},LinearLayout.LayoutParams(0,52.dp(),1f))
-        top.addView(textButton("⚙") { showSettings() },LinearLayout.LayoutParams(52.dp(),48.dp()))
+        top.addView(textButton("SETTINGS") { showSettings() }.apply{textSize=11f},LinearLayout.LayoutParams(96.dp(),48.dp()))
         root.addView(top)
         status=TextView(this).apply{textSize=12f;setTextColor(accent);setPadding(2.dp(),0,0,10.dp())};root.addView(status)
         shizukuStatus=TextView(this).apply{visibility=View.GONE};audioStatus=TextView(this).apply{visibility=View.GONE};root.addView(shizukuStatus);root.addView(audioStatus)
