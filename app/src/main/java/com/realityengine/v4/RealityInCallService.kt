@@ -2,6 +2,7 @@ package com.realityengine.v4
 
 import android.content.Intent
 import android.telecom.Call
+import android.telecom.CallAudioState
 import android.telecom.InCallService
 
 class RealityInCallService : InCallService() {
@@ -32,6 +33,11 @@ class RealityInCallService : InCallService() {
         CallSessionRegistry.remove(call)
         launchCallUi()
         super.onCallRemoved(call)
+    }
+
+    override fun onCallAudioStateChanged(audioState: CallAudioState?) {
+        super.onCallAudioStateChanged(audioState)
+        launchCallUi()
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
