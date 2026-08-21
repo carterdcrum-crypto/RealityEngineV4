@@ -31,13 +31,13 @@ class RealityInCallService : InCallService() {
     override fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
-        launchCallUi()
+        if (CallSessionRegistry.primary() != null) launchCallUi()
         super.onCallRemoved(call)
     }
 
     override fun onCallAudioStateChanged(audioState: CallAudioState?) {
         super.onCallAudioStateChanged(audioState)
-        launchCallUi()
+        if (CallSessionRegistry.primary() != null) launchCallUi()
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
@@ -55,8 +55,8 @@ class RealityInCallService : InCallService() {
                 CallSessionRegistry.removeIfDisconnected(call)
             } else {
                 CallSessionRegistry.add(call)
+                launchCallUi()
             }
-            launchCallUi()
         }
     }
 }
