@@ -2,7 +2,8 @@ name: Reality Engine V4 Android
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
