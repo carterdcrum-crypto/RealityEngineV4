@@ -1,0 +1,111 @@
+package com.realityengine.v4
+
+/**
+ * Compact two-sided context for live response coaching.
+ * Keeps the raw turn stream local while producing a bounded prompt snapshot.
+ */
+class ConversationContext(
+    private val maxRecentTurns: Int = 8,
+    private val targetInputTokens: Int = 900
+) {
+    enum class Speaker { USER, CALLER }
+
+    data class Turn(
+        val speaker: Speaker,
+        val text: String,
+        val timestampMs: Long = System.currentTimeMillis()
+    )
+
+    data class Snapshot(
+        val summary: String,
+        val recentTurns: List<Turn>,
+        val facts: List<String>,
+        val unresolved: List<String>,
+        val estimatedTokens: Int
+    ) {
+        fun asPromptContext(): String = buildString {
+            if (summary.isNotBlank()) append("STATE: ").append(summary).append('\n')
+            if (facts.isNotEmpty()) append("FACTS: ").append(facts.joinToString(" | ")).append('\n')
+            if (unresolved.isNotEmpty()) append("OPEN: ").append(unresolved.joinToString(" | ")).append('\n')
+            append("RECENT:\n")
+            recentTurns.forEach {
+                append(if (it.speaker == Speaker.CALLER) "CALLER: " else "USER: ")
+                append(it.text).append('\n')
+            }
+        }.trim()
+    }
+
+    private val turns = ArrayDeque<Turn>()
+    private val facts = LinkedHashSet<String>()
+    private val unresolved = LinkedHashSet<String>()
+    private var runningSummary = ""
+
+    @Synchronized
+    fun addTurn(speaker: Speaker, text: String) {
+        val clean = text.trim().replace(Regex("\\s+"), " ")
+        if (clean.isBlank()) return
+        turns.addLast(Turn(speaker, clean))
+        compactIfNeeded()
+    }
+
+    @Synchronized
+    fun rememberFact(value: String) {
+        val clean = value.trim().replace(Regex("\\s+"), " ")
+        if (clean.isNotBlank()) {
+            facts.add(clean.take(180))
+            while (facts.size > 8) facts.remove(facts.first())
+        }
+    }
+
+    @Synchronized
+    fun markUnresolved(value: String) {
+        val clean = value.trim().replace(Regex("\\s+"), " ")
+        if (clean.isNotBlank()) {
+            unresolved.add(clean.take(160))
+            while (unresolved.size > 5) unresolved.remove(unresolved.first())
+        }
+    }
+
+    @Synchronized
+    fun resolve(value: String) {
+        unresolved.remove(value)
+    }
+
+    @Synchronized
+    fun snapshot(): Snapshot {
+        val selected = turns.toList().takeLast(maxRecentTurns).toMutableList()
+        var snapshot = buildSnapshot(selected)
+        while (snapshot.estimatedTokens > targetInputTokens && selected.size > 2) {
+            selected.removeAt(0)
+            snapshot = buildSnapshot(selected)
+        }
+        return snapshot
+    }
+
+    @Synchronized
+    fun clear() {
+        turns.clear(); facts.clear(); unresolved.clear(); runningSummary = ""
+    }
+
+    private fun compactIfNeeded() {
+        while (turns.size > maxRecentTurns * 2) {
+            val old = turns.removeFirst()
+            val fragment = (if (old.speaker == Speaker.CALLER) "C:" else "U:") + old.text
+            runningSummary = compactText(listOf(runningSummary, fragment).filter { it.isNotBlank() }.joinToString(" "), 700)
+        }
+    }
+
+    private fun buildSnapshot(selected: List<Turn>): Snapshot {
+        val summary = compactText(runningSummary, 700)
+        val factList = facts.toList()
+        val openList = unresolved.toList()
+        val chars = summary.length + selected.sumOf { it.text.length + 10 } + factList.sumOf { it.length } + openList.sumOf { it.length }
+        return Snapshot(summary, selected, factList, openList, estimateTokens(chars))
+    }
+
+    // Conservative local approximation; actual API usage is learned from response headers/usage later.
+    private fun estimateTokens(chars: Int): Int = (chars / 3.5).toInt().coerceAtLeast(1)
+
+    private fun compactText(value: String, maxChars: Int): String =
+        if (value.length <= maxChars) value else "…" + value.takeLast(maxChars - 1)
+}
