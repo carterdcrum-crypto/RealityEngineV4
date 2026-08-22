@@ -19,7 +19,7 @@ class ServiceSettingsScreen(
     private val onRefresh: () -> Unit
 ) {
     private val cyan = Color.rgb(47, 231, 247)
-    private val text = Color.rgb(233, 244, 248)
+    private val primaryText = Color.rgb(233, 244, 248)
     private val muted = Color.rgb(120, 143, 158)
     private val panel = Color.rgb(8, 20, 32)
     private val border = Color.rgb(20, 66, 86)
@@ -77,7 +77,7 @@ class ServiceSettingsScreen(
         background = roundedPanel()
         addView(TextView(context).apply {
             text = label
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 15f)
         })
         addView(TextView(context).apply {
