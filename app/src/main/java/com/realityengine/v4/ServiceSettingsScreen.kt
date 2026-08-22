@@ -56,8 +56,8 @@ class ServiceSettingsScreen(
             store.hapticsEnabled = !store.hapticsEnabled
             onRefresh()
         })
-        list.addView(card("Analysis interval", "Every ${store.analysisFrequencySeconds} seconds") {
-            chooseAnalysisInterval()
+        list.addView(card("Analysis frequency", "Every ${store.analysisFrequencyTurns} ${if (store.analysisFrequencyTurns == 1) "turn" else "turns"}") {
+            chooseAnalysisFrequency()
         })
 
         return ScrollView(context).apply { addView(list) }
@@ -107,11 +107,11 @@ class ServiceSettingsScreen(
         }.show()
     }
 
-    private fun chooseAnalysisInterval() {
+    private fun chooseAnalysisFrequency() {
         val values = intArrayOf(1, 2, 3, 5, 8, 10)
-        val labels = values.map { "$it seconds" }.toTypedArray()
-        AlertDialog.Builder(context).setTitle("Analysis interval").setItems(labels) { _, which ->
-            store.analysisFrequencySeconds = values[which]
+        val labels = values.map { if (it == 1) "Every turn" else "Every $it turns" }.toTypedArray()
+        AlertDialog.Builder(context).setTitle("Analysis frequency").setItems(labels) { _, which ->
+            store.analysisFrequencyTurns = values[which]
             onRefresh()
         }.show()
     }
