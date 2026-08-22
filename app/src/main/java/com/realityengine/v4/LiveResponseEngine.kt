@@ -40,7 +40,10 @@ class LiveResponseEngine(
         lastCallerTurn = clean; lastRequestAt = now; inFlight = true
         executor.execute {
             val result = try { requestSuggestions() } catch (_: Throwable) { null }
-            if (result != null) activeSuggestions = listOf(result.best) + result.alternatives
+            if (result != null) {
+                activeSuggestions = listOf(result.best) + result.alternatives
+                ResponseCoachState.publish(result)
+            }
             inFlight = false
             main.post { callback(result) }
         }
@@ -52,6 +55,8 @@ class LiveResponseEngine(
         val match = matchSuggestion(clean, activeSuggestions)
         lastChosenResponse = match
         if (match.suggestion != null) context.rememberFact("Last response strategy: ${match.suggestion.mode}; tone: ${match.suggestion.tone}; match: ${match.classification}")
+        ResponseCoachState.publishChosen(match)
+        ResponseCoachState.clearSuggestions()
         activeSuggestions = emptyList()
         return match
     }
