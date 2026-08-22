@@ -11,6 +11,7 @@
     <application
         android:allowBackup="false"
         android:label="Reality Engine"
+        android:theme="@style/AppTheme"
         android:supportsRtl="true">
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
