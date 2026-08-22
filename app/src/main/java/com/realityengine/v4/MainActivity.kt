@@ -28,12 +28,10 @@ class MainActivity : Activity() {
     private fun textButton(label:String,click:()->Unit)=Button(this).apply{text=label;textSize=13f;setTextColor(Color.WHITE);background=rounded(soft,18f);setOnClickListener{click()};stateListAnimator=null}
     private fun buildPhoneUi(){
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(20.dp(),18.dp(),20.dp(),12.dp());setBackgroundColor(bg)}
-        val top=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        top.addView(TextView(this).apply{text="Reality Engine";textSize=24f;setTextColor(Color.WHITE);typeface=android.graphics.Typeface.DEFAULT_BOLD},LinearLayout.LayoutParams(-1,44.dp()))
         val utility=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
         status=TextView(this).apply{textSize=12f;setTextColor(accent);gravity=Gravity.CENTER_VERTICAL};utility.addView(status,LinearLayout.LayoutParams(0,48.dp(),1f))
         utility.addView(textButton("SETTINGS"){showSettings()}.apply{textSize=12f},LinearLayout.LayoutParams(120.dp(),48.dp()))
-        top.addView(utility);root.addView(top)
+        root.addView(utility)
         shizukuStatus=TextView(this).apply{visibility=View.GONE};audioStatus=TextView(this).apply{visibility=View.GONE};root.addView(shizukuStatus);root.addView(audioStatus)
         val scroll=ScrollView(this).apply{isFillViewport=true};content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.TOP};scroll.addView(content);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         val nav=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER;setPadding(0,8.dp(),0,0)}
