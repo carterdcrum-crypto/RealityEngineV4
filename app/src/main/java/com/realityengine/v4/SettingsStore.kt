@@ -38,9 +38,14 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("haptics_enabled", true)
         set(value) = prefs.edit().putBoolean("haptics_enabled", value).apply()
 
-    var analysisFrequencySeconds: Int
-        get() = prefs.getInt("analysis_frequency_seconds", 3).coerceIn(1, 30)
-        set(value) = prefs.edit().putInt("analysis_frequency_seconds", value.coerceIn(1, 30)).apply()
+    var analysisFrequencyTurns: Int
+        get() {
+            if (prefs.contains("analysis_frequency_turns")) return prefs.getInt("analysis_frequency_turns", 1).coerceIn(1, 10)
+            // Migrate the obsolete seconds-based setting without preserving its timing semantics.
+            prefs.edit().remove("analysis_frequency_seconds").putInt("analysis_frequency_turns", 1).apply()
+            return 1
+        }
+        set(value) = prefs.edit().putInt("analysis_frequency_turns", value.coerceIn(1, 10)).apply()
 
     fun groqConfigured() = groqApiKey.isNotBlank()
     fun deepgramConfigured() = deepgramApiKey.isNotBlank()
