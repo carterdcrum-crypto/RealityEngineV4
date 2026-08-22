@@ -21,7 +21,7 @@ class DialScreen(
 
     private val cyan = Color.rgb(47, 231, 247)
     private val green = Color.rgb(48, 214, 143)
-    private val text = Color.rgb(235, 244, 248)
+    private val primaryText = Color.rgb(235, 244, 248)
     private val muted = Color.rgb(91, 111, 128)
     private val keyFill = Color.rgb(5, 20, 38)
 
@@ -35,7 +35,7 @@ class DialScreen(
         number.apply {
             hint = "Enter number to call"
             setHintTextColor(muted)
-            setTextColor(text)
+            setTextColor(primaryText)
             gravity = Gravity.CENTER
             background = null
             inputType = android.text.InputType.TYPE_CLASS_PHONE
@@ -85,7 +85,7 @@ class DialScreen(
                 isFocusable = true
                 addView(TextView(context).apply {
                     text = digit
-                    setTextColor(text)
+                    setTextColor(primaryText)
                     gravity = Gravity.CENTER
                     RealityTypography.displayMedium(this, 24f)
                 })
