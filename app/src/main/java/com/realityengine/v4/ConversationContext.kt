@@ -5,8 +5,8 @@ package com.realityengine.v4
  * Keeps the raw turn stream local while producing a bounded prompt snapshot.
  */
 class ConversationContext(
-    private val maxRecentTurns: Int = 8,
-    private val targetInputTokens: Int = 900
+    private val maxRecentTurns: Int = 6,
+    private val targetInputTokens: Int = 650
 ) {
     enum class Speaker { USER, CALLER }
 
@@ -42,7 +42,7 @@ class ConversationContext(
 
     @Synchronized
     fun addTurn(speaker: Speaker, text: String) {
-        val clean = text.trim().replace(Regex("\\s+"), " ")
+        val clean = text.trim().replace(Regex("\\s+"), " ").take(360)
         if (clean.isBlank()) return
         turns.addLast(Turn(speaker, clean))
         compactIfNeeded()
@@ -52,8 +52,8 @@ class ConversationContext(
     fun rememberFact(value: String) {
         val clean = value.trim().replace(Regex("\\s+"), " ")
         if (clean.isNotBlank()) {
-            facts.add(clean.take(180))
-            while (facts.size > 8) facts.remove(facts.first())
+            facts.add(clean.take(150))
+            while (facts.size > 6) facts.remove(facts.first())
         }
     }
 
@@ -61,8 +61,8 @@ class ConversationContext(
     fun markUnresolved(value: String) {
         val clean = value.trim().replace(Regex("\\s+"), " ")
         if (clean.isNotBlank()) {
-            unresolved.add(clean.take(160))
-            while (unresolved.size > 5) unresolved.remove(unresolved.first())
+            unresolved.add(clean.take(140))
+            while (unresolved.size > 3) unresolved.remove(unresolved.first())
         }
     }
 
@@ -79,6 +79,11 @@ class ConversationContext(
             selected.removeAt(0)
             snapshot = buildSnapshot(selected)
         }
+        if (snapshot.estimatedTokens > targetInputTokens) {
+            val leanFacts = snapshot.facts.takeLast(3)
+            val leanOpen = snapshot.unresolved.takeLast(2)
+            snapshot = buildSnapshot(selected, leanFacts, leanOpen, compactText(runningSummary, 360))
+        }
         return snapshot
     }
 
@@ -91,19 +96,21 @@ class ConversationContext(
         while (turns.size > maxRecentTurns * 2) {
             val old = turns.removeFirst()
             val fragment = (if (old.speaker == Speaker.CALLER) "C:" else "U:") + old.text
-            runningSummary = compactText(listOf(runningSummary, fragment).filter { it.isNotBlank() }.joinToString(" "), 700)
+            runningSummary = compactText(listOf(runningSummary, fragment).filter { it.isNotBlank() }.joinToString(" "), 520)
         }
     }
 
-    private fun buildSnapshot(selected: List<Turn>): Snapshot {
-        val summary = compactText(runningSummary, 700)
-        val factList = facts.toList()
-        val openList = unresolved.toList()
+    private fun buildSnapshot(
+        selected: List<Turn>,
+        factList: List<String> = facts.toList(),
+        openList: List<String> = unresolved.toList(),
+        summary: String = compactText(runningSummary, 520)
+    ): Snapshot {
         val chars = summary.length + selected.sumOf { it.text.length + 10 } + factList.sumOf { it.length } + openList.sumOf { it.length }
         return Snapshot(summary, selected, factList, openList, estimateTokens(chars))
     }
 
-    // Conservative local approximation; actual API usage is learned from response headers/usage later.
+    // Conservative local approximation; actual API usage is learned from provider usage metadata.
     private fun estimateTokens(chars: Int): Int = (chars / 3.5).toInt().coerceAtLeast(1)
 
     private fun compactText(value: String, maxChars: Int): String =
