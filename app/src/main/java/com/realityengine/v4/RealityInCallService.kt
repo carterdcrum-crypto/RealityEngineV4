@@ -9,11 +9,13 @@ class RealityInCallService : InCallService() {
     companion object { @Volatile var instance: RealityInCallService? = null }
 
     private lateinit var transcription: LiveTranscriptionPipeline
+    private lateinit var audioRouter: AudioCaptureRouter
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         transcription = LiveTranscriptionPipeline(applicationContext)
+        audioRouter = AudioCaptureRouter(applicationContext)
         ShizukuAudioStatus.requestPermission()
     }
 
@@ -36,31 +38,27 @@ class RealityInCallService : InCallService() {
     override fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
-        if (CallSessionRegistry.primary() != null) {
-            syncTranscription()
-            launchCallUi()
-        } else {
-            transcription.stop()
-            LiveSignalState.clear()
-        }
+        if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() }
+        else { transcription.stop(); LiveSignalState.clear() }
         super.onCallRemoved(call)
     }
 
     override fun onCallAudioStateChanged(audioState: CallAudioState?) {
         super.onCallAudioStateChanged(audioState)
-        if (CallSessionRegistry.primary() != null) {
-            syncTranscription()
-            launchCallUi()
-        }
+        if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() }
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
 
     private fun syncTranscription() {
         val call = CallSessionRegistry.primary() ?: run { transcription.stop(); return }
-        val shouldRun = call.state == Call.STATE_ACTIVE
-        if (shouldRun && !transcription.isRunning()) transcription.start()
-        else if (!shouldRun && transcription.isRunning()) transcription.stop()
+        if (call.state != Call.STATE_ACTIVE) { if (transcription.isRunning()) transcription.stop(); return }
+        if (transcription.isRunning()) return
+
+        when (audioRouter.decide(twilioCallActive = false).route) {
+            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> transcription.start()
+            else -> transcription.stop()
+        }
     }
 
     private fun launchCallUi() {
@@ -74,10 +72,8 @@ class RealityInCallService : InCallService() {
         override fun onStateChanged(call: Call, state: Int) {
             if (state == Call.STATE_DISCONNECTED) {
                 CallSessionRegistry.removeIfDisconnected(call)
-                if (CallSessionRegistry.primary() == null) {
-                    transcription.stop()
-                    LiveSignalState.clear()
-                } else syncTranscription()
+                if (CallSessionRegistry.primary() == null) { transcription.stop(); LiveSignalState.clear() }
+                else syncTranscription()
             } else {
                 CallSessionRegistry.add(call)
                 syncTranscription()
