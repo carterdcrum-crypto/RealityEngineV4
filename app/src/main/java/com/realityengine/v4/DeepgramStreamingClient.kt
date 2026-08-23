@@ -1,12 +1,12 @@
 package com.realityengine.v4
 
 import android.net.Uri
-import okhttp3.ByteString
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,10 +25,7 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         if (!settings.deepgramConfigured() || connected.get()) return false
         transcriptCallback = onTranscript
         closedCallback = onClosed
-        val request = Request.Builder()
-            .url(endpoint(sampleRate))
-            .header("Authorization", "Token ${settings.deepgramApiKey}")
-            .build()
+        val request = Request.Builder().url(endpoint(sampleRate)).header("Authorization", "Token ${settings.deepgramApiKey}").build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) { connected.set(true) }
             override fun onMessage(webSocket: WebSocket, text: String) { acceptMessage(text) }
@@ -41,7 +38,8 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
 
     fun sendPcm(bytes: ByteArray, length: Int = bytes.size): Boolean {
         if (!connected.get() || length <= 0) return false
-        return socket?.send(ByteString.of(*bytes.copyOf(length.coerceAtMost(bytes.size)))) == true
+        val safeLength = length.coerceAtMost(bytes.size)
+        return socket?.send(bytes.toByteString(0, safeLength)) == true
     }
 
     fun close() {
@@ -66,15 +64,10 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
 
     internal fun endpoint(sampleRate: Int): String = Uri.Builder()
         .scheme("wss").authority("api.deepgram.com").appendPath("v1").appendPath("listen")
-        .appendQueryParameter("model", settings.deepgramModel)
-        .appendQueryParameter("encoding", "linear16")
-        .appendQueryParameter("sample_rate", sampleRate.toString())
-        .appendQueryParameter("channels", "1")
-        .appendQueryParameter("interim_results", "true")
-        .appendQueryParameter("smart_format", "true")
-        .appendQueryParameter("endpointing", "300")
-        .appendQueryParameter("utterance_end_ms", "1000")
-        .build().toString()
+        .appendQueryParameter("model", settings.deepgramModel).appendQueryParameter("encoding", "linear16")
+        .appendQueryParameter("sample_rate", sampleRate.toString()).appendQueryParameter("channels", "1")
+        .appendQueryParameter("interim_results", "true").appendQueryParameter("smart_format", "true")
+        .appendQueryParameter("endpointing", "300").appendQueryParameter("utterance_end_ms", "1000").build().toString()
 
     @Synchronized private fun finish(reason: String?) {
         val wasActive = connected.getAndSet(false)
