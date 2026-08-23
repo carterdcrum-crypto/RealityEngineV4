@@ -12,9 +12,12 @@ class LiveTranscriptionPipeline(context: Context) {
     private val capture = VoiceCallPcmCapture(appContext)
     private val deepgram = DeepgramStreamingClient(settings)
     private val conversation = LiveConversationSession(appContext)
+    private val evidence = LiveEvidenceEngine(appContext)
     private val running = AtomicBoolean(false)
     @Volatile private var interimCallback: ((String) -> Unit)? = null
     @Volatile private var stoppedCallback: ((String?) -> Unit)? = null
+    @Volatile private var acousticScore = 0
+    @Volatile private var factualScore = 0
 
     fun start(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult {
         if (!begin(VoiceCallPcmCapture.SAMPLE_RATE, onInterim, onStopped)) return StartResult.Unavailable("Deepgram stream could not start")
@@ -27,23 +30,29 @@ class LiveTranscriptionPipeline(context: Context) {
         }
     }
 
-    /** Starts the Deepgram side for a call whose audio arrives from Twilio Media Streams. */
     fun startTwilio(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult =
         if (begin(8_000, onInterim, onStopped)) StartResult.Started else StartResult.Unavailable("Deepgram stream could not start")
 
-    /** Feed one raw Twilio WebSocket JSON message. Non-media events are ignored. */
     fun acceptTwilioMessage(message: String): Boolean {
         if (!running.get()) return false
         val frame = TwilioMediaStreamDecoder.decode(message) ?: return false
         return deepgram.sendPcm(frame.pcm16)
     }
 
+    fun updateAcousticScore(score: Int) { acousticScore = score.coerceIn(0, 100) }
+    fun updateFactualScore(score: Int) { factualScore = score.coerceIn(0, 100) }
+
     private fun begin(sampleRate: Int, onInterim: (String) -> Unit, onStopped: (String?) -> Unit): Boolean {
         if (!settings.deepgramConfigured() || !running.compareAndSet(false, true)) return false
         interimCallback = onInterim; stoppedCallback = onStopped; conversation.bindActiveCaller()
         val connecting = deepgram.connect(sampleRate = sampleRate, onTranscript = { result ->
             interimCallback?.invoke(result.text)
-            if (result.isFinal && result.text.isNotBlank()) conversation.onCallerTurn(result.text)
+            if (result.isFinal && result.text.isNotBlank()) {
+                conversation.onCallerTurn(result.text)
+                val linguistic = LinguisticSignalAnalyzer.analyze(result.text)
+                val phone = CallSessionRegistry.primaryNumber().orEmpty()
+                evidence.update(phone, acousticScore, linguistic.score, factualScore, result.text.take(180))
+            }
         }, onClosed = { reason -> if (running.getAndSet(false)) { capture.stop(); stoppedCallback?.invoke(reason) } })
         if (!connecting) running.set(false)
         return connecting
@@ -51,7 +60,7 @@ class LiveTranscriptionPipeline(context: Context) {
 
     fun stop() {
         if (!running.getAndSet(false)) return
-        capture.stop(); deepgram.close(); conversation.clear(); interimCallback=null; stoppedCallback=null
+        capture.stop(); deepgram.close(); conversation.clear(); acousticScore=0; factualScore=0; interimCallback=null; stoppedCallback=null
     }
 
     fun isRunning(): Boolean = running.get()
