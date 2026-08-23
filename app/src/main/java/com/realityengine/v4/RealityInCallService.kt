@@ -15,6 +15,7 @@ class RealityInCallService : InCallService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        LiveSignalState.initialize(applicationContext)
         transcription = LiveTranscriptionPipeline(applicationContext)
         audioRouter = AudioCaptureRouter(applicationContext)
         summaryBuilder = CallSummaryBuilder(applicationContext)
