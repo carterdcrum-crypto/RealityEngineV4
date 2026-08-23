@@ -6,9 +6,10 @@ import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.telecom.Call
 
-/** Capability boundary for the call-audio layer. This only probes whether the
- * platform can initialize a VOICE_CALL source; it does not start recording. */
+/** Capability status for call audio. Hardware probing is deferred until an active call,
+ * because some Android devices cannot initialize the call source while idle. */
 object CallAudioBridge {
     enum class State {
         UNAVAILABLE,
@@ -25,31 +26,19 @@ object CallAudioBridge {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             return State.MICROPHONE_PERMISSION_REQUIRED
         }
-        return if (canInitializeVoiceCallSource()) {
-            State.VOICE_CALL_SOURCE_AVAILABLE
-        } else {
-            State.VOICE_CALL_SOURCE_BLOCKED
-        }
+        val activeCall = CallSessionRegistry.primary()
+        if (activeCall?.state != Call.STATE_ACTIVE) return State.SHIZUKU_READY
+        return if (canInitializeVoiceCallSource()) State.VOICE_CALL_SOURCE_AVAILABLE
+        else State.VOICE_CALL_SOURCE_BLOCKED
     }
 
     private fun canInitializeVoiceCallSource(): Boolean {
         var recorder: AudioRecord? = null
         return try {
             val sampleRate = 16000
-            val minBuffer = AudioRecord.getMinBufferSize(
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT
-            )
+            val minBuffer = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
             if (minBuffer <= 0) return false
-
-            recorder = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_CALL,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                minBuffer * 2
-            )
+            recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_CALL, sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuffer * 2)
             recorder.state == AudioRecord.STATE_INITIALIZED
         } catch (_: SecurityException) {
             false
