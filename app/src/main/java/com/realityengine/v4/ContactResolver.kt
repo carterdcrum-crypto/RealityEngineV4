@@ -6,7 +6,7 @@ import android.content.pm.PackageManager
 import android.provider.ContactsContract
 
 object ContactResolver {
-    data class Contact(val name: String, val number: String)
+    data class Contact(val name: String, val number: String, val contactId: Long = -1L)
 
     fun resolveName(context: Context, input: String): String? {
         if (context.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
@@ -34,9 +34,7 @@ object ContactResolver {
                 }
                 null
             }
-        } catch (_: Throwable) {
-            null
-        }
+        } catch (_: Throwable) { null }
     }
 
     fun allContacts(context: Context): List<Contact> {
@@ -44,7 +42,8 @@ object ContactResolver {
         val result = ArrayList<Contact>()
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-            ContactsContract.CommonDataKinds.Phone.NUMBER
+            ContactsContract.CommonDataKinds.Phone.NUMBER,
+            ContactsContract.CommonDataKinds.Phone.CONTACT_ID
         )
         try {
             context.contentResolver.query(
@@ -56,10 +55,11 @@ object ContactResolver {
             )?.use { cursor ->
                 val nameIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
                 val numberIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val idIndex = cursor.getColumnIndexOrThrow(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
                 while (cursor.moveToNext()) {
                     val name = cursor.getString(nameIndex)?.takeIf { it.isNotBlank() } ?: continue
                     val number = cursor.getString(numberIndex)?.takeIf { it.isNotBlank() } ?: continue
-                    result.add(Contact(name, number))
+                    result.add(Contact(name, number, cursor.getLong(idIndex)))
                 }
             }
         } catch (_: Throwable) {}
