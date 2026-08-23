@@ -24,7 +24,7 @@ class LiveResponseEngine(
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var inFlight = false
     @Volatile private var lastCallerTurn = ""
-    @Volatile private var lastRequestAt = 0L
+    @Volatile private var callerTurnsSinceAnalysis = 0
     @Volatile private var activeSuggestions: List<Suggestion> = emptyList()
     @Volatile var lastChosenResponse: ChosenResponse? = null
         private set
@@ -32,12 +32,13 @@ class LiveResponseEngine(
     fun onCallerTurn(text: String, callback: (Result?) -> Unit) {
         val clean = normalizeWhitespace(text)
         if (clean.length < 4 || clean == lastCallerTurn) return
+        lastCallerTurn = clean
         context.addTurn(ConversationContext.Speaker.CALLER, clean)
+        callerTurnsSinceAnalysis++
         if (!settings.responseCoachEnabled || !settings.groqConfigured()) return
-        val now = System.currentTimeMillis()
-        val cooldown = settings.analysisFrequencySeconds * 1000L
-        if (inFlight || now - lastRequestAt < cooldown) return
-        lastCallerTurn = clean; lastRequestAt = now; inFlight = true
+        if (inFlight || callerTurnsSinceAnalysis < settings.analysisFrequencyTurns) return
+        callerTurnsSinceAnalysis = 0
+        inFlight = true
         executor.execute {
             val result = try { requestSuggestions() } catch (_: Throwable) { null }
             if (result != null) {
