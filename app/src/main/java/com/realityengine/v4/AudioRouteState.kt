@@ -1,11 +1,14 @@
 package com.realityengine.v4
 
+import android.content.Context
+
 /** Process-local telemetry for the currently selected live transcription route. */
 object AudioRouteState {
     data class Snapshot(
         val route: AudioCaptureRouter.Route = AudioCaptureRouter.Route.UNAVAILABLE,
         val reason: String = "Audio route not evaluated",
         val canTranscribe: Boolean = false,
+        val diagnostic: String = "",
         val updatedAtMs: Long = 0L
     ) {
         val label: String
@@ -19,7 +22,10 @@ object AudioRouteState {
             }
 
         val detail: String
-            get() = if (canTranscribe) "$label · TRANSCRIPTION READY" else "$label · $reason"
+            get() {
+                val base = if (canTranscribe) "$label · TRANSCRIPTION READY" else "$label · $reason"
+                return if (diagnostic.isBlank()) base else "$base · $diagnostic"
+            }
     }
 
     @Volatile private var current = Snapshot()
@@ -29,6 +35,23 @@ object AudioRouteState {
             route = decision.route,
             reason = decision.reason,
             canTranscribe = decision.canTranscribe,
+            updatedAtMs = System.currentTimeMillis()
+        )
+    }
+
+    /** Adds device-specific source diagnostics during an active call without retaining audio. */
+    fun diagnose(context: Context) {
+        val report = CallAudioDiagnostics.inspect(context.applicationContext)
+        val previous = current
+        current = previous.copy(
+            diagnostic = buildString {
+                append(report.detail)
+                append(" · SHIZUKU ")
+                append(if (report.shizukuBinder && report.shizukuGranted) "OK" else "NO")
+                append(" · VC=").append(if (report.voiceCallInitialized) "Y" else "N")
+                append(" COMM=").append(if (report.voiceCommunicationInitialized) "Y" else "N")
+                append(" MIC=").append(if (report.microphoneInitialized) "Y" else "N")
+            },
             updatedAtMs = System.currentTimeMillis()
         )
     }
