@@ -1,18 +1,12 @@
 package com.realityengine.v4
 
+import android.net.Uri
 import org.json.JSONObject
 import java.io.OutputStream
 import java.net.HttpURLConnection
-import java.net.URL
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * Android-compatible Deepgram streaming facade.
- * Keeps PCM ingestion independent of desktop-only java.net.http APIs so the Android build
- * can compile cleanly. The transport connection is deliberately isolated behind this class.
- */
+/** Android-compatible Deepgram streaming facade. */
 class DeepgramStreamingClient(private val settings: SettingsStore) {
     data class Transcript(val text: String, val isFinal: Boolean, val speechFinal: Boolean)
 
@@ -30,9 +24,6 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         if (!settings.deepgramConfigured() || connected.get()) return false
         transcriptCallback = onTranscript
         closedCallback = onClosed
-
-        // Android's standard library does not provide java.net.http.WebSocket. Keep the
-        // endpoint metadata here; a dedicated Android WebSocket transport will attach next.
         endpoint(sampleRate)
         connected.set(true)
         return true
@@ -75,10 +66,21 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         } catch (_: Throwable) { }
     }
 
-    internal fun endpoint(sampleRate: Int): String {
-        val model = URLEncoder.encode(settings.deepgramModel, StandardCharsets.UTF_8.toString())
-        return "wss://api.deepgram.com/v1/listen?model=$model&encoding=linear16&sample_rate=$sampleRate&channels=1&interim_results=true&smart_format=true&endpointing=300&utterance_end_ms=1000"
-    }
+    internal fun endpoint(sampleRate: Int): String = Uri.Builder()
+        .scheme("wss")
+        .authority("api.deepgram.com")
+        .appendPath("v1")
+        .appendPath("listen")
+        .appendQueryParameter("model", settings.deepgramModel)
+        .appendQueryParameter("encoding", "linear16")
+        .appendQueryParameter("sample_rate", sampleRate.toString())
+        .appendQueryParameter("channels", "1")
+        .appendQueryParameter("interim_results", "true")
+        .appendQueryParameter("smart_format", "true")
+        .appendQueryParameter("endpointing", "300")
+        .appendQueryParameter("utterance_end_ms", "1000")
+        .build()
+        .toString()
 
     private fun fail(reason: String?) {
         connected.set(false)
