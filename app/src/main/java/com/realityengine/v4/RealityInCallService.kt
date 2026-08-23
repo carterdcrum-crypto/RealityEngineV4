@@ -58,15 +58,18 @@ class RealityInCallService : InCallService() {
 
     private fun syncTranscription() {
         val call = CallSessionRegistry.primary() ?: run { transcription.stop(); AudioRouteState.clear(); return }
-        if (call.state != Call.STATE_ACTIVE) { if (transcription.isRunning()) transcription.stop(); return }
-        if (transcription.isRunning()) return
+        if (call.state != Call.STATE_ACTIVE) {
+            if (transcription.isRunning()) transcription.stop()
+            AudioRouteState.clear()
+            return
+        }
 
         val decision = audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive())
         AudioRouteState.publish(decision)
         when (decision.route) {
-            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> transcription.start()
-            AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> transcription.start()
-            else -> transcription.stop()
+            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL,
+            AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> if (!transcription.isRunning()) transcription.start()
+            else -> if (transcription.isRunning()) transcription.stop()
         }
     }
 
