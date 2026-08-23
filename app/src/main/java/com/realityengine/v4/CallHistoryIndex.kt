@@ -9,14 +9,17 @@ data class CallHistoryEntry(
     val number: String,
     val displayName: String,
     val direction: String,
-    val durationSeconds: Long
+    val durationSeconds: Long,
+    val realitySummary: String = ""
 )
 
-/** Keeps call-log querying and contact-name resolution out of MainActivity. */
+/** Keeps call-log querying, profile summary lookup, and contact-name resolution out of MainActivity. */
 class CallHistoryIndex(
     private val context: Context,
     private val contacts: ContactIndex
 ) {
+    private val profiles = CallerProfileStore(context.applicationContext)
+
     fun hasPermission(): Boolean =
         context.checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED
 
@@ -51,11 +54,13 @@ class CallHistoryIndex(
                         CallLog.Calls.MISSED_TYPE -> "MISSED"
                         else -> "CALL"
                     }
+                    val summary = if (number == "Unknown") "" else profiles.load(number).lastCallSummary
                     result += CallHistoryEntry(
                         number = number,
                         displayName = display,
                         direction = direction,
-                        durationSeconds = cursor.getLong(durationIndex)
+                        durationSeconds = cursor.getLong(durationIndex),
+                        realitySummary = summary
                     )
                 }
             }
