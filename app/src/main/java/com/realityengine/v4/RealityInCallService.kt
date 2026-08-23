@@ -60,8 +60,9 @@ class RealityInCallService : InCallService() {
         if (call.state != Call.STATE_ACTIVE) { if (transcription.isRunning()) transcription.stop(); return }
         if (transcription.isRunning()) return
 
-        when (audioRouter.decide(twilioCallActive = false).route) {
+        when (audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive()).route) {
             AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> transcription.start()
+            AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> transcription.start()
             else -> transcription.stop()
         }
     }
