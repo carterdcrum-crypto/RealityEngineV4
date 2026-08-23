@@ -11,6 +11,8 @@
     <application
         android:allowBackup="false"
         android:label="Reality Engine"
+        android:icon="@drawable/reality_engine_icon"
+        android:roundIcon="@drawable/reality_engine_icon"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
         <provider
