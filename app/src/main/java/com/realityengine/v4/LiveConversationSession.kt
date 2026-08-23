@@ -12,13 +12,16 @@ class LiveConversationSession(context: Context) {
     private val settings = SettingsStore(appContext)
     private val conversation = ConversationContext()
     private val responseEngine = LiveResponseEngine(settings, conversation, appContext)
+    private val outcomeLearner = ConversationOutcomeLearner(appContext)
     private var activeNumber = ""
+    private var pendingChosenResponse: LiveResponseEngine.ChosenResponse? = null
 
     @Synchronized
     fun bindActiveCaller(): String? {
         val number = CallSessionRegistry.primaryNumber() ?: return null
         if (number != activeNumber) {
             activeNumber = number
+            pendingChosenResponse = null
             responseEngine.bindCaller(number)
         }
         return number
@@ -26,17 +29,23 @@ class LiveConversationSession(context: Context) {
 
     fun onCallerTurn(text: String, callback: (LiveResponseEngine.Result?) -> Unit = {}) {
         bindActiveCaller()
+        val chosen = pendingChosenResponse
+        if (chosen != null && activeNumber.isNotBlank()) {
+            outcomeLearner.recordFollowUp(activeNumber, chosen, text)
+            pendingChosenResponse = null
+        }
         responseEngine.onCallerTurn(text, callback)
     }
 
     fun onUserTurn(text: String): LiveResponseEngine.ChosenResponse {
         bindActiveCaller()
-        return responseEngine.onUserTurn(text)
+        return responseEngine.onUserTurn(text).also { pendingChosenResponse = it }
     }
 
     @Synchronized
     fun clear() {
         activeNumber = ""
+        pendingChosenResponse = null
         responseEngine.clearCaller()
         conversation.clear()
         ResponseCoachState.clearSuggestions()
