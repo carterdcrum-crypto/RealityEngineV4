@@ -1,5 +1,6 @@
 package com.realityengine.v4
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import org.json.JSONArray
@@ -14,7 +15,8 @@ import java.util.concurrent.Executors
 /** Token-efficient Groq response coach with tone guidance and local chosen-response detection. */
 class LiveResponseEngine(
     private val settings: SettingsStore,
-    private val context: ConversationContext
+    private val context: ConversationContext,
+    appContext: Context? = null
 ) {
     data class Suggestion(val mode: String, val tone: String, val text: String, val reason: String = "")
     data class Result(val best: Suggestion, val alternatives: List<Suggestion>, val inputTokens: Int, val outputTokens: Int)
@@ -22,12 +24,27 @@ class LiveResponseEngine(
 
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private val profileSession = appContext?.let { CallerProfileSession(it.applicationContext) }
     @Volatile private var inFlight = false
     @Volatile private var lastCallerTurn = ""
     @Volatile private var callerTurnsSinceAnalysis = 0
     @Volatile private var activeSuggestions: List<Suggestion> = emptyList()
+    @Volatile private var activePhoneNumber = ""
     @Volatile var lastChosenResponse: ChosenResponse? = null
         private set
+
+    /** Bind once when the call number is known; persistent caller memory is then part of prompt context. */
+    fun bindCaller(phoneNumber: String) {
+        val clean = phoneNumber.trim()
+        if (clean == activePhoneNumber) return
+        activePhoneNumber = clean
+        profileSession?.bind(clean, context)
+    }
+
+    fun clearCaller() {
+        activePhoneNumber = ""
+        profileSession?.clear()
+    }
 
     fun onCallerTurn(text: String, callback: (Result?) -> Unit) {
         val clean = normalizeWhitespace(text)
@@ -97,7 +114,7 @@ class LiveResponseEngine(
             requestMethod="POST";connectTimeout=7000;readTimeout=9000;doOutput=true
             setRequestProperty("Authorization","Bearer ${settings.groqApiKey}");setRequestProperty("Content-Type","application/json")
         }
-        val system = """You are a live phone-call response coach. Suggest concise natural replies for the USER to say to the CALLER. Use only supplied context; never invent facts. For each reply choose a strategy and a short delivery tone. Strategies: BONDING, CLARIFY, MIRROR, PIVOT, COGNITIVE_PROBE. Tone examples: warm/relaxed, calm/curious, neutral/firm, light/playful, slow/deliberate. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 24 words and each reason under 12 words."""
+        val system = """You are a live phone-call response coach. Suggest concise natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. For each reply choose a strategy and a short delivery tone. Strategies: BONDING, CLARIFY, MIRROR, PIVOT, COGNITIVE_PROBE. Tone examples: warm/relaxed, calm/curious, neutral/firm, light/playful, slow/deliberate. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 24 words and each reason under 12 words."""
         val body=JSONObject().apply{put("model",settings.groqModel);put("temperature",.35);put("max_completion_tokens",190);put("response_format",JSONObject().put("type","json_object"));put("messages",JSONArray().apply{put(JSONObject().put("role","system").put("content",system));put(JSONObject().put("role","user").put("content",snapshot.asPromptContext()))})}
         connection.outputStream.use{it.write(body.toString().toByteArray(Charsets.UTF_8))}
         if(connection.responseCode !in 200..299){connection.disconnect();return null}
