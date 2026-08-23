@@ -15,6 +15,7 @@ class LiveTranscriptionPipeline(context: Context) {
     private val evidence = LiveEvidenceEngine(appContext)
     private val acoustic = AcousticSignalAnalyzer()
     private val factual = FactualSignalAnalyzer(appContext)
+    private val memory = CallerMemoryExtractor(appContext)
     private val running = AtomicBoolean(false)
     @Volatile private var interimCallback: ((String) -> Unit)? = null
     @Volatile private var stoppedCallback: ((String?) -> Unit)? = null
@@ -55,6 +56,7 @@ class LiveTranscriptionPipeline(context: Context) {
             if (result.isFinal && result.text.isNotBlank()) {
                 conversation.onCallerTurn(result.text)
                 val phone = CallSessionRegistry.primaryNumber().orEmpty()
+                memory.observe(phone, result.text)
                 val linguistic = LinguisticSignalAnalyzer.analyze(result.text)
                 val factualResult = factual.analyze(phone, result.text)
                 val context = buildString {
