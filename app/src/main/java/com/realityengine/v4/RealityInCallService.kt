@@ -75,6 +75,7 @@ class RealityInCallService : InCallService() {
 
         val decision = audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive())
         AudioRouteState.publish(decision)
+        AudioRouteState.diagnose(applicationContext)
         when (decision.route) {
             AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL,
             AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> if (!transcription.isRunning()) transcription.start()
