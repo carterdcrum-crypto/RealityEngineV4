@@ -6,17 +6,19 @@ import android.telecom.CallAudioState
 import android.telecom.InCallService
 
 class RealityInCallService : InCallService() {
-    companion object {
-        @Volatile var instance: RealityInCallService? = null
-    }
+    companion object { @Volatile var instance: RealityInCallService? = null }
+
+    private lateinit var transcription: LiveTranscriptionPipeline
 
     override fun onCreate() {
         super.onCreate()
         instance = this
+        transcription = LiveTranscriptionPipeline(applicationContext)
         ShizukuAudioStatus.requestPermission()
     }
 
     override fun onDestroy() {
+        transcription.stop()
         LiveSignalState.clear()
         if (instance === this) instance = null
         super.onDestroy()
@@ -27,6 +29,7 @@ class RealityInCallService : InCallService() {
         if (CallSessionRegistry.primary() == null) LiveSignalState.clear()
         CallSessionRegistry.add(call)
         call.registerCallback(callback)
+        syncTranscription()
         launchCallUi()
     }
 
@@ -34,8 +37,10 @@ class RealityInCallService : InCallService() {
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
         if (CallSessionRegistry.primary() != null) {
+            syncTranscription()
             launchCallUi()
         } else {
+            transcription.stop()
             LiveSignalState.clear()
         }
         super.onCallRemoved(call)
@@ -43,10 +48,20 @@ class RealityInCallService : InCallService() {
 
     override fun onCallAudioStateChanged(audioState: CallAudioState?) {
         super.onCallAudioStateChanged(audioState)
-        if (CallSessionRegistry.primary() != null) launchCallUi()
+        if (CallSessionRegistry.primary() != null) {
+            syncTranscription()
+            launchCallUi()
+        }
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
+
+    private fun syncTranscription() {
+        val call = CallSessionRegistry.primary() ?: run { transcription.stop(); return }
+        val shouldRun = call.state == Call.STATE_ACTIVE
+        if (shouldRun && !transcription.isRunning()) transcription.start()
+        else if (!shouldRun && transcription.isRunning()) transcription.stop()
+    }
 
     private fun launchCallUi() {
         startActivity(Intent(this, CallActivity::class.java).apply {
@@ -59,9 +74,13 @@ class RealityInCallService : InCallService() {
         override fun onStateChanged(call: Call, state: Int) {
             if (state == Call.STATE_DISCONNECTED) {
                 CallSessionRegistry.removeIfDisconnected(call)
-                if (CallSessionRegistry.primary() == null) LiveSignalState.clear()
+                if (CallSessionRegistry.primary() == null) {
+                    transcription.stop()
+                    LiveSignalState.clear()
+                } else syncTranscription()
             } else {
                 CallSessionRegistry.add(call)
+                syncTranscription()
                 launchCallUi()
             }
         }
