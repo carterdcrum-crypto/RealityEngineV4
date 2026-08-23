@@ -12,6 +12,9 @@ object AudioRouteState {
             get() = when (route) {
                 AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> "SHIZUKU // LIVE"
                 AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> "TWILIO // FALLBACK"
+                AudioCaptureRouter.Route.MICROPHONE_PERMISSION_REQUIRED -> "MIC // PERMISSION REQUIRED"
+                AudioCaptureRouter.Route.SHIZUKU_PERMISSION_REQUIRED -> "SHIZUKU // PERMISSION REQUIRED"
+                AudioCaptureRouter.Route.TWILIO_CONFIGURATION_REQUIRED -> "TWILIO // SETUP REQUIRED"
                 AudioCaptureRouter.Route.UNAVAILABLE -> "AUDIO // BLOCKED"
             }
 
