@@ -4,8 +4,9 @@ import android.content.Context
 import kotlin.math.abs
 
 /**
- * Session layer between signal producers and persistent caller profiles.
- * Fuses the three live streams, throttles duplicate events, and persists only meaningful changes.
+ * Session layer between signal producers, the live call UI, and persistent caller profiles.
+ * Fuses the three live streams, publishes every snapshot, throttles duplicate persistence,
+ * and stores only meaningful changes.
  */
 class LiveEvidenceEngine(context: Context) {
     data class Snapshot(
@@ -64,7 +65,7 @@ class LiveEvidenceEngine(context: Context) {
             lastPersistedCombined = result.combined
         }
 
-        return Snapshot(
+        val snapshot = Snapshot(
             phoneNumber = cleanPhone,
             acoustic = (result.acoustic * 100f).toInt(),
             linguistic = (result.linguistic * 100f).toInt(),
@@ -74,5 +75,7 @@ class LiveEvidenceEngine(context: Context) {
             persisted = shouldPersist,
             timestampMs = now
         )
+        LiveSignalState.publish(snapshot)
+        return snapshot
     }
 }
