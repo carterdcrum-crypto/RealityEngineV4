@@ -4,9 +4,7 @@ import android.content.Context
 import kotlin.math.abs
 
 /**
- * Session layer between signal producers, the live call UI, and persistent caller profiles.
- * Fuses the three live streams, publishes every snapshot, throttles duplicate persistence,
- * and stores only meaningful changes.
+ * Session layer between signal producers, the live call UI, haptics, and persistent caller profiles.
  */
 class LiveEvidenceEngine(context: Context) {
     data class Snapshot(
@@ -22,6 +20,7 @@ class LiveEvidenceEngine(context: Context) {
 
     private val fusion = EvidenceFusionEngine()
     private val profiles = CallerProfileStore(context.applicationContext)
+    private val haptics = SignalHaptics(context.applicationContext)
     private var lastPersistAt = 0L
     private var lastPersistedCombined = -1f
     private var lastPhone = ""
@@ -57,10 +56,7 @@ class LiveEvidenceEngine(context: Context) {
         val shouldPersist = canPersist && meaningful && materiallyChanged && cooldownElapsed
 
         if (shouldPersist) {
-            profiles.recordEvidence(
-                cleanPhone,
-                fusion.toProfileEvent(result, transcriptContext)
-            )
+            profiles.recordEvidence(cleanPhone, fusion.toProfileEvent(result, transcriptContext))
             lastPersistAt = now
             lastPersistedCombined = result.combined
         }
@@ -76,6 +72,7 @@ class LiveEvidenceEngine(context: Context) {
             timestampMs = now
         )
         LiveSignalState.publish(snapshot)
+        haptics.update(snapshot.acoustic, snapshot.linguistic, snapshot.factual)
         return snapshot
     }
 }
