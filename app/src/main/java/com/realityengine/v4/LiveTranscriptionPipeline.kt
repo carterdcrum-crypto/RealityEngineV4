@@ -20,16 +20,12 @@ class LiveTranscriptionPipeline(context: Context) {
     @Volatile private var interimCallback: ((String) -> Unit)? = null
     @Volatile private var stoppedCallback: ((String?) -> Unit)? = null
     @Volatile private var acousticScore = 0
+    @Volatile private var callerSpeaker: Int? = null
 
     fun start(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult {
         if (!begin(VoiceCallPcmCapture.SAMPLE_RATE, onInterim, onStopped)) return StartResult.Unavailable("Deepgram stream could not start")
         return when (val result = capture.start(
-            onPcm = { bytes, length ->
-                if (running.get()) {
-                    acousticScore = acoustic.analyze(bytes, length).score
-                    if (deepgram.isConnected()) deepgram.sendPcm(bytes, length)
-                }
-            },
+            onPcm = { bytes, length -> if (running.get()) { acousticScore = acoustic.analyze(bytes, length).score; if (deepgram.isConnected()) deepgram.sendPcm(bytes, length) } },
             onStopped = { reason -> if (running.getAndSet(false)) { deepgram.close(); stoppedCallback?.invoke(reason) } }
         )) {
             is VoiceCallPcmCapture.StartResult.Started -> StartResult.Started
@@ -37,8 +33,7 @@ class LiveTranscriptionPipeline(context: Context) {
         }
     }
 
-    fun startTwilio(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult =
-        if (begin(8_000, onInterim, onStopped)) StartResult.Started else StartResult.Unavailable("Deepgram stream could not start")
+    fun startTwilio(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult = if (begin(8_000, onInterim, onStopped)) StartResult.Started else StartResult.Unavailable("Deepgram stream could not start")
 
     fun acceptTwilioMessage(message: String): Boolean {
         if (!running.get()) return false
@@ -49,21 +44,25 @@ class LiveTranscriptionPipeline(context: Context) {
 
     private fun begin(sampleRate: Int, onInterim: (String) -> Unit, onStopped: (String?) -> Unit): Boolean {
         if (!settings.deepgramConfigured() || !running.compareAndSet(false, true)) return false
-        acoustic.reset()
+        acoustic.reset(); callerSpeaker = null
         interimCallback = onInterim; stoppedCallback = onStopped; conversation.bindActiveCaller()
         val connecting = deepgram.connect(sampleRate = sampleRate, onTranscript = { result ->
             interimCallback?.invoke(result.text)
             if (result.isFinal && result.text.isNotBlank()) {
-                conversation.onCallerTurn(result.text)
-                val phone = CallSessionRegistry.primaryNumber().orEmpty()
-                memory.observe(phone, result.text)
-                val linguistic = LinguisticSignalAnalyzer.analyze(result.text)
-                val factualResult = factual.analyze(phone, result.text)
-                val context = buildString {
-                    append(result.text.take(150))
-                    if (factualResult.reason.isNotBlank()) append(" [consistency: ").append(factualResult.reason).append(']')
+                val speaker = result.speaker
+                if (callerSpeaker == null && speaker != null) callerSpeaker = speaker
+                val isCaller = speaker == null || speaker == callerSpeaker
+                if (isCaller) {
+                    conversation.onCallerTurn(result.text)
+                    val phone = CallSessionRegistry.primaryNumber().orEmpty()
+                    memory.observe(phone, result.text)
+                    val linguistic = LinguisticSignalAnalyzer.analyze(result.text)
+                    val factualResult = factual.analyze(phone, result.text)
+                    val context = buildString { append(result.text.take(150)); if (factualResult.reason.isNotBlank()) append(" [consistency: ").append(factualResult.reason).append(']') }
+                    evidence.update(phone, acousticScore, linguistic.score, factualResult.score, context.take(220))
+                } else {
+                    conversation.onUserTurn(result.text)
                 }
-                evidence.update(phone, acousticScore, linguistic.score, factualResult.score, context.take(220))
             }
         }, onClosed = { reason -> if (running.getAndSet(false)) { capture.stop(); stoppedCallback?.invoke(reason) } })
         if (!connecting) running.set(false)
@@ -72,7 +71,7 @@ class LiveTranscriptionPipeline(context: Context) {
 
     fun stop() {
         if (!running.getAndSet(false)) return
-        capture.stop(); deepgram.close(); conversation.clear(); acoustic.reset(); acousticScore=0; interimCallback=null; stoppedCallback=null
+        capture.stop(); deepgram.close(); conversation.clear(); acoustic.reset(); acousticScore=0; callerSpeaker=null; interimCallback=null; stoppedCallback=null
     }
 
     fun isRunning(): Boolean = running.get()
