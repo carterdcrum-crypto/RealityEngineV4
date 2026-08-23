@@ -7,7 +7,9 @@ object AudioRouteLabel {
         return when (state.route) {
             AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> "SHIZUKU // LIVE"
             AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> "TWILIO // FALLBACK"
-            AudioCaptureRouter.Route.MICROPHONE_LOCAL_ONLY -> "MIC // LOCAL ONLY"
+            AudioCaptureRouter.Route.MICROPHONE_PERMISSION_REQUIRED -> "MIC // PERMISSION REQUIRED"
+            AudioCaptureRouter.Route.SHIZUKU_PERMISSION_REQUIRED -> "SHIZUKU // PERMISSION REQUIRED"
+            AudioCaptureRouter.Route.TWILIO_CONFIGURATION_REQUIRED -> "TWILIO // SETUP REQUIRED"
             AudioCaptureRouter.Route.UNAVAILABLE -> "AUDIO // UNAVAILABLE"
         }
     }
