@@ -14,11 +14,11 @@ class LiveTranscriptionPipeline(context: Context) {
     private val conversation = LiveConversationSession(appContext)
     private val evidence = LiveEvidenceEngine(appContext)
     private val acoustic = AcousticSignalAnalyzer()
+    private val factual = FactualSignalAnalyzer(appContext)
     private val running = AtomicBoolean(false)
     @Volatile private var interimCallback: ((String) -> Unit)? = null
     @Volatile private var stoppedCallback: ((String?) -> Unit)? = null
     @Volatile private var acousticScore = 0
-    @Volatile private var factualScore = 0
 
     fun start(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult {
         if (!begin(VoiceCallPcmCapture.SAMPLE_RATE, onInterim, onStopped)) return StartResult.Unavailable("Deepgram stream could not start")
@@ -46,8 +46,6 @@ class LiveTranscriptionPipeline(context: Context) {
         return deepgram.sendPcm(frame.pcm16)
     }
 
-    fun updateFactualScore(score: Int) { factualScore = score.coerceIn(0, 100) }
-
     private fun begin(sampleRate: Int, onInterim: (String) -> Unit, onStopped: (String?) -> Unit): Boolean {
         if (!settings.deepgramConfigured() || !running.compareAndSet(false, true)) return false
         acoustic.reset()
@@ -56,9 +54,14 @@ class LiveTranscriptionPipeline(context: Context) {
             interimCallback?.invoke(result.text)
             if (result.isFinal && result.text.isNotBlank()) {
                 conversation.onCallerTurn(result.text)
-                val linguistic = LinguisticSignalAnalyzer.analyze(result.text)
                 val phone = CallSessionRegistry.primaryNumber().orEmpty()
-                evidence.update(phone, acousticScore, linguistic.score, factualScore, result.text.take(180))
+                val linguistic = LinguisticSignalAnalyzer.analyze(result.text)
+                val factualResult = factual.analyze(phone, result.text)
+                val context = buildString {
+                    append(result.text.take(150))
+                    if (factualResult.reason.isNotBlank()) append(" [consistency: ").append(factualResult.reason).append(']')
+                }
+                evidence.update(phone, acousticScore, linguistic.score, factualResult.score, context.take(220))
             }
         }, onClosed = { reason -> if (running.getAndSet(false)) { capture.stop(); stoppedCallback?.invoke(reason) } })
         if (!connecting) running.set(false)
@@ -67,7 +70,7 @@ class LiveTranscriptionPipeline(context: Context) {
 
     fun stop() {
         if (!running.getAndSet(false)) return
-        capture.stop(); deepgram.close(); conversation.clear(); acoustic.reset(); acousticScore=0; factualScore=0; interimCallback=null; stoppedCallback=null
+        capture.stop(); deepgram.close(); conversation.clear(); acoustic.reset(); acousticScore=0; interimCallback=null; stoppedCallback=null
     }
 
     fun isRunning(): Boolean = running.get()
