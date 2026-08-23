@@ -21,7 +21,6 @@ class LiveEvidenceEngine(context: Context) {
     private val fusion = EvidenceFusionEngine()
     private val cognitive = CognitiveStressEngine()
     private val profiles = CallerProfileStore(context.applicationContext)
-    private val haptics = SignalHaptics(context.applicationContext)
     private var lastPersistAt = 0L
     private var lastPersistedCombined = -1f
     private var lastPhone = ""
@@ -40,6 +39,7 @@ class LiveEvidenceEngine(context: Context) {
         val shouldPersist=cleanPhone.isNotBlank()&&cleanPhone!="UNKNOWN CALLER"&&meaningful&&changed&&now-lastPersistAt>=15_000L
         if(shouldPersist){profiles.recordEvidence(cleanPhone,fusion.toProfileEvent(result,transcriptContext));lastPersistAt=now;lastPersistedCombined=result.combined}
         val snapshot=Snapshot(cleanPhone,(result.acoustic*100).toInt(),(result.linguistic*100).toInt(),(result.factual*100).toInt(),(result.combined*100).toInt(),result.elevatedStreams,shouldPersist,(cognitiveStressScore.coerceIn(0f,1f)*100).toInt(),result.logOdds,now)
-        LiveSignalState.publish(snapshot);haptics.update(snapshot.acoustic,snapshot.linguistic,snapshot.factual);return snapshot
+        LiveSignalState.publish(snapshot)
+        return snapshot
     }
 }
