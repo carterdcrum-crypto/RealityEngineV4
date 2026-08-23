@@ -11,6 +11,7 @@ class RealityInCallService : InCallService() {
     private lateinit var transcription: LiveTranscriptionPipeline
     private lateinit var audioRouter: AudioCaptureRouter
     private lateinit var summaryBuilder: CallSummaryBuilder
+    private val finalizedCalls = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
 
     override fun onCreate() {
         super.onCreate()
@@ -24,6 +25,7 @@ class RealityInCallService : InCallService() {
 
     override fun onDestroy() {
         transcription.stop()
+        LiveTranscriptState.clear()
         LiveSignalState.clear()
         AudioRouteState.clear()
         if (instance === this) instance = null
@@ -32,7 +34,8 @@ class RealityInCallService : InCallService() {
 
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
-        if (CallSessionRegistry.primary() == null) LiveSignalState.clear()
+        finalizedCalls.remove(call)
+        if (CallSessionRegistry.primary() == null) { LiveSignalState.clear(); LiveTranscriptState.clear() }
         CallSessionRegistry.add(call)
         call.registerCallback(callback)
         syncTranscription()
@@ -43,9 +46,9 @@ class RealityInCallService : InCallService() {
         val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
-        if (endedNumber.isNotBlank()) summaryBuilder.finalize(endedNumber)
+        finalizeOnce(call, endedNumber)
         if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() }
-        else { transcription.stop(); LiveSignalState.clear(); AudioRouteState.clear() }
+        else { transcription.stop(); LiveTranscriptState.clear(); LiveSignalState.clear(); AudioRouteState.clear() }
         super.onCallRemoved(call)
     }
 
@@ -55,6 +58,12 @@ class RealityInCallService : InCallService() {
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
+
+    @Synchronized
+    private fun finalizeOnce(call: Call, phoneNumber: String) {
+        if (phoneNumber.isBlank() || !finalizedCalls.add(call)) return
+        summaryBuilder.finalize(phoneNumber)
+    }
 
     private fun syncTranscription() {
         val call = CallSessionRegistry.primary() ?: run { transcription.stop(); AudioRouteState.clear(); return }
@@ -85,8 +94,8 @@ class RealityInCallService : InCallService() {
             if (state == Call.STATE_DISCONNECTED) {
                 val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
                 CallSessionRegistry.removeIfDisconnected(call)
-                if (endedNumber.isNotBlank()) summaryBuilder.finalize(endedNumber)
-                if (CallSessionRegistry.primary() == null) { transcription.stop(); LiveSignalState.clear(); AudioRouteState.clear() }
+                finalizeOnce(call, endedNumber)
+                if (CallSessionRegistry.primary() == null) { transcription.stop(); LiveTranscriptState.clear(); LiveSignalState.clear(); AudioRouteState.clear() }
                 else syncTranscription()
             } else {
                 CallSessionRegistry.add(call)
