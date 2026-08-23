@@ -44,9 +44,10 @@ class LiveTranscriptionPipeline(context: Context) {
 
     private fun begin(sampleRate: Int, onInterim: (String) -> Unit, onStopped: (String?) -> Unit): Boolean {
         if (!settings.deepgramConfigured() || !running.compareAndSet(false, true)) return false
-        acoustic.reset(); callerSpeaker = null
+        acoustic.reset(); callerSpeaker = null; LiveTranscriptState.clear()
         interimCallback = onInterim; stoppedCallback = onStopped; conversation.bindActiveCaller()
         val connecting = deepgram.connect(sampleRate = sampleRate, onTranscript = { result ->
+            LiveTranscriptState.publish(result.text, result.isFinal)
             interimCallback?.invoke(result.text)
             if (result.isFinal && result.text.isNotBlank()) {
                 val speaker = result.speaker
@@ -72,6 +73,7 @@ class LiveTranscriptionPipeline(context: Context) {
     fun stop() {
         if (!running.getAndSet(false)) return
         capture.stop(); deepgram.close(); conversation.clear(); acoustic.reset(); acousticScore=0; callerSpeaker=null; interimCallback=null; stoppedCallback=null
+        LiveTranscriptState.clear()
     }
 
     fun isRunning(): Boolean = running.get()
