@@ -33,14 +33,16 @@ object CallSessionRegistry {
             ?: live.firstOrNull()
     }
 
-    /** Stable number key shared by caller profiles, response coaching, and evidence history. */
-    fun primaryNumber(): String? = primary()
-        ?.details
+    /** Stable number key for a specific call, including a call that is being removed. */
+    fun numberFor(call: Call): String? = call.details
         ?.handle
         ?.schemeSpecificPart
         ?.trim()
         ?.takeIf { it.isNotBlank() }
         ?.let(::normalizeNumber)
+
+    /** Stable number key shared by caller profiles, response coaching, and evidence history. */
+    fun primaryNumber(): String? = primary()?.let(::numberFor)
 
     private fun normalizeNumber(value: String): String {
         val plus = value.startsWith("+")
