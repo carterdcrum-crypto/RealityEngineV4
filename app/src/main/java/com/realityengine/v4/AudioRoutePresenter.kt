@@ -5,7 +5,9 @@ object AudioRoutePresenter {
     fun label(snapshot: AudioRouteState.Snapshot = AudioRouteState.snapshot()): String = when (snapshot.route) {
         AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> "AUDIO // SHIZUKU · LIVE"
         AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> "AUDIO // TWILIO · FALLBACK"
-        AudioCaptureRouter.Route.MICROPHONE_LOCAL_ONLY -> "AUDIO // MIC · LOCAL ONLY"
+        AudioCaptureRouter.Route.MICROPHONE_PERMISSION_REQUIRED -> "AUDIO // MIC PERMISSION REQUIRED"
+        AudioCaptureRouter.Route.SHIZUKU_PERMISSION_REQUIRED -> "AUDIO // SHIZUKU PERMISSION REQUIRED"
+        AudioCaptureRouter.Route.TWILIO_CONFIGURATION_REQUIRED -> "AUDIO // TWILIO SETUP REQUIRED"
         AudioCaptureRouter.Route.UNAVAILABLE -> "AUDIO // UNAVAILABLE"
     }
 
