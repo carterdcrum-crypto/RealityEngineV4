@@ -25,6 +25,7 @@ class RealityInCallService : InCallService() {
     override fun onDestroy() {
         transcription.stop()
         LiveSignalState.clear()
+        AudioRouteState.clear()
         if (instance === this) instance = null
         super.onDestroy()
     }
@@ -44,7 +45,7 @@ class RealityInCallService : InCallService() {
         CallSessionRegistry.remove(call)
         if (endedNumber.isNotBlank()) summaryBuilder.finalize(endedNumber)
         if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() }
-        else { transcription.stop(); LiveSignalState.clear() }
+        else { transcription.stop(); LiveSignalState.clear(); AudioRouteState.clear() }
         super.onCallRemoved(call)
     }
 
@@ -56,11 +57,13 @@ class RealityInCallService : InCallService() {
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
 
     private fun syncTranscription() {
-        val call = CallSessionRegistry.primary() ?: run { transcription.stop(); return }
+        val call = CallSessionRegistry.primary() ?: run { transcription.stop(); AudioRouteState.clear(); return }
         if (call.state != Call.STATE_ACTIVE) { if (transcription.isRunning()) transcription.stop(); return }
         if (transcription.isRunning()) return
 
-        when (audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive()).route) {
+        val decision = audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive())
+        AudioRouteState.publish(decision)
+        when (decision.route) {
             AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> transcription.start()
             AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> transcription.start()
             else -> transcription.stop()
@@ -80,7 +83,7 @@ class RealityInCallService : InCallService() {
                 val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
                 CallSessionRegistry.removeIfDisconnected(call)
                 if (endedNumber.isNotBlank()) summaryBuilder.finalize(endedNumber)
-                if (CallSessionRegistry.primary() == null) { transcription.stop(); LiveSignalState.clear() }
+                if (CallSessionRegistry.primary() == null) { transcription.stop(); LiveSignalState.clear(); AudioRouteState.clear() }
                 else syncTranscription()
             } else {
                 CallSessionRegistry.add(call)
