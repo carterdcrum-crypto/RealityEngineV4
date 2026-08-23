@@ -17,12 +17,14 @@ class RealityInCallService : InCallService() {
     }
 
     override fun onDestroy() {
+        LiveSignalState.clear()
         if (instance === this) instance = null
         super.onDestroy()
     }
 
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
+        if (CallSessionRegistry.primary() == null) LiveSignalState.clear()
         CallSessionRegistry.add(call)
         call.registerCallback(callback)
         launchCallUi()
@@ -31,7 +33,11 @@ class RealityInCallService : InCallService() {
     override fun onCallRemoved(call: Call) {
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
-        if (CallSessionRegistry.primary() != null) launchCallUi()
+        if (CallSessionRegistry.primary() != null) {
+            launchCallUi()
+        } else {
+            LiveSignalState.clear()
+        }
         super.onCallRemoved(call)
     }
 
@@ -53,6 +59,7 @@ class RealityInCallService : InCallService() {
         override fun onStateChanged(call: Call, state: Int) {
             if (state == Call.STATE_DISCONNECTED) {
                 CallSessionRegistry.removeIfDisconnected(call)
+                if (CallSessionRegistry.primary() == null) LiveSignalState.clear()
             } else {
                 CallSessionRegistry.add(call)
                 launchCallUi()
