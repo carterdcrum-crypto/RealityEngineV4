@@ -26,7 +26,11 @@ class CallerMemoryExtractor(context: Context) {
             val index = lower.indexOf(prefix)
             if (index >= 0) {
                 val start = index + prefix.length
-                val value = original.substring(start).substringBefore('.').substringBefore('?').substringBefore('!').trim(" ,;:")
+                val value = original.substring(start)
+                    .substringBefore('.')
+                    .substringBefore('?')
+                    .substringBefore('!')
+                    .trim { it == ' ' || it == ',' || it == ';' || it == ':' }
                 if (value.length in 2..120) return value
             }
         }
