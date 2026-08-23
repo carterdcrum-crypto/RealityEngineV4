@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:angle="270" android:startColor="#010407" android:centerColor="#031318" android:endColor="#000203" />
+        </shape>
+    </item>
+    <item android:gravity="center" android:width="260dp" android:height="260dp">
+        <shape android:shape="oval">
+            <gradient android:type="radial" android:gradientRadius="130dp" android:centerColor="#3028E0FF" android:endColor="#0012AFC8" />
+            <stroke android:width="1dp" android:color="#7A28E0FF" />
+        </shape>
+    </item>
+    <item android:gravity="center" android:width="220dp" android:height="220dp">
+        <bitmap android:src="@drawable/reality_engine_icon" android:gravity="center" />
+    </item>
+</layer-list>
