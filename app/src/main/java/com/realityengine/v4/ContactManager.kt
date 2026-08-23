@@ -46,12 +46,19 @@ class ContactManager(private val context: Context) {
         Result(true)
     } catch (t: Throwable) { Result(false, t.message ?: "Could not delete contact") }
 
-    fun block(phone: String): Result = try {
-        if (!BlockedNumberContract.canCurrentUserBlockNumbers(context)) return Result(false, "Blocking unavailable")
-        val values = android.content.ContentValues().apply { put(BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, phone.trim()) }
-        context.contentResolver.insert(BlockedNumberContract.BlockedNumbers.CONTENT_URI, values)
-        Result(true)
-    } catch (t: Throwable) { Result(false, t.message ?: "Could not block number") }
+    fun block(phone: String): Result {
+        return try {
+            if (!BlockedNumberContract.canCurrentUserBlockNumbers(context)) {
+                Result(false, "Blocking unavailable")
+            } else {
+                val values = android.content.ContentValues().apply {
+                    put(BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER, phone.trim())
+                }
+                context.contentResolver.insert(BlockedNumberContract.BlockedNumbers.CONTENT_URI, values)
+                Result(true)
+            }
+        } catch (t: Throwable) { Result(false, t.message ?: "Could not block number") }
+    }
 
     fun unblock(phone: String): Result = try {
         val rows = context.contentResolver.delete(BlockedNumberContract.BlockedNumbers.CONTENT_URI, "${BlockedNumberContract.BlockedNumbers.COLUMN_ORIGINAL_NUMBER}=?", arrayOf(phone.trim()))
