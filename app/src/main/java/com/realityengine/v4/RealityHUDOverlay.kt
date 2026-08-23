@@ -42,108 +42,194 @@ fun RealityHUDOverlay(state: HUDState, modifier: Modifier = Modifier) {
     val pulse = rememberInfiniteTransition(label = "hud").animateFloat(
         initialValue = 0.82f,
         targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700),
+            repeatMode = RepeatMode.Reverse
+        ),
         label = "pulse"
     ).value
+
     Column(
-        modifier.background(Color(0xF003080D)).padding(12.dp),
+        modifier = modifier
+            .background(Color(0xF003080D))
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
         Text("REALITY ENGINE // MULTIMODAL HUD", color = Color(0xFF55EFFF), fontSize = 12.sp)
         HonestyCore(state, pulse)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             StreamPanel("E1 // ACOUSTIC", Modifier.weight(1f)) { AudioViz(state, pulse) }
             StreamPanel("E3 // KNOWLEDGE", Modifier.weight(1f)) { Radar(state, pulse) }
         }
         StreamPanel("E2 // LINGUISTIC", Modifier.fillMaxWidth()) { LinguisticFeed(state) }
-        if (state.discrepancy) Text("DISCREPANCY DETECTED", color = Color(0xFFFF315C), fontSize = 14.sp)
+        if (state.discrepancy) {
+            Text("DISCREPANCY DETECTED", color = Color(0xFFFF315C), fontSize = 14.sp)
+        }
     }
 }
 
 @Composable
-private fun HonestyCore(s: HUDState, pulse: Float) {
-    val color = when {
-        s.honesty > 80 -> Color(0xFF35E7FF)
-        s.honesty >= 50 -> Color(0xFFFFB52E)
+private fun HonestyCore(state: HUDState, pulse: Float) {
+    val gaugeColor = when {
+        state.honesty > 80 -> Color(0xFF35E7FF)
+        state.honesty >= 50 -> Color(0xFFFFB52E)
         else -> Color(0xFFFF2D70)
     }
-    val oddsText = if (s.logOdds >= 0.0) {
-        "LOG-ODDS  UP +${"%.2f".format(s.logOdds)}"
+    val formattedOdds = "%.2f".format(state.logOdds)
+    val oddsText = if (state.logOdds >= 0.0) {
+        "LOG-ODDS UP +$formattedOdds"
     } else {
-        "LOG-ODDS  DOWN ${"%.2f".format(s.logOdds)}"
+        "LOG-ODDS DOWN $formattedOdds"
     }
-    Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+
+    Box(
+        modifier = Modifier.fillMaxWidth().height(180.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Canvas(Modifier.size(155.dp)) {
-            val sw = 12.dp.toPx()
-            drawArc(Color(0x332EDFFF), -90f, 360f, false, style = Stroke(sw))
-            drawArc(color, -90f, 360f * s.honesty.coerceIn(0, 100) / 100f, false, style = Stroke(sw * pulse, cap = StrokeCap.Round))
-            drawCircle(color.copy(alpha = 0.12f), radius = size.minDimension * 0.38f * pulse)
+            val strokeWidth = 12.dp.toPx()
+            drawArc(
+                color = Color(0x332EDFFF),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                style = Stroke(strokeWidth)
+            )
+            drawArc(
+                color = gaugeColor,
+                startAngle = -90f,
+                sweepAngle = 360f * state.honesty.coerceIn(0, 100) / 100f,
+                useCenter = false,
+                style = Stroke(strokeWidth * pulse, cap = StrokeCap.Round)
+            )
+            drawCircle(
+                color = gaugeColor.copy(alpha = 0.12f),
+                radius = size.minDimension * 0.38f * pulse
+            )
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("HONESTY SCORE", color = Color(0xFF9DDDE8), fontSize = 11.sp)
-            Text("${s.honesty}%", color = color, fontSize = 36.sp)
+            Text("${state.honesty}%", color = gaugeColor, fontSize = 36.sp)
             Text(oddsText, color = Color.White, fontSize = 10.sp)
         }
     }
 }
 
 @Composable
-private fun StreamPanel(title: String, modifier: Modifier, body: @Composable () -> Unit) {
-    Column(modifier.background(Color(0xAA091721), RoundedCornerShape(10.dp)).padding(9.dp)) {
+private fun StreamPanel(
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    Column(
+        modifier = modifier
+            .background(Color(0xAA091721), RoundedCornerShape(10.dp))
+            .padding(9.dp)
+    ) {
         Text(title, color = Color(0xFF52E9FF), fontSize = 10.sp)
         Spacer(Modifier.height(6.dp))
-        body()
+        content()
     }
 }
 
 @Composable
-private fun AudioViz(s: HUDState, pulse: Float) {
+private fun AudioViz(state: HUDState, pulse: Float) {
     Column {
         Canvas(Modifier.fillMaxWidth().height(82.dp)) {
-            val n = 22
-            val stress = s.cognitive / 100f
-            for (i in 0 until n) {
-                val x = size.width * i / (n - 1f)
-                val wave = (0.15f + 0.75f * abs(sin(i * 0.71f + s.acoustic * 0.08f)).toFloat()) * (0.35f + stress)
-                drawLine(Color(0xFF41E9FF), Offset(x, size.height / 2 - wave * size.height / 2), Offset(x, size.height / 2 + wave * size.height / 2), 3f)
+            val barCount = 22
+            val stress = state.cognitive / 100f
+            for (index in 0 until barCount) {
+                val x = size.width * index / (barCount - 1f)
+                val phase = index * 0.71f + state.acoustic * 0.08f
+                val wave = (0.15f + 0.75f * abs(sin(phase))) * (0.35f + stress)
+                drawLine(
+                    color = Color(0xFF41E9FF),
+                    start = Offset(x, size.height / 2f - wave * size.height / 2f),
+                    end = Offset(x, size.height / 2f + wave * size.height / 2f),
+                    strokeWidth = 3f
+                )
             }
-            if (s.latencyMs > 1500 || s.pitchJitterHigh) {
-                drawCircle(Color(0xFFFF2D8A).copy(alpha = 0.7f), radius = size.minDimension * 0.47f * pulse, style = Stroke(3f))
+            if (state.latencyMs > 1500L || state.pitchJitterHigh) {
+                drawCircle(
+                    color = Color(0xFFFF2D8A).copy(alpha = 0.7f),
+                    radius = size.minDimension * 0.47f * pulse,
+                    style = Stroke(3f)
+                )
             }
         }
-        Text("LATENCY: ${s.latencyMs} ms", color = Color.White, fontSize = 9.sp)
-        Text("PITCH JITTER: ${if (s.pitchJitterHigh) "HIGH" else "LOW"}", color = if (s.pitchJitterHigh) Color(0xFFFF3B75) else Color(0xFF6FFFC1), fontSize = 9.sp)
-        Text("COGNITIVE LOAD: ${s.cognitive}%", color = Color(0xFFFF75C8), fontSize = 9.sp)
+        Text("LATENCY: ${state.latencyMs} ms", color = Color.White, fontSize = 9.sp)
+        Text(
+            text = "PITCH JITTER: ${if (state.pitchJitterHigh) "HIGH" else "LOW"}",
+            color = if (state.pitchJitterHigh) Color(0xFFFF3B75) else Color(0xFF6FFFC1),
+            fontSize = 9.sp
+        )
+        Text("COGNITIVE LOAD: ${state.cognitive}%", color = Color(0xFFFF75C8), fontSize = 9.sp)
     }
 }
 
 @Composable
-private fun LinguisticFeed(s: HUDState) {
+private fun LinguisticFeed(state: HUDState) {
     Column {
-        Text(highlightFillers(s.transcript), color = Color(0xFFE4F5F8), fontSize = 11.sp, maxLines = 4)
+        Text(
+            text = highlightFillers(state.transcript),
+            color = Color(0xFFE4F5F8),
+            fontSize = 11.sp,
+            maxLines = 4
+        )
         Spacer(Modifier.height(5.dp))
-        Text("FILLER COUNT: ${s.fillerCount}   EVASIVENESS: ${s.evasiveness}/10", color = Color(0xFFFFD45B), fontSize = 9.sp)
+        Text(
+            text = "FILLER COUNT: ${state.fillerCount}   EVASIVENESS: ${state.evasiveness}/10",
+            color = Color(0xFFFFD45B),
+            fontSize = 9.sp
+        )
     }
 }
 
 private fun highlightFillers(text: String): String {
     val regex = Regex("(?i)\\b(um|uh|like|you know|honestly|basically)\\b")
-    return regex.replace(text) { "[${it.value.uppercase()}]" }
+    return regex.replace(text) { match -> "[${match.value.uppercase()}]" }
 }
 
 @Composable
-private fun Radar(s: HUDState, pulse: Float) {
-    Canvas(Modifier.fillMaxWidth().height(105.dp)) {
-        val center = Offset(size.width / 2, size.height / 2)
-        val radius = size.minDimension * 0.42f
-        for (k in 1..3) drawCircle(Color(0x443FE7FF), radius * k / 3, center, style = Stroke(2f))
-        drawLine(Color(0x553FE7FF), Offset(center.x - radius, center.y), Offset(center.x + radius, center.y), 1f)
-        drawLine(Color(0x553FE7FF), Offset(center.x, center.y - radius), Offset(center.x, center.y + radius), 1f)
-        if (s.discrepancy) {
-            val point = Offset(center.x + radius * 0.45f, center.y - radius * 0.25f)
-            drawCircle(Color(0xFFFF244F), 8f * pulse, point)
-            drawCircle(Color(0x88FF244F), 20f * pulse, point, style = Stroke(3f))
+private fun Radar(state: HUDState, pulse: Float) {
+    Column {
+        Canvas(Modifier.fillMaxWidth().height(105.dp)) {
+            val center = Offset(size.width / 2f, size.height / 2f)
+            val radius = size.minDimension * 0.42f
+            for (ring in 1..3) {
+                drawCircle(
+                    color = Color(0x443FE7FF),
+                    radius = radius * ring / 3f,
+                    center = center,
+                    style = Stroke(2f)
+                )
+            }
+            drawLine(
+                Color(0x553FE7FF),
+                Offset(center.x - radius, center.y),
+                Offset(center.x + radius, center.y),
+                1f
+            )
+            drawLine(
+                Color(0x553FE7FF),
+                Offset(center.x, center.y - radius),
+                Offset(center.x, center.y + radius),
+                1f
+            )
+            if (state.discrepancy) {
+                val point = Offset(center.x + radius * 0.45f, center.y - radius * 0.25f)
+                drawCircle(Color(0xFFFF244F), radius = 8f * pulse, center = point)
+                drawCircle(
+                    Color(0x88FF244F),
+                    radius = 20f * pulse,
+                    center = point,
+                    style = Stroke(3f)
+                )
+            }
         }
+        Text("FACTUAL SIGNAL: ${state.factual}%", color = Color.White, fontSize = 9.sp)
     }
-    Text("FACTUAL SIGNAL: ${s.factual}%", color = Color.White, fontSize = 9.sp)
 }
