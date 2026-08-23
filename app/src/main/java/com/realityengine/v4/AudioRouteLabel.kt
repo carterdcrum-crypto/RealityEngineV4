@@ -5,7 +5,8 @@ object AudioRouteLabel {
     fun current(): String {
         val state = AudioRouteState.snapshot()
         return when (state.route) {
-            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> "SHIZUKU // LIVE"
+            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> "VOICE_CALL // LIVE"
+            AudioCaptureRouter.Route.NATIVE_VOICE_COMMUNICATION -> "VOICE_COMM // LIVE"
             AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> "TWILIO // FALLBACK"
             AudioCaptureRouter.Route.MICROPHONE_PERMISSION_REQUIRED -> "MIC // PERMISSION REQUIRED"
             AudioCaptureRouter.Route.SHIZUKU_PERMISSION_REQUIRED -> "SHIZUKU // PERMISSION REQUIRED"
