@@ -10,12 +10,14 @@ class RealityInCallService : InCallService() {
 
     private lateinit var transcription: LiveTranscriptionPipeline
     private lateinit var audioRouter: AudioCaptureRouter
+    private lateinit var summaryBuilder: CallSummaryBuilder
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         transcription = LiveTranscriptionPipeline(applicationContext)
         audioRouter = AudioCaptureRouter(applicationContext)
+        summaryBuilder = CallSummaryBuilder(applicationContext)
         ShizukuAudioStatus.requestPermission()
     }
 
@@ -36,8 +38,10 @@ class RealityInCallService : InCallService() {
     }
 
     override fun onCallRemoved(call: Call) {
+        val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
         call.unregisterCallback(callback)
         CallSessionRegistry.remove(call)
+        if (endedNumber.isNotBlank()) summaryBuilder.finalize(endedNumber)
         if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() }
         else { transcription.stop(); LiveSignalState.clear() }
         super.onCallRemoved(call)
@@ -71,7 +75,9 @@ class RealityInCallService : InCallService() {
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
             if (state == Call.STATE_DISCONNECTED) {
+                val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
                 CallSessionRegistry.removeIfDisconnected(call)
+                if (endedNumber.isNotBlank()) summaryBuilder.finalize(endedNumber)
                 if (CallSessionRegistry.primary() == null) { transcription.stop(); LiveSignalState.clear() }
                 else syncTranscription()
             } else {
