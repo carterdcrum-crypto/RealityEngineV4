@@ -36,7 +36,8 @@ object LiveTranscriptState {
         val now = System.currentTimeMillis()
         val previous = current
         val history = if (isFinal) {
-            (previous.entries + Entry(clean, true, now)).takeLast(MAX_FINAL_ENTRIES)
+            if (previous.entries.lastOrNull()?.text == clean) previous.entries
+            else (previous.entries + Entry(clean, true, now)).takeLast(MAX_FINAL_ENTRIES)
         } else previous.entries
         val next = State(clean, isFinal, now, history)
         current = next
