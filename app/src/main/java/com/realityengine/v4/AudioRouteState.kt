@@ -12,34 +12,42 @@ object AudioRouteState {
         val updatedAtMs: Long = 0L
     ) {
         val label: String
-            get() = when (route) {
-                AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> "VOICE_CALL // LIVE"
-                AudioCaptureRouter.Route.NATIVE_VOICE_COMMUNICATION -> "VOICE_COMM // LIVE"
-                AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> "TWILIO // FALLBACK"
-                AudioCaptureRouter.Route.MICROPHONE_PERMISSION_REQUIRED -> "MIC // PERMISSION REQUIRED"
-                AudioCaptureRouter.Route.SHIZUKU_PERMISSION_REQUIRED -> "SHIZUKU // PERMISSION REQUIRED"
-                AudioCaptureRouter.Route.TWILIO_CONFIGURATION_REQUIRED -> "TWILIO // SETUP REQUIRED"
-                AudioCaptureRouter.Route.UNAVAILABLE -> "AUDIO // BLOCKED"
-            }
+            get() = AudioRoutePresenter.label(this)
 
         val detail: String
             get() {
-                val base = if (canTranscribe) "$label · TRANSCRIPTION READY" else "$label · $reason"
-                return if (diagnostic.isBlank()) base else "$base · $diagnostic"
+                val base = AudioRoutePresenter.detail(this)
+                return if (diagnostic.isBlank()) base else "$base · ${diagnostic.take(160)}"
             }
     }
 
     @Volatile private var current = Snapshot()
 
     fun publish(decision: AudioCaptureRouter.Decision) {
-        current = Snapshot(route=decision.route,reason=decision.reason,canTranscribe=decision.canTranscribe,updatedAtMs=System.currentTimeMillis())
+        current = Snapshot(
+            route = decision.route,
+            reason = decision.reason,
+            canTranscribe = decision.canTranscribe,
+            updatedAtMs = System.currentTimeMillis()
+        )
     }
 
-    fun diagnose(context:Context) {
-        val report=CallAudioDiagnostics.inspect(context.applicationContext);val previous=current
-        current=previous.copy(diagnostic=buildString{append(report.detail);append(" · SHIZUKU ");append(if(report.shizukuBinder&&report.shizukuGranted)"OK" else "NO");append(" · VC=").append(if(report.voiceCallInitialized)"Y" else "N");append(" COMM=").append(if(report.voiceCommunicationInitialized)"Y" else "N");append(" MIC=").append(if(report.microphoneInitialized)"Y" else "N")},updatedAtMs=System.currentTimeMillis())
+    fun diagnose(context: Context) {
+        val report = CallAudioDiagnostics.inspect(context.applicationContext)
+        val previous = current
+        current = previous.copy(
+            diagnostic = buildString {
+                append(report.detail)
+                append(" · SHIZUKU ")
+                append(if (report.shizukuBinder && report.shizukuGranted) "OK" else "NO")
+                append(" · VC=").append(if (report.voiceCallInitialized) "Y" else "N")
+                append(" COMM=").append(if (report.voiceCommunicationInitialized) "Y" else "N")
+                append(" MIC=").append(if (report.microphoneInitialized) "Y" else "N")
+            },
+            updatedAtMs = System.currentTimeMillis()
+        )
     }
 
-    fun snapshot():Snapshot=current
-    fun clear(){current=Snapshot()}
+    fun snapshot(): Snapshot = current
+    fun clear() { current = Snapshot() }
 }
