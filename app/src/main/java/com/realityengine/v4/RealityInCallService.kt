@@ -18,17 +18,28 @@ class RealityInCallService : InCallService() {
         summaryBuilder = CallSummaryBuilder(applicationContext); ShizukuAudioStatus.requestPermission()
     }
 
-    override fun onDestroy() { transcription.stop(); LiveTranscriptState.clear(); LiveSignalState.clear(); AudioRouteState.clear(); if (instance === this) instance = null; super.onDestroy() }
-    override fun onCallAdded(call: Call) { super.onCallAdded(call); finalizedCalls.remove(call); if (CallSessionRegistry.primary() == null) { LiveSignalState.clear(); LiveTranscriptState.clear() }; CallSessionRegistry.add(call); call.registerCallback(callback); syncTranscription(); launchCallUi() }
-    override fun onCallRemoved(call: Call) { val endedNumber = CallSessionRegistry.numberFor(call).orEmpty(); call.unregisterCallback(callback); CallSessionRegistry.remove(call); finalizeOnce(call, endedNumber); if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() } else { transcription.stop(); LiveTranscriptState.clear(); LiveSignalState.clear(); AudioRouteState.clear() }; super.onCallRemoved(call) }
+    override fun onDestroy() { transcription.stop(); clearLiveSession(); if (instance === this) instance = null; super.onDestroy() }
+    override fun onCallAdded(call: Call) {
+        super.onCallAdded(call); finalizedCalls.remove(call)
+        if (CallSessionRegistry.primary() == null) clearLiveSession()
+        CallSessionRegistry.add(call); call.registerCallback(callback); syncTranscription(); launchCallUi()
+    }
+    override fun onCallRemoved(call: Call) {
+        val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
+        call.unregisterCallback(callback); CallSessionRegistry.remove(call); finalizeOnce(call, endedNumber)
+        if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() }
+        else { transcription.stop(); clearLiveSession() }
+        super.onCallRemoved(call)
+    }
     override fun onCallAudioStateChanged(audioState: CallAudioState?) { super.onCallAudioStateChanged(audioState); if (CallSessionRegistry.primary() != null) { syncTranscription(); launchCallUi() } }
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
 
     @Synchronized private fun finalizeOnce(call: Call, phoneNumber: String) { if (phoneNumber.isBlank() || !finalizedCalls.add(call)) return; summaryBuilder.finalize(phoneNumber) }
+    private fun clearLiveSession() { LiveTranscriptState.clear(); LiveSignalState.clear(); AudioRouteState.clear(); ResponseCoachState.clearCall() }
 
     private fun syncTranscription() {
-        val call = CallSessionRegistry.primary() ?: run { transcription.stop(); AudioRouteState.clear(); return }
-        if (call.state != Call.STATE_ACTIVE) { if (transcription.isRunning()) transcription.stop(); AudioRouteState.clear(); launchCallUi(); return }
+        val call = CallSessionRegistry.primary() ?: run { transcription.stop(); clearLiveSession(); return }
+        if (call.state != Call.STATE_ACTIVE) { if (transcription.isRunning()) transcription.stop(); LiveTranscriptState.clear(); AudioRouteState.clear(); launchCallUi(); return }
 
         val decision = audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive())
         AudioRouteState.publish(decision); AudioRouteState.diagnose(applicationContext)
@@ -56,8 +67,10 @@ class RealityInCallService : InCallService() {
     private fun launchCallUi() { startActivity(Intent(this, CallActivity::class.java).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP) }) }
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
-            if (state == Call.STATE_DISCONNECTED) { val endedNumber = CallSessionRegistry.numberFor(call).orEmpty(); CallSessionRegistry.removeIfDisconnected(call); finalizeOnce(call, endedNumber); if (CallSessionRegistry.primary() == null) { transcription.stop(); LiveTranscriptState.clear(); LiveSignalState.clear(); AudioRouteState.clear() } else { syncTranscription(); launchCallUi() } }
-            else { CallSessionRegistry.add(call); syncTranscription(); launchCallUi() }
+            if (state == Call.STATE_DISCONNECTED) {
+                val endedNumber = CallSessionRegistry.numberFor(call).orEmpty(); CallSessionRegistry.removeIfDisconnected(call); finalizeOnce(call, endedNumber)
+                if (CallSessionRegistry.primary() == null) { transcription.stop(); clearLiveSession() } else { syncTranscription(); launchCallUi() }
+            } else { CallSessionRegistry.add(call); syncTranscription(); launchCallUi() }
         }
     }
 }
