@@ -1,6 +1,7 @@
 package com.realityengine.v4
 
 import android.content.Context
+import kotlin.math.roundToInt
 
 /** Builds a compact, token-free end-of-call summary from persistent caller memory and evidence. */
 class CallSummaryBuilder(context: Context) {
@@ -15,10 +16,13 @@ class CallSummaryBuilder(context: Context) {
     }
 
     companion object {
+        private fun pct(v: Float) = (v.coerceIn(0f, 1f) * 100f).roundToInt()
+
         internal fun buildSummary(profile: CallerProfileStore.CallerProfile): String {
             val recentEvents = profile.evidenceEvents.takeLast(12)
             val peak = recentEvents.maxByOrNull { it.combined }
-            val firstTs = recentEvents.firstOrNull()?.timestampMs
+            // Call elapsed time must be anchored to the earliest retained event, not insertion order.
+            val firstTs = recentEvents.minOfOrNull { it.timestampMs }
             val timeline = if (firstTs == null) emptyList() else recentEvents
                 .filter { it.combined >= .55f }
                 .sortedByDescending { it.combined }
@@ -29,8 +33,7 @@ class CallSummaryBuilder(context: Context) {
                     val mm = elapsed / 60
                     val ss = elapsed % 60
                     "@%d:%02d %d%% [A%d L%d F%d]%s".format(
-                        mm, ss, (it.combined * 100).toInt(), (it.acoustic * 100).toInt(),
-                        (it.linguistic * 100).toInt(), (it.factual * 100).toInt(),
+                        mm, ss, pct(it.combined), pct(it.acoustic), pct(it.linguistic), pct(it.factual),
                         if (it.context.isBlank()) "" else " ${it.context.take(80)}"
                     )
                 }
@@ -38,7 +41,7 @@ class CallSummaryBuilder(context: Context) {
                 profile.topics.lastOrNull()?.let { add("Latest topic: ${it.take(120)}") }
                 if (profile.preferredConversationStyle.isNotBlank()) add("Preferred style: ${profile.preferredConversationStyle.take(100)}")
                 peak?.takeIf { it.combined >= .55f }?.let {
-                    add("Highest signal: ${(it.combined * 100).toInt()}% combined (${(it.acoustic * 100).toInt()}% acoustic, ${(it.linguistic * 100).toInt()}% linguistic, ${(it.factual * 100).toInt()}% factual)${if (it.context.isBlank()) "" else " near: ${it.context.take(110)}"}")
+                    add("Highest signal: ${pct(it.combined)}% combined (${pct(it.acoustic)}% acoustic, ${pct(it.linguistic)}% linguistic, ${pct(it.factual)}% factual)${if (it.context.isBlank()) "" else " near: ${it.context.take(110)}"}")
                 }
                 if (timeline.isNotEmpty()) add("Timeline: ${timeline.joinToString(" | ")}")
                 profile.conversationStarters.lastOrNull()?.let { add("Useful next opener: ${it.take(130)}") }
