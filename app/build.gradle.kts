@@ -12,12 +12,16 @@ android {
         applicationId = "com.realityengine.v4"
         minSdk = 26
         targetSdk = 35
-        versionCode = 208
-        versionName = "0.208.0"
+        versionCode = 306
+        versionName = "0.306.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "BUILD_ID", "\"RE4-W306\"")
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
