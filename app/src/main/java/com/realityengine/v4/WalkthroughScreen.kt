@@ -10,7 +10,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 
-/** Programmatic first-launch walkthrough matching Reality Engine's existing visual language. */
+/** First-launch walkthrough with live setup readiness and beginner-friendly navigation. */
 class WalkthroughScreen(
     private val activity: Activity,
     private val state: OnboardingState,
@@ -18,9 +18,12 @@ class WalkthroughScreen(
     private val onAction: (WalkthroughContent.Step) -> Unit = {}
 ) {
     private val nav = WalkthroughNavigator()
+    private val settings = SettingsStore(activity)
     private val bg = Color.rgb(3, 7, 12)
     private val panel = Color.rgb(9, 18, 27)
     private val cyan = Color.rgb(40, 224, 255)
+    private val green = Color.rgb(75, 255, 165)
+    private val amber = Color.rgb(255, 196, 92)
     private val muted = Color.rgb(118, 147, 163)
 
     fun show() { activity.setContentView(build()) }
@@ -31,12 +34,11 @@ class WalkthroughScreen(
             setPadding(dp(22), dp(38), dp(22), dp(22))
             setBackgroundColor(bg)
         }
-        val progress = TextView(activity).apply {
+        root.addView(TextView(activity).apply {
             text = "SETUP // ${nav.progressText}"
             setTextColor(cyan)
             RealityTypography.technical(this, 11f)
-        }
-        root.addView(progress, LinearLayout.LayoutParams(-1, dp(34)))
+        }, LinearLayout.LayoutParams(-1, dp(34)))
 
         val scroll = ScrollView(activity).apply { isFillViewport = true }
         val body = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
@@ -52,14 +54,28 @@ class WalkthroughScreen(
             setTextColor(Color.rgb(205, 241, 248))
             RealityTypography.display(this, 16f)
             setLineSpacing(0f, 1.18f)
-            setPadding(0, 0, 0, dp(24))
+            setPadding(0, 0, 0, dp(18))
         })
-        step.actionLabel?.let { label -> body.addView(button(label) { onAction(step) }, LinearLayout.LayoutParams(-1, dp(56))) }
+        WalkthroughSetupStatus.forStep(activity, step, settings)?.let { setup ->
+            body.addView(TextView(activity).apply {
+                text = if (setup.ready) "✓ ${setup.message}" else "○ ${setup.message}"
+                setTextColor(if (setup.ready) green else amber)
+                RealityTypography.technical(this, 11f)
+                setPadding(dp(14), dp(12), dp(14), dp(12))
+                background = GradientDrawable().apply {
+                    setColor(panel); setStroke(dp(1), if (setup.ready) green else amber); cornerRadius = dp(12).toFloat()
+                }
+            }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, dp(16)) })
+        }
+        step.actionLabel?.let { label ->
+            body.addView(button(label) { onAction(step) }, LinearLayout.LayoutParams(-1, dp(56)))
+            body.addView(textButton("Refresh status") { show() }, LinearLayout.LayoutParams(-1, dp(42)))
+        }
         scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
 
         val navigation = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-        if (!nav.isFirst) navigation.addView(button("Back") { nav.previous(); show() }, LinearLayout.LayoutParams(0, dp(54), 1f))
+        if (!nav.isFirst) navigation.addView(button("Back") { nav.previous(); show() }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { marginEnd = dp(6) })
         navigation.addView(button(if (nav.isLast) "Start Reality Engine" else "Next") {
             if (nav.isLast) { state.complete(); onExit() } else { nav.next(); show() }
         }, LinearLayout.LayoutParams(0, dp(54), 1f))
