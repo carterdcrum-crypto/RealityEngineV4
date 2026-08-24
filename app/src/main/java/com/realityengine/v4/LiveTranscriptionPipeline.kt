@@ -49,13 +49,14 @@ class LiveTranscriptionPipeline(context: Context) {
         acoustic.reset(); callerSpeaker = null; LiveTranscriptState.clear()
         interimCallback = onInterim; stoppedCallback = onStopped; conversation.bindActiveCaller()
         val connecting = deepgram.connect(sampleRate = sampleRate, onTranscript = { result ->
-            LiveTranscriptState.publish(result.text, result.isFinal)
+            val speaker = result.speaker
+            if (callerSpeaker == null && speaker != null) callerSpeaker = speaker
+            val isCaller = speaker?.let { it == callerSpeaker }
+            LiveTranscriptState.publish(result.text, result.isFinal, isCaller)
             interimCallback?.invoke(result.text)
             if (result.isFinal && result.text.isNotBlank()) {
-                val speaker = result.speaker
-                if (callerSpeaker == null && speaker != null) callerSpeaker = speaker
-                val isCaller = speaker == null || speaker == callerSpeaker
-                if (isCaller) {
+                val finalIsCaller = isCaller != false
+                if (finalIsCaller) {
                     conversation.onCallerTurn(result.text)
                     val phone = CallSessionRegistry.primaryNumber().orEmpty()
                     memory.observe(phone, result.text)
