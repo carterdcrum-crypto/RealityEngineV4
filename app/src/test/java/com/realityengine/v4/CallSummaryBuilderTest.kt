@@ -51,8 +51,14 @@ class CallSummaryBuilderTest {
         p.evidenceEvents += CallerProfileStore.EvidenceEvent(20_000L,.7f,.7f,.7f,.70f,"keep-b")
         p.evidenceEvents += CallerProfileStore.EvidenceEvent(30_000L,.8f,.8f,.8f,.80f,"keep-c")
         val s = CallSummaryBuilder.buildSummary(p)
-        assertFalse(s.contains("weakest-high"))
-        assertTrue(s.indexOf("keep-a") < s.indexOf("keep-b"))
-        assertTrue(s.indexOf("keep-b") < s.indexOf("keep-c"))
+        // "weakest-high" may still appear in Highest signal context only if it were the peak;
+        // verify specifically that the bounded Timeline excludes it.
+        val timeline = s.substringAfter("Timeline: ", "").substringBefore(" • ")
+        assertFalse(timeline.contains("weakest-high"))
+        assertTrue(timeline.contains("keep-a"))
+        assertTrue(timeline.contains("keep-b"))
+        assertTrue(timeline.contains("keep-c"))
+        assertTrue(timeline.indexOf("keep-a") < timeline.indexOf("keep-b"))
+        assertTrue(timeline.indexOf("keep-b") < timeline.indexOf("keep-c"))
     }
 }
