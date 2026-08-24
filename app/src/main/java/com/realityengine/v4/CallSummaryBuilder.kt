@@ -21,11 +21,10 @@ class CallSummaryBuilder(context: Context) {
         internal fun buildSummary(profile: CallerProfileStore.CallerProfile): String {
             val recentEvents = profile.evidenceEvents.takeLast(12)
             val peak = recentEvents.maxByOrNull { it.combined }
-            // Call elapsed time must be anchored to the earliest retained event, not insertion order.
             val firstTs = recentEvents.minOfOrNull { it.timestampMs }
             val timeline = if (firstTs == null) emptyList() else recentEvents
                 .filter { it.combined >= .55f }
-                .sortedByDescending { it.combined }
+                .sortedWith(compareByDescending<CallerProfileStore.EvidenceEvent> { it.combined }.thenByDescending { it.timestampMs })
                 .take(3)
                 .sortedBy { it.timestampMs }
                 .map {
