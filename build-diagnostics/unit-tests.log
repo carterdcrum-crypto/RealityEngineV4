@@ -39,8 +39,8 @@ Daemon will be stopped at the end of the build
 > Task :app:processReleaseManifest
 > Task :app:preReleaseUnitTestBuild UP-TO-DATE
 > Task :app:javaPreCompileRelease
-> Task :app:processReleaseManifestForPackage
 > Task :app:javaPreCompileReleaseUnitTest
+> Task :app:processReleaseManifestForPackage
 > Task :app:processReleaseResources
 > Task :app:compileDebugUnitTestKotlin
 > Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
@@ -48,13 +48,10 @@ Daemon will be stopped at the end of the build
 
 > Task :app:testDebugUnitTest FAILED
 
-CallSummaryBuilderTest > summary reports peak signal and chronological high-signal timeline FAILED
-    java.lang.AssertionError at CallSummaryBuilderTest.kt:27
-
 CallSummaryBuilderTest > timeline keeps only three strongest events but displays them chronologically FAILED
     java.lang.AssertionError at CallSummaryBuilderTest.kt:56
 
-19 tests completed, 2 failed
+19 tests completed, 1 failed
 
 > Task :app:compileReleaseKotlin
 w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:47:160 'val state: Int' is deprecated. Deprecated in Java.
@@ -93,7 +90,7 @@ w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/co
 w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:23:17 'val state: Int' is deprecated. Deprecated in Java.
 w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/SplashActivity.kt:27:16 'var statusBarColor: Int' is deprecated. Deprecated in Java.
 w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/SplashActivity.kt:28:16 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/unit_tests-1787545661205.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/unit_tests-1787546132314.json
 
 FAILURE: Build failed with an exception.
 
@@ -265,5 +262,5 @@ Caused by: org.gradle.api.internal.exceptions.MarkedVerificationException: There
 	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
 
 
-BUILD FAILED in 28s
+BUILD FAILED in 32s
 39 actionable tasks: 23 executed, 16 up-to-date
