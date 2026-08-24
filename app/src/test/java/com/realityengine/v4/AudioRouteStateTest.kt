@@ -11,7 +11,8 @@ class AudioRouteStateTest {
             reason = "No supported call-audio source",
             canTranscribe = false
         )
-        assertTrue(s.label.contains("BLOCKED"))
+        assertTrue(s.label.contains("UNAVAILABLE"))
+        assertTrue(s.detail.startsWith("TRANSCRIPTION BLOCKED"))
         assertTrue(s.detail.contains("No supported call-audio source"))
         assertFalse(s.detail.contains("TRANSCRIPTION READY"))
     }
@@ -24,7 +25,7 @@ class AudioRouteStateTest {
         )
         assertTrue(s.label.contains("VOICE_CALL"))
         assertTrue(s.detail.contains("TRANSCRIPTION READY"))
-        assertFalse(s.detail.contains("AUDIO // BLOCKED"))
+        assertFalse(s.detail.contains("TRANSCRIPTION BLOCKED"))
     }
 
     @Test fun `native voice communication route is represented independently`() {
@@ -58,7 +59,8 @@ class AudioRouteStateTest {
             canTranscribe = false,
             diagnostic = "SHIZUKU OK · VC=N COMM=N MIC=Y"
         )
-        assertTrue(s.detail.startsWith("AUDIO // BLOCKED"))
+        assertTrue(s.label.contains("UNAVAILABLE"))
+        assertTrue(s.detail.startsWith("TRANSCRIPTION BLOCKED"))
         assertTrue(s.detail.contains("SHIZUKU OK"))
         assertFalse(s.detail.contains("TRANSCRIPTION READY"))
     }
