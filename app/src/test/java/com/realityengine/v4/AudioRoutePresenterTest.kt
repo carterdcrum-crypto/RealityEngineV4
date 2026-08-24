@@ -9,7 +9,7 @@ class AudioRoutePresenterTest {
         route: AudioCaptureRouter.Route,
         canTranscribe: Boolean,
         reason: String = "ok"
-    ) = AudioRouteState.Snapshot(route, canTranscribe, reason)
+    ) = AudioRouteState.Snapshot(route = route, reason = reason, canTranscribe = canTranscribe)
 
     @Test fun `live Shizuku route clearly reports transcription ready`() {
         val s = snapshot(AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL, true, "call audio available")
