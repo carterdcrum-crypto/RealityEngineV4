@@ -34,6 +34,25 @@ class TranscriptPresenterTest {
         assertEquals("● first\n● second\n○ working", rendered)
     }
 
+    @Test fun `diarized history labels caller and user`() {
+        val entries = listOf(
+            LiveTranscriptState.Entry("hello", true, 1L, true),
+            LiveTranscriptState.Entry("hey there", true, 2L, false)
+        )
+        val rendered = TranscriptPresenter.render(LiveTranscriptState.State(entries = entries), route)
+        assertEquals("● CALLER  // hello\n● YOU  // hey there", rendered)
+    }
+
+    @Test fun `interim speech uses known speaker label`() {
+        val state = LiveTranscriptState.State(text = "one moment", isFinal = false, updatedAtMs = 3L, isCaller = false)
+        assertEquals("○ YOU  // one moment", TranscriptPresenter.render(state, route))
+    }
+
+    @Test fun `unknown speaker remains unlabeled`() {
+        val entries = listOf(LiveTranscriptState.Entry("unknown", true, 1L, null))
+        assertEquals("● unknown", TranscriptPresenter.render(LiveTranscriptState.State(entries = entries), route))
+    }
+
     @Test fun `only eight latest finalized lines are shown`() {
         val entries = (1..10).map { LiveTranscriptState.Entry("line-$it", true, it.toLong()) }
         val rendered = TranscriptPresenter.render(LiveTranscriptState.State("line-10", true, 10L, entries), route)
