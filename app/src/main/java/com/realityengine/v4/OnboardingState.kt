@@ -6,15 +6,19 @@ import android.content.Context
 class OnboardingState(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    /** True only until the user finishes, skips, or permanently dismisses onboarding. */
+    /** True until the user finishes setup or explicitly chooses Don't show this again. */
     fun shouldShowOnLaunch(): Boolean = !prefs.getBoolean(KEY_HANDLED, false)
 
-    /** Marks onboarding handled for future launches. It remains manually reopenable from Settings. */
+    /** Completing setup permanently dismisses automatic onboarding. */
     fun complete() = markHandled()
-    fun skip() = markHandled()
+
+    /** Skip only exits the walkthrough for the current app session. */
+    fun skip() = Unit
+
+    /** Explicit permanent dismissal. */
     fun dontShowAgain() = markHandled()
 
-    /** Allows a Settings action to intentionally show the walkthrough again without changing launch state. */
+    /** Allows a Settings action to intentionally show the walkthrough automatically again. */
     fun markForNextLaunch() {
         prefs.edit().putBoolean(KEY_HANDLED, false).apply()
     }
