@@ -34,7 +34,7 @@ class WalkthroughScreen(
         val progress = TextView(activity).apply {
             text = "SETUP // ${nav.progressText}"
             setTextColor(cyan)
-            RealityTypography.technical(activity, 11f)
+            RealityTypography.technical(this, 11f)
         }
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(34)))
 
@@ -44,13 +44,13 @@ class WalkthroughScreen(
         body.addView(TextView(activity).apply {
             text = step.title
             setTextColor(Color.rgb(229, 249, 252))
-            RealityTypography.displayMedium(activity, 27f)
+            RealityTypography.displayMedium(this, 27f)
             setPadding(0, dp(10), 0, dp(18))
         })
         body.addView(TextView(activity).apply {
             text = step.body
             setTextColor(Color.rgb(205, 241, 248))
-            RealityTypography.display(activity, 16f)
+            RealityTypography.display(this, 16f)
             setLineSpacing(0f, 1.18f)
             setPadding(0, 0, 0, dp(24))
         })
@@ -73,13 +73,13 @@ class WalkthroughScreen(
     }
 
     private fun button(label: String, click: () -> Unit) = Button(activity).apply {
-        text = label; setTextColor(cyan); RealityTypography.technical(activity, 12f)
+        text = label; setTextColor(cyan); RealityTypography.technical(this, 12f)
         background = GradientDrawable().apply { setColor(panel); setStroke(dp(1), cyan); cornerRadius = dp(14).toFloat() }
         stateListAnimator = null; setOnClickListener { click() }
     }
 
     private fun textButton(label: String, click: () -> Unit) = Button(activity).apply {
-        text = label; setTextColor(muted); RealityTypography.technical(activity, 10f)
+        text = label; setTextColor(muted); RealityTypography.technical(this, 10f)
         setBackgroundColor(Color.TRANSPARENT); stateListAnimator = null; setOnClickListener { click() }
     }
 
