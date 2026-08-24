@@ -31,41 +31,46 @@ jobs:
       - name: Verify Gradle
         run: gradle --version
 
+      - name: Initialize diagnostics
+        shell: bash
+        run: |
+          rm -rf build-diagnostics/current
+          mkdir -p build-diagnostics/current
+          printf 'commit=%s\nrun_id=%s\nstatus=running\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > build-diagnostics/current/summary.txt
+
       - name: Build debug APK
         id: build_apk
         shell: bash
         run: |
-          mkdir -p build-diagnostics
           set -o pipefail
-          gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee build-diagnostics/assembleDebug.log
+          gradle --no-daemon assembleDebug --stacktrace --console=plain 2>&1 | tee build-diagnostics/current/assembleDebug.log
 
       - name: Run unit tests
         id: unit_tests
         if: success()
         shell: bash
         run: |
-          mkdir -p build-diagnostics
           set -o pipefail
-          gradle --no-daemon test --stacktrace --console=plain 2>&1 | tee build-diagnostics/unit-tests.log
+          gradle --no-daemon test --stacktrace --console=plain 2>&1 | tee build-diagnostics/current/unit-tests.log
 
       - name: Write build summary
         if: always()
         shell: bash
         run: |
-          mkdir -p build-diagnostics
           {
             echo "commit=${GITHUB_SHA}"
             echo "run_id=${GITHUB_RUN_ID}"
             echo "build_outcome=${{ steps.build_apk.outcome }}"
             echo "test_outcome=${{ steps.unit_tests.outcome }}"
-          } > build-diagnostics/summary.txt
+          } > build-diagnostics/current/summary.txt
+          cp build-diagnostics/current/summary.txt build-diagnostics/summary.txt
 
       - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: RealityEngineV4-build-diagnostics
-          path: build-diagnostics/
+          name: RealityEngineV4-build-diagnostics-${{ github.sha }}
+          path: build-diagnostics/current/
           if-no-files-found: warn
           retention-days: 30
 
@@ -73,18 +78,24 @@ jobs:
         if: failure()
         shell: bash
         run: |
-          mkdir -p build-diagnostics
+          set -e
+          target="build-diagnostics/by-commit/${GITHUB_SHA}"
+          mkdir -p "$target"
+          cp -f build-diagnostics/current/summary.txt "$target/summary.txt"
+          [ ! -f build-diagnostics/current/assembleDebug.log ] || cp -f build-diagnostics/current/assembleDebug.log "$target/assembleDebug.log"
+          [ ! -f build-diagnostics/current/unit-tests.log ] || cp -f build-diagnostics/current/unit-tests.log "$target/unit-tests.log"
+          cp -f build-diagnostics/current/summary.txt build-diagnostics/summary.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f build-diagnostics/assembleDebug.log build-diagnostics/unit-tests.log build-diagnostics/summary.txt 2>/dev/null || true
+          git add -f build-diagnostics/summary.txt "$target"
           git diff --cached --quiet && exit 0
-          git commit -m "ci: save failed build diagnostics [skip ci]"
+          git commit -m "ci: diagnostics for ${GITHUB_SHA} [skip ci]"
           git push
 
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: RealityEngineV4-debug-apk
+          name: RealityEngineV4-debug-apk-${{ github.sha }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
