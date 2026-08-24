@@ -1,8 +1,9 @@
 package com.realityengine.v4
 
 /**
- * Small observable bridge between transcription/AI engines and the active-call UI.
- * Keeps rendering concerns out of LiveResponseEngine and avoids repeating model calls.
+ * Observable bridge between transcription/AI engines and the active-call UI.
+ * State is explicitly reset between calls so suggestions from one caller can
+ * never bleed into the next call screen.
  */
 object ResponseCoachState {
     data class Snapshot(
@@ -35,6 +36,11 @@ object ResponseCoachState {
 
     @Synchronized fun clearSuggestions() {
         snapshot = snapshot.copy(best = null, alternatives = emptyList())
+        notifyListeners()
+    }
+
+    @Synchronized fun clearCall() {
+        snapshot = Snapshot()
         notifyListeners()
     }
 
