@@ -5,14 +5,16 @@ object LiveTranscriptState {
     data class Entry(
         val text: String,
         val isFinal: Boolean,
-        val updatedAtMs: Long
+        val updatedAtMs: Long,
+        val isCaller: Boolean? = null
     )
 
     data class State(
         val text: String = "",
         val isFinal: Boolean = false,
         val updatedAtMs: Long = 0L,
-        val entries: List<Entry> = emptyList()
+        val entries: List<Entry> = emptyList(),
+        val isCaller: Boolean? = null
     )
 
     private const val MAX_FINAL_ENTRIES = 40
@@ -30,16 +32,17 @@ object LiveTranscriptState {
     @Synchronized
     fun removeListener(listener: (State) -> Unit) { listeners -= listener }
 
-    fun publish(text: String, isFinal: Boolean) {
+    fun publish(text: String, isFinal: Boolean, isCaller: Boolean? = null) {
         val clean = text.trim()
         if (clean.isBlank()) return
         val now = System.currentTimeMillis()
         val previous = current
         val history = if (isFinal) {
-            if (previous.entries.lastOrNull()?.text == clean) previous.entries
-            else (previous.entries + Entry(clean, true, now)).takeLast(MAX_FINAL_ENTRIES)
+            val last = previous.entries.lastOrNull()
+            if (last?.text == clean && last.isCaller == isCaller) previous.entries
+            else (previous.entries + Entry(clean, true, now, isCaller)).takeLast(MAX_FINAL_ENTRIES)
         } else previous.entries
-        val next = State(clean, isFinal, now, history)
+        val next = State(clean, isFinal, now, history, isCaller)
         current = next
         val copy = synchronized(this) { listeners.toList() }
         copy.forEach { it(next) }
