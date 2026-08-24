@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Live transcription pipeline supporting native Shizuku PCM and Twilio media fallback PCM. */
 class LiveTranscriptionPipeline(context: Context) {
     sealed class StartResult { data object Started : StartResult(); data class Unavailable(val reason: String) : StartResult() }
+    data class Status(val running: Boolean, val transport: DeepgramStreamingClient.State, val failure: String?)
 
     private val appContext = context.applicationContext
     private val settings = SettingsStore(appContext)
@@ -23,7 +24,7 @@ class LiveTranscriptionPipeline(context: Context) {
     @Volatile private var callerSpeaker: Int? = null
 
     fun start(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult {
-        if (!begin(VoiceCallPcmCapture.SAMPLE_RATE, onInterim, onStopped)) return StartResult.Unavailable("Deepgram stream could not start")
+        if (!begin(VoiceCallPcmCapture.SAMPLE_RATE, onInterim, onStopped)) return StartResult.Unavailable(startFailureReason())
         return when (val result = capture.start(
             onPcm = { bytes, length -> if (running.get()) { acousticScore = acoustic.analyze(bytes, length).score; if (deepgram.isConnected()) deepgram.sendPcm(bytes, length) } },
             onStopped = { reason -> if (running.getAndSet(false)) { deepgram.close(); stoppedCallback?.invoke(reason) } }
@@ -33,7 +34,8 @@ class LiveTranscriptionPipeline(context: Context) {
         }
     }
 
-    fun startTwilio(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult = if (begin(8_000, onInterim, onStopped)) StartResult.Started else StartResult.Unavailable("Deepgram stream could not start")
+    fun startTwilio(onInterim: (String) -> Unit = {}, onStopped: (String?) -> Unit = {}): StartResult =
+        if (begin(8_000, onInterim, onStopped)) StartResult.Started else StartResult.Unavailable(startFailureReason())
 
     fun acceptTwilioMessage(message: String): Boolean {
         if (!running.get()) return false
@@ -61,14 +63,21 @@ class LiveTranscriptionPipeline(context: Context) {
                     val factualResult = factual.analyze(phone, result.text)
                     val context = buildString { append(result.text.take(150)); if (factualResult.reason.isNotBlank()) append(" [consistency: ").append(factualResult.reason).append(']') }
                     evidence.update(phone, acousticScore, linguistic.score, factualResult.score, context.take(220))
-                } else {
-                    conversation.onUserTurn(result.text)
-                }
+                } else conversation.onUserTurn(result.text)
             }
         }, onClosed = { reason -> if (running.getAndSet(false)) { capture.stop(); stoppedCallback?.invoke(reason) } })
         if (!connecting) running.set(false)
         return connecting
     }
+
+    private fun startFailureReason(): String = when {
+        !settings.deepgramConfigured() -> "Deepgram is not configured"
+        deepgram.failureReason() != null -> deepgram.failureReason()!!.take(160)
+        deepgram.connectionState() == DeepgramStreamingClient.State.CONNECTING -> "Deepgram is already connecting"
+        else -> "Deepgram stream could not start"
+    }
+
+    fun status(): Status = Status(running.get(), deepgram.connectionState(), deepgram.failureReason())
 
     fun stop() {
         if (!running.getAndSet(false)) return
