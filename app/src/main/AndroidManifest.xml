@@ -16,6 +16,9 @@
 
     <application android:allowBackup="false" android:label="Reality Engine" android:icon="@drawable/reality_engine_icon" android:roundIcon="@drawable/reality_engine_icon" android:theme="@style/AppTheme" android:supportsRtl="true">
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+        <provider android:name=".RealityFileProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" />
+        </provider>
         <activity android:name=".SplashActivity" android:exported="true" android:noHistory="true">
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
