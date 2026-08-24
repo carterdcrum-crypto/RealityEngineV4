@@ -49,6 +49,11 @@ object ResponseCoachState {
         listeners -= listener
     }
 
+    @Synchronized internal fun resetForTest() {
+        snapshot = Snapshot()
+        listeners.clear()
+    }
+
     private fun notifyListeners() {
         val current = snapshot
         listeners.toList().forEach { it(current) }
