@@ -6,8 +6,14 @@ object TranscriptPresenter {
         snapshot: LiveTranscriptState.State,
         route: AudioRouteState.Snapshot
     ): String {
-        val lines = snapshot.entries.takeLast(8).map { "● ${it.text}" }.toMutableList()
-        if (!snapshot.isFinal && snapshot.text.isNotBlank()) lines += "○ ${snapshot.text}"
+        val lines = snapshot.entries.takeLast(8).map { entry ->
+            val who = entry.isCaller?.let(::speakerLabel)?.let { "$it  // " }.orEmpty()
+            "● $who${entry.text}"
+        }.toMutableList()
+        if (!snapshot.isFinal && snapshot.text.isNotBlank()) {
+            val who = snapshot.isCaller?.let(::speakerLabel)?.let { "$it  // " }.orEmpty()
+            lines += "○ $who${snapshot.text}"
+        }
 
         if (lines.isNotEmpty()) return lines.joinToString("\n")
         return if (route.updatedAtMs > 0L) {
