@@ -14,23 +14,26 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Android WebSocket transport for Deepgram live transcription. */
 class DeepgramStreamingClient(private val settings: SettingsStore) {
     data class Transcript(val text: String, val isFinal: Boolean, val speechFinal: Boolean, val speaker: Int? = null)
+    enum class State { IDLE, CONNECTING, CONNECTED, CLOSED, FAILED }
 
     private val connected = AtomicBoolean(false)
     private val client = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS).build()
     @Volatile private var socket: WebSocket? = null
     @Volatile private var transcriptCallback: ((Transcript) -> Unit)? = null
     @Volatile private var closedCallback: ((String?) -> Unit)? = null
+    @Volatile private var state: State = State.IDLE
+    @Volatile private var lastFailure: String? = null
 
     fun connect(sampleRate: Int = 16_000, onTranscript: (Transcript) -> Unit, onClosed: (String?) -> Unit = {}): Boolean {
-        if (!settings.deepgramConfigured() || connected.get()) return false
-        transcriptCallback = onTranscript; closedCallback = onClosed
+        if (!settings.deepgramConfigured() || connected.get() || state == State.CONNECTING) return false
+        transcriptCallback = onTranscript; closedCallback = onClosed; state = State.CONNECTING; lastFailure = null
         val request = Request.Builder().url(endpoint(sampleRate)).header("Authorization", "Token ${settings.deepgramApiKey}").build()
         socket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) { connected.set(true) }
+            override fun onOpen(webSocket: WebSocket, response: Response) { connected.set(true); state = State.CONNECTED }
             override fun onMessage(webSocket: WebSocket, text: String) { acceptMessage(text) }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { finish(reason.takeIf { it.isNotBlank() }) }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { finish(t.message ?: "Deepgram WebSocket failed") }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { state = State.CLOSED; finish(reason.takeIf { it.isNotBlank() }) }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { lastFailure = t.message ?: "Deepgram WebSocket failed"; state = State.FAILED; finish(lastFailure) }
         })
         return true
     }
@@ -40,8 +43,10 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         return socket?.send(bytes.toByteString(0, length.coerceAtMost(bytes.size))) == true
     }
 
-    fun close() { if (connected.get()) socket?.send("{\"type\":\"CloseStream\"}"); socket?.close(1000, "call ended"); finish(null) }
+    fun close() { if (connected.get()) socket?.send("{\"type\":\"CloseStream\"}"); socket?.close(1000, "call ended"); if (state != State.FAILED) state = State.CLOSED; finish(null) }
     fun isConnected(): Boolean = connected.get()
+    fun connectionState(): State = state
+    fun failureReason(): String? = lastFailure
 
     internal fun acceptMessage(raw: String) {
         try {
