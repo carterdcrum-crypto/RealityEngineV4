@@ -16,4 +16,7 @@ object TranscriptPresenter {
             "AWAITING AUDIO STREAM…"
         }
     }
+
+    /** Stable display helper for diarized transcript lines. */
+    fun speakerLabel(isCaller: Boolean): String = if (isCaller) "CALLER" else "YOU"
 }
