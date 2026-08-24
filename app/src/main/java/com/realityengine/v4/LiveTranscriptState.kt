@@ -2,12 +2,20 @@ package com.realityengine.v4
 
 /** Thread-safe bridge from streaming transcription to the active-call UI. */
 object LiveTranscriptState {
+    data class Entry(
+        val text: String,
+        val isFinal: Boolean,
+        val updatedAtMs: Long
+    )
+
     data class State(
         val text: String = "",
         val isFinal: Boolean = false,
-        val updatedAtMs: Long = 0L
+        val updatedAtMs: Long = 0L,
+        val entries: List<Entry> = emptyList()
     )
 
+    private const val MAX_FINAL_ENTRIES = 40
     @Volatile private var current = State()
     private val listeners = LinkedHashSet<(State) -> Unit>()
 
@@ -20,18 +28,24 @@ object LiveTranscriptState {
     }
 
     @Synchronized
-    fun removeListener(listener: (State) -> Unit) {
-        listeners -= listener
-    }
+    fun removeListener(listener: (State) -> Unit) { listeners -= listener }
 
     fun publish(text: String, isFinal: Boolean) {
         val clean = text.trim()
         if (clean.isBlank()) return
-        val next = State(clean, isFinal, System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        val previous = current
+        val history = if (isFinal) {
+            (previous.entries + Entry(clean, true, now)).takeLast(MAX_FINAL_ENTRIES)
+        } else previous.entries
+        val next = State(clean, isFinal, now, history)
         current = next
         val copy = synchronized(this) { listeners.toList() }
         copy.forEach { it(next) }
     }
+
+    /** Finalized speech accumulated during the current call, oldest to newest. */
+    fun transcript(): List<Entry> = current.entries
 
     fun clear() {
         current = State()
