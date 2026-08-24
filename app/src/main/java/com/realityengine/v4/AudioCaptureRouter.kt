@@ -2,9 +2,8 @@ package com.realityengine.v4
 
 import android.content.Context
 
-/** Chooses the live transcription audio path. During an active cellular call,
- * use VOICE_CALL when available and fall back to VOICE_COMMUNICATION when the
- * device exposes that source. */
+/** Chooses the live transcription audio path. Hardware probes are collected here;
+ * the actual decision table lives in AudioRoutePolicy so every route is unit-testable. */
 class AudioCaptureRouter(context: Context) {
     enum class Route {
         SHIZUKU_VOICE_CALL,
@@ -22,27 +21,18 @@ class AudioCaptureRouter(context: Context) {
     private val settings = SettingsStore(appContext)
 
     fun decide(twilioCallActive: Boolean = false): Decision {
-        return when (CallAudioBridge.state(appContext)) {
-            CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE -> Decision(Route.SHIZUKU_VOICE_CALL,"VOICE_CALL source available",true)
-            CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED -> Decision(Route.MICROPHONE_PERMISSION_REQUIRED,"Microphone authorization is required",false)
-            CallAudioBridge.State.SHIZUKU_READY -> Decision(Route.UNAVAILABLE,"Shizuku ready; call audio will be checked when a call is active",false)
-            CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED -> {
-                val diagnostic=CallAudioDiagnostics.inspect(appContext)
-                if(diagnostic.voiceCommunicationInitialized) Decision(Route.NATIVE_VOICE_COMMUNICATION,"VOICE_CALL blocked; using VOICE_COMMUNICATION",true)
-                else twilioFallback(twilioCallActive)
-            }
-            CallAudioBridge.State.UNAVAILABLE -> {
-                if (!ShizukuAudioStatus.binderAvailable() || !ShizukuAudioStatus.permissionGranted()) {
-                    if (twilioCallActive && settings.twilioMediaConfigured()) twilioFallback(true)
-                    else Decision(Route.SHIZUKU_PERMISSION_REQUIRED,"Shizuku is unavailable or not authorized",false)
-                } else twilioFallback(twilioCallActive)
-            }
-        }
-    }
-
-    private fun twilioFallback(twilioCallActive:Boolean):Decision {
-        if(!settings.twilioMediaConfigured()) return Decision(Route.TWILIO_CONFIGURATION_REQUIRED,"Native call audio is unavailable and Twilio fallback is not configured",false)
-        if(!twilioCallActive) return Decision(Route.UNAVAILABLE,"Twilio fallback requires a call routed through Twilio",false)
-        return Decision(Route.TWILIO_MEDIA_STREAM,"Using Twilio media stream",true)
+        val bridgeState = CallAudioBridge.state(appContext)
+        val voiceComm = if (bridgeState == CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED)
+            CallAudioDiagnostics.inspect(appContext).voiceCommunicationInitialized else false
+        return AudioRoutePolicy.decide(
+            AudioRoutePolicy.Inputs(
+                bridgeState = bridgeState,
+                shizukuAvailable = ShizukuAudioStatus.binderAvailable(),
+                shizukuGranted = ShizukuAudioStatus.permissionGranted(),
+                voiceCommunicationAvailable = voiceComm,
+                twilioConfigured = settings.twilioMediaConfigured(),
+                twilioCallActive = twilioCallActive
+            )
+        )
     }
 }
