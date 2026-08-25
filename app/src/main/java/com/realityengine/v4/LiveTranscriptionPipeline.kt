@@ -30,7 +30,28 @@ class LiveTranscriptionPipeline(context: Context) {
     private fun prepareSession(onInterim:(String)->Unit,onStopped:(String?)->Unit){multichannel=false;acoustic.reset();callerSpeaker=null;clearPending();LiveTranscriptState.clear();interimCallback=onInterim;stoppedCallback=onStopped;conversation.bindActiveCaller()}
     private fun connectDeepgram(sampleRate:Int,channels:Int,multi:Boolean):Boolean{multichannel=multi;return deepgram.connect(sampleRate=sampleRate,channels=channels,multichannel=multi,onTranscript={result->val isCaller=if(multichannel)result.channel?.let{it==0}else{val speaker=result.speaker;if(callerSpeaker==null&&speaker!=null)callerSpeaker=speaker;speaker?.let{it==callerSpeaker}};LiveTranscriptState.publish(result.text,result.isFinal,isCaller);interimCallback?.invoke(result.text);if(result.isFinal&&result.text.isNotBlank()){val finalIsCaller=isCaller!=false;if(finalIsCaller){conversation.onCallerTurn(result.text);val phone=CallSessionRegistry.primaryNumber().orEmpty();memory.observe(phone,result.text);val linguistic=LinguisticSignalAnalyzer.analyze(result.text);val factualResult=factual.analyze(phone,result.text);val context=buildString{append(result.text.take(150));if(factualResult.reason.isNotBlank())append(" [consistency: ").append(factualResult.reason).append(']')};evidence.update(phone,acousticScore,linguistic.score,factualResult.score,context.take(220))}else conversation.onUserTurn(result.text)}},onClosed={reason->if(running.getAndSet(false)){clearPending();capture.stop();stoppedCallback?.invoke(reason)}})}
 
-    private fun acceptDirectional(bytes:ByteArray,length:Int,rx:Boolean){val n=length.coerceIn(0,bytes.size) and -2;if(n<=0)return;if(rx)acousticScore=acoustic.analyze(bytes,n).score;synchronized(stereoLock){if(rx)pendingRx=append(pendingRx,bytes,n) else pendingTx=append(pendingTx,bytes,n);val usable=minOf(pendingRx.size,pendingTx.size) and -2;if(usable<=0)return;val stereo=ByteArray(usable*2);var s=0;var d=0;while(s<usable){stereo[d++]=pendingRx[s];stereo[d++]=pendingRx[s+1];stereo[d++]=pendingTx[s];stereo[d++]=pendingTx[s+1];s+=2};pendingRx=pendingRx.copyOfRange(usable,pendingRx.size);pendingTx=pendingTx.copyOfRange(usable,pendingTx.size);sendOrBuffer(stereo,stereo.size)}}
+    private fun acceptDirectional(bytes:ByteArray,length:Int,rx:Boolean){
+        val n=length.coerceIn(0,bytes.size) and -2;if(n<=0)return;if(rx)acousticScore=acoustic.analyze(bytes,n).score
+        synchronized(stereoLock){
+            if(rx)pendingRx=append(pendingRx,bytes,n) else pendingTx=append(pendingTx,bytes,n)
+            // Preserve real-time stereo cadence. If one side is muted/quiet or its read arrives later,
+            // pad that channel with digital silence instead of blocking the active speaker.
+            while(pendingRx.size>=STEREO_FRAME_MONO_BYTES||pendingTx.size>=STEREO_FRAME_MONO_BYTES){
+                val rxCount=minOf(pendingRx.size,STEREO_FRAME_MONO_BYTES) and -2
+                val txCount=minOf(pendingTx.size,STEREO_FRAME_MONO_BYTES) and -2
+                val monoBytes=maxOf(rxCount,txCount);if(monoBytes<=0)break
+                val stereo=ByteArray(monoBytes*2);var s=0;var d=0
+                while(s<monoBytes){
+                    if(s+1<rxCount){stereo[d]=pendingRx[s];stereo[d+1]=pendingRx[s+1]}
+                    if(s+1<txCount){stereo[d+2]=pendingTx[s];stereo[d+3]=pendingTx[s+1]}
+                    s+=2;d+=4
+                }
+                if(rxCount>0)pendingRx=pendingRx.copyOfRange(rxCount,pendingRx.size)
+                if(txCount>0)pendingTx=pendingTx.copyOfRange(txCount,pendingTx.size)
+                sendOrBuffer(stereo,stereo.size)
+            }
+        }
+    }
     private fun append(existing:ByteArray,bytes:ByteArray,length:Int):ByteArray{val out=ByteArray(existing.size+length);existing.copyInto(out);bytes.copyInto(out,existing.size,0,length);return out}
     private fun sendOrBuffer(bytes:ByteArray,length:Int){val n=length.coerceIn(0,bytes.size);if(n==0)return;synchronized(pendingLock){if(deepgram.isConnected()){if(pendingPcm.size()>0){val queued=pendingPcm.toByteArray();pendingPcm.reset();deepgram.sendPcm(queued)};deepgram.sendPcm(bytes,n)}else{val remaining=MAX_PENDING_PCM-pendingPcm.size();if(remaining>0)pendingPcm.write(bytes,0,n.coerceAtMost(remaining))}}}
     private fun clearPending(){synchronized(pendingLock){pendingPcm.reset()};synchronized(stereoLock){pendingRx=ByteArray(0);pendingTx=ByteArray(0)}}
@@ -39,5 +60,5 @@ class LiveTranscriptionPipeline(context: Context) {
     fun status():Status=Status(running.get(),deepgram.connectionState(),deepgram.failureReason())
     fun stop(){if(!running.getAndSet(false))return;clearPending();capture.stop();deepgram.close();conversation.clear();acoustic.reset();acousticScore=0;callerSpeaker=null;multichannel=false;interimCallback=null;stoppedCallback=null;LiveTranscriptState.clear()}
     fun isRunning():Boolean=running.get()
-    companion object{private const val MAX_PENDING_PCM=128_000}
+    companion object{private const val MAX_PENDING_PCM=128_000;private const val STEREO_FRAME_MONO_BYTES=3_200}
 }
