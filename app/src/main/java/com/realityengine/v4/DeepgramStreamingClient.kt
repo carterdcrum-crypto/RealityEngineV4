@@ -8,6 +8,8 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString.Companion.toByteString
 import org.json.JSONObject
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -18,18 +20,21 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
 
     private val connected=AtomicBoolean(false)
     private val client=OkHttpClient.Builder().pingInterval(15,TimeUnit.SECONDS).build()
+    private val keepAliveExecutor=Executors.newSingleThreadScheduledExecutor { r->Thread(r,"reality-deepgram-keepalive").apply{isDaemon=true} }
+    @Volatile private var keepAliveTask:ScheduledFuture<*>?=null
     @Volatile private var socket:WebSocket?=null
     @Volatile private var transcriptCallback:((Transcript)->Unit)?=null
     @Volatile private var closedCallback:((String?)->Unit)?=null
     @Volatile private var state:State=State.IDLE
     @Volatile private var lastFailure:String?=null
+    @Volatile private var lastAudioSentAt=0L
 
     fun connect(sampleRate:Int=16_000,channels:Int=1,multichannel:Boolean=false,onTranscript:(Transcript)->Unit,onClosed:(String?)->Unit={}):Boolean{
         if(!settings.deepgramConfigured()||connected.get()||state==State.CONNECTING)return false
-        transcriptCallback=onTranscript;closedCallback=onClosed;state=State.CONNECTING;lastFailure=null
+        transcriptCallback=onTranscript;closedCallback=onClosed;state=State.CONNECTING;lastFailure=null;lastAudioSentAt=System.currentTimeMillis()
         val request=Request.Builder().url(endpoint(sampleRate,channels,multichannel)).header("Authorization","Token ${settings.deepgramApiKey}").build()
         socket=client.newWebSocket(request,object:WebSocketListener(){
-            override fun onOpen(webSocket:WebSocket,response:Response){connected.set(true);state=State.CONNECTED}
+            override fun onOpen(webSocket:WebSocket,response:Response){connected.set(true);state=State.CONNECTED;lastAudioSentAt=System.currentTimeMillis();startKeepAlive()}
             override fun onMessage(webSocket:WebSocket,text:String){acceptMessage(text)}
             override fun onClosing(webSocket:WebSocket,code:Int,reason:String){webSocket.close(code,reason)}
             override fun onClosed(webSocket:WebSocket,code:Int,reason:String){state=State.CLOSED;finish(reason.takeIf{it.isNotBlank()})}
@@ -37,8 +42,13 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         });return true
     }
 
-    fun sendPcm(bytes:ByteArray,length:Int=bytes.size):Boolean{if(!connected.get()||length<=0)return false;return socket?.send(bytes.toByteString(0,length.coerceAtMost(bytes.size)))==true}
-    fun close(){if(connected.get())socket?.send("{\"type\":\"CloseStream\"}");socket?.close(1000,"call ended");if(state!=State.FAILED)state=State.CLOSED;finish(null)}
+    fun sendPcm(bytes:ByteArray,length:Int=bytes.size):Boolean{
+        if(!connected.get()||length<=0)return false
+        val sent=socket?.send(bytes.toByteString(0,length.coerceAtMost(bytes.size)))==true
+        if(sent)lastAudioSentAt=System.currentTimeMillis()
+        return sent
+    }
+    fun close(){stopKeepAlive();if(connected.get())socket?.send("{\"type\":\"CloseStream\"}");socket?.close(1000,"call ended");if(state!=State.FAILED)state=State.CLOSED;finish(null)}
     fun isConnected():Boolean=connected.get();fun connectionState():State=state;fun failureReason():String?=lastFailure
 
     internal fun acceptMessage(raw:String){try{val root=JSONObject(raw);if(root.optString("type")!="Results")return;val alternatives=root.optJSONObject("channel")?.optJSONArray("alternatives")?:return;if(alternatives.length()==0)return;val alternative=alternatives.optJSONObject(0)?:return;val text=alternative.optString("transcript").trim();if(text.isBlank())return;val words=alternative.optJSONArray("words");val speaker=if(words!=null&&words.length()>0)words.optJSONObject(0)?.takeIf{it.has("speaker")}?.optInt("speaker")else null;val channelIndex=root.optJSONArray("channel_index");val channel=channelIndex?.takeIf{it.length()>0}?.optInt(0);transcriptCallback?.invoke(Transcript(text,root.optBoolean("is_final"),root.optBoolean("speech_final"),speaker,channel))}catch(_:Throwable){}}
@@ -49,5 +59,9 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         return builder.build().toString()
     }
 
-    @Synchronized private fun finish(reason:String?){val wasActive=connected.getAndSet(false);socket=null;if(wasActive||reason!=null)closedCallback?.invoke(reason);closedCallback=null;transcriptCallback=null}
+    @Synchronized private fun startKeepAlive(){stopKeepAlive();keepAliveTask=keepAliveExecutor.scheduleAtFixedRate({if(connected.get()&&System.currentTimeMillis()-lastAudioSentAt>=KEEPALIVE_IDLE_MS)socket?.send("{\"type\":\"KeepAlive\"}")},KEEPALIVE_INTERVAL_MS,KEEPALIVE_INTERVAL_MS,TimeUnit.MILLISECONDS)}
+    @Synchronized private fun stopKeepAlive(){keepAliveTask?.cancel(false);keepAliveTask=null}
+    @Synchronized private fun finish(reason:String?){stopKeepAlive();val wasActive=connected.getAndSet(false);socket=null;if(wasActive||reason!=null)closedCallback?.invoke(reason);closedCallback=null;transcriptCallback=null}
+
+    companion object{private const val KEEPALIVE_INTERVAL_MS=3_000L;private const val KEEPALIVE_IDLE_MS=3_000L}
 }
