@@ -99,3 +99,20 @@ jobs:
           name: RealityEngineV4-debug-apk-${{ github.sha }}
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Publish latest updater APK
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          apk="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' -print -quit)"
+          test -n "$apk"
+          cp "$apk" RealityEngineV4-latest.apk
+          printf '{"versionCode":306,"versionName":"0.306.0","buildId":"RE4-W306","commit":"%s"}\n' "$GITHUB_SHA" > update.json
+          if gh release view updater-latest >/dev/null 2>&1; then
+            gh release upload updater-latest RealityEngineV4-latest.apk update.json --clobber
+          else
+            gh release create updater-latest RealityEngineV4-latest.apk update.json --title "Reality Engine latest build" --notes "Automatically updated after a green main build."
+          fi
