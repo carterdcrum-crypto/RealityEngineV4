@@ -7,8 +7,8 @@ import android.os.Binder
 import android.os.Parcel
 import androidx.annotation.Keep
 
-/** Privileged Shizuku UserService that owns protected call capture.
- * Tries protected call sources in priority order because OEMs expose different sources. */
+/** Privileged Shizuku UserService that owns call capture.
+ * Probes protected telephony sources first, then a privileged voice-communication fallback. */
 @Keep
 class PrivilegedAudioService : Binder() {
     private var recorder: AudioRecord? = null
@@ -34,7 +34,8 @@ class PrivilegedAudioService : Binder() {
         val probes=arrayOf(
             MediaRecorder.AudioSource.VOICE_CALL to PROBE_VOICE_CALL,
             MediaRecorder.AudioSource.VOICE_DOWNLINK to PROBE_VOICE_DOWNLINK,
-            MediaRecorder.AudioSource.VOICE_UPLINK to PROBE_VOICE_UPLINK
+            MediaRecorder.AudioSource.VOICE_UPLINK to PROBE_VOICE_UPLINK,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION to PROBE_VOICE_COMMUNICATION
         )
         for((source,bit) in probes){
             probeMask=probeMask or bit
@@ -55,6 +56,6 @@ class PrivilegedAudioService : Binder() {
         const val DESCRIPTOR="com.realityengine.v4.PrivilegedAudioService";const val SAMPLE_RATE=16_000;const val SOURCE_NONE=-1
         const val TRANSACTION_START=FIRST_CALL_TRANSACTION;const val TRANSACTION_READ=FIRST_CALL_TRANSACTION+1;const val TRANSACTION_STOP=FIRST_CALL_TRANSACTION+2;const val TRANSACTION_STATUS=FIRST_CALL_TRANSACTION+3;const val TRANSACTION_PROBE_STATUS=FIRST_CALL_TRANSACTION+4;const val DESTROY_TRANSACTION=16777115
         const val START_OK=0;const val START_FORMAT_UNAVAILABLE=-1;const val START_SOURCE_BLOCKED=-2;const val READ_NOT_RUNNING=-3;const val READ_FAILED=-4;const val READ_DEAD_OBJECT=-5;const val MAX_BINDER_CHUNK=16_384
-        const val PROBE_VOICE_CALL=1;const val PROBE_VOICE_DOWNLINK=2;const val PROBE_VOICE_UPLINK=4;const val PROBE_SUCCESS=8
+        const val PROBE_VOICE_CALL=1;const val PROBE_VOICE_DOWNLINK=2;const val PROBE_VOICE_UPLINK=4;const val PROBE_SUCCESS=8;const val PROBE_VOICE_COMMUNICATION=16
     }
 }
