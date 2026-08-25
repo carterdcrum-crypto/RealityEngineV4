@@ -3,10 +3,9 @@ package com.realityengine.v4
 /**
  * Configuration boundary for the scrcpy-server call-audio backend.
  *
- * scrcpy 4.x supports an audio-only server, direct voice-call capture and raw
- * PCM output. Keeping these arguments in one place lets the upcoming Shizuku
- * shell bridge launch a pinned server/protocol version without mixing this
- * transport with the existing AudioRecord fallback.
+ * scrcpy 4.x supports an audio-only server, voice-call capture and raw PCM.
+ * The standalone raw_stream option disables device, frame, dummy-byte and
+ * stream metadata so the socket reader receives only PCM16-LE payload bytes.
  */
 object ScrcpyAudioCaptureConfig {
     const val SERVER_VERSION = "4.0"
@@ -25,10 +24,7 @@ object ScrcpyAudioCaptureConfig {
         "audio_codec=$AUDIO_CODEC",
         "control=false",
         "cleanup=false",
-        "send_device_meta=false",
-        "send_frame_meta=false",
-        "send_dummy_byte=false",
-        "send_stream_meta=false"
+        "raw_stream=true"
     )
 
     /** Shell-side command shape. The bridge supplies the pinned server jar. */
