@@ -43,24 +43,24 @@ class RealityInCallService : InCallService() {
 
         val decision = audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive())
         AudioRouteState.publish(decision); AudioRouteState.diagnose(applicationContext)
-        val diagnostic = AudioRouteState.snapshot().detail
         when (decision.route) {
-            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL,
-            AudioCaptureRouter.Route.NATIVE_VOICE_COMMUNICATION -> if (!transcription.isRunning()) {
-                LiveTranscriptState.publish("CALL AUDIO // $diagnostic", false)
+            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> if (!transcription.isRunning()) {
                 when (val result = transcription.start()) {
                     LiveTranscriptionPipeline.StartResult.Started -> Unit
-                    is LiveTranscriptionPipeline.StartResult.Unavailable -> LiveTranscriptState.publish("TRANSCRIPTION START FAILED // ${result.reason.take(120)}", false)
+                    is LiveTranscriptionPipeline.StartResult.Unavailable -> AudioRouteState.publish(
+                        AudioCaptureRouter.Decision(AudioCaptureRouter.Route.UNAVAILABLE, "Transcription could not start: ${result.reason.take(120)}", false)
+                    )
                 }
             }
             AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> if (!transcription.isRunning()) {
-                LiveTranscriptState.publish("CALL AUDIO // $diagnostic", false)
                 when (val result = transcription.startTwilio()) {
                     LiveTranscriptionPipeline.StartResult.Started -> Unit
-                    is LiveTranscriptionPipeline.StartResult.Unavailable -> LiveTranscriptState.publish("TRANSCRIPTION START FAILED // ${result.reason.take(120)}", false)
+                    is LiveTranscriptionPipeline.StartResult.Unavailable -> AudioRouteState.publish(
+                        AudioCaptureRouter.Decision(AudioCaptureRouter.Route.UNAVAILABLE, "Transcription could not start: ${result.reason.take(120)}", false)
+                    )
                 }
             }
-            else -> { if (transcription.isRunning()) transcription.stop(); LiveTranscriptState.publish("CALL AUDIO // $diagnostic", false) }
+            else -> if (transcription.isRunning()) transcription.stop()
         }
     }
 
