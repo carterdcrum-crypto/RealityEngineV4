@@ -20,12 +20,14 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         data class Started(val channel:Int?,val timestampSeconds:Double):SpeechEvent()
         data class Ended(val channel:Int?,val lastWordEndSeconds:Double):SpeechEvent()
     }
-    enum class State { IDLE, CONNECTING, CONNECTED, CLOSED, FAILED }
+    enum class State { IDLE, CONNECTING, CONNECTED, CLOSING, CLOSED, FAILED }
 
     private val connected=AtomicBoolean(false)
+    private val closing=AtomicBoolean(false)
     private val client=OkHttpClient.Builder().pingInterval(15,TimeUnit.SECONDS).build()
     private val keepAliveExecutor=Executors.newSingleThreadScheduledExecutor { r->Thread(r,"reality-deepgram-keepalive").apply{isDaemon=true} }
     @Volatile private var keepAliveTask:ScheduledFuture<*>?=null
+    @Volatile private var closeFallbackTask:ScheduledFuture<*>?=null
     @Volatile private var socket:WebSocket?=null
     @Volatile private var transcriptCallback:((Transcript)->Unit)?=null
     @Volatile private var speechEventCallback:((SpeechEvent)->Unit)?=null
@@ -35,8 +37,8 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
     @Volatile private var lastAudioSentAt=0L
 
     fun connect(sampleRate:Int=16_000,channels:Int=1,multichannel:Boolean=false,onTranscript:(Transcript)->Unit,onSpeechEvent:(SpeechEvent)->Unit={},onClosed:(String?)->Unit={}):Boolean{
-        if(!settings.deepgramConfigured()||connected.get()||state==State.CONNECTING)return false
-        transcriptCallback=onTranscript;speechEventCallback=onSpeechEvent;closedCallback=onClosed;state=State.CONNECTING;lastFailure=null;lastAudioSentAt=System.currentTimeMillis()
+        if(!settings.deepgramConfigured()||connected.get()||state==State.CONNECTING||state==State.CLOSING)return false
+        transcriptCallback=onTranscript;speechEventCallback=onSpeechEvent;closedCallback=onClosed;closing.set(false);state=State.CONNECTING;lastFailure=null;lastAudioSentAt=System.currentTimeMillis()
         val request=Request.Builder().url(endpoint(sampleRate,channels,multichannel)).header("Authorization","Token ${settings.deepgramApiKey}").build()
         socket=client.newWebSocket(request,object:WebSocketListener(){
             override fun onOpen(webSocket:WebSocket,response:Response){connected.set(true);state=State.CONNECTED;lastAudioSentAt=System.currentTimeMillis();startKeepAlive()}
@@ -48,12 +50,25 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
     }
 
     fun sendPcm(bytes:ByteArray,length:Int=bytes.size):Boolean{
-        if(!connected.get()||length<=0)return false
+        if(!connected.get()||closing.get()||length<=0)return false
         val sent=socket?.send(bytes.toByteString(0,length.coerceAtMost(bytes.size)))==true
         if(sent)lastAudioSentAt=System.currentTimeMillis()
         return sent
     }
-    fun close(){stopKeepAlive();if(connected.get())socket?.send("{\"type\":\"CloseStream\"}");socket?.close(1000,"call ended");if(state!=State.FAILED)state=State.CLOSED;finish(null)}
+
+    /** Stop accepting audio, flush Deepgram's buffered audio, then ask Deepgram to close after
+     * returning remaining transcript results. The local WebSocket is only force-closed if the
+     * server does not finish promptly. */
+    fun close(){
+        if(!connected.get()){if(state!=State.FAILED)state=State.CLOSED;finish(null);return}
+        if(!closing.compareAndSet(false,true))return
+        stopKeepAlive();state=State.CLOSING
+        val ws=socket
+        val finalized=ws?.send("{\"type\":\"Finalize\"}")==true
+        val closeSent=ws?.send("{\"type\":\"CloseStream\"}")==true
+        if(!finalized||!closeSent){ws?.close(1000,"call ended")}
+        else closeFallbackTask=keepAliveExecutor.schedule({socket?.close(1000,"close timeout")},CLOSE_FALLBACK_MS,TimeUnit.MILLISECONDS)
+    }
     fun isConnected():Boolean=connected.get();fun connectionState():State=state;fun failureReason():String?=lastFailure
 
     internal fun acceptMessage(raw:String){
@@ -93,9 +108,9 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         return builder.build().toString()
     }
 
-    @Synchronized private fun startKeepAlive(){stopKeepAlive();keepAliveTask=keepAliveExecutor.scheduleAtFixedRate({if(connected.get()&&System.currentTimeMillis()-lastAudioSentAt>=KEEPALIVE_IDLE_MS)socket?.send("{\"type\":\"KeepAlive\"}")},KEEPALIVE_INTERVAL_MS,KEEPALIVE_INTERVAL_MS,TimeUnit.MILLISECONDS)}
+    @Synchronized private fun startKeepAlive(){stopKeepAlive();keepAliveTask=keepAliveExecutor.scheduleAtFixedRate({if(connected.get()&&!closing.get()&&System.currentTimeMillis()-lastAudioSentAt>=KEEPALIVE_IDLE_MS)socket?.send("{\"type\":\"KeepAlive\"}")},KEEPALIVE_INTERVAL_MS,KEEPALIVE_INTERVAL_MS,TimeUnit.MILLISECONDS)}
     @Synchronized private fun stopKeepAlive(){keepAliveTask?.cancel(false);keepAliveTask=null}
-    @Synchronized private fun finish(reason:String?){stopKeepAlive();val wasActive=connected.getAndSet(false);socket=null;if(wasActive||reason!=null)closedCallback?.invoke(reason);closedCallback=null;transcriptCallback=null;speechEventCallback=null}
+    @Synchronized private fun finish(reason:String?){stopKeepAlive();closeFallbackTask?.cancel(false);closeFallbackTask=null;closing.set(false);val wasActive=connected.getAndSet(false);socket=null;if(wasActive||reason!=null)closedCallback?.invoke(reason);closedCallback=null;transcriptCallback=null;speechEventCallback=null}
 
-    companion object{private const val KEEPALIVE_INTERVAL_MS=3_000L;private const val KEEPALIVE_IDLE_MS=3_000L}
+    companion object{private const val KEEPALIVE_INTERVAL_MS=3_000L;private const val KEEPALIVE_IDLE_MS=3_000L;private const val CLOSE_FALLBACK_MS=2_000L}
 }
