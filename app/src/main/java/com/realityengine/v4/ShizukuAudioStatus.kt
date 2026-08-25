@@ -6,23 +6,29 @@ import rikka.shizuku.Shizuku
 object ShizukuAudioStatus {
     const val REQUEST_CODE = 7001
 
-    fun binderAvailable(): Boolean = try {
-        Shizuku.pingBinder()
+    enum class State { READY, BINDER_UNAVAILABLE, PERMISSION_REQUIRED, API_ERROR }
+
+    fun state(): State = try {
+        if (!Shizuku.pingBinder()) State.BINDER_UNAVAILABLE
+        else if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) State.PERMISSION_REQUIRED
+        else State.READY
     } catch (_: Throwable) {
-        false
+        State.API_ERROR
     }
 
-    fun permissionGranted(): Boolean = try {
-        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-    } catch (_: Throwable) {
-        false
+    fun binderAvailable(): Boolean = state() != State.BINDER_UNAVAILABLE && state() != State.API_ERROR
+    fun permissionGranted(): Boolean = state() == State.READY
+
+    fun diagnostic(): String = when (state()) {
+        State.READY -> "Shizuku ready"
+        State.BINDER_UNAVAILABLE -> "Shizuku binder unavailable — start Shizuku first"
+        State.PERMISSION_REQUIRED -> "Shizuku permission required for Reality Engine"
+        State.API_ERROR -> "Shizuku API unavailable"
     }
 
     fun requestPermission() {
         try {
-            if (binderAvailable() && !permissionGranted()) {
-                Shizuku.requestPermission(REQUEST_CODE)
-            }
+            if (state() == State.PERMISSION_REQUIRED) Shizuku.requestPermission(REQUEST_CODE)
         } catch (_: Throwable) {
         }
     }
