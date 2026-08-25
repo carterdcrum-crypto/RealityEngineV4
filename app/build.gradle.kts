@@ -8,10 +8,20 @@ val ciRun = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
 val buildNumber = ciRun ?: 306
 val buildName = "0.$buildNumber.0"
 val buildId = "RE4-W$buildNumber"
+val updaterKeystore = rootProject.file("realityengine-updater.jks")
 
 android {
     namespace = "com.realityengine.v4"
     compileSdk = 35
+
+    signingConfigs {
+        create("updater") {
+            storeFile = updaterKeystore
+            storePassword = System.getenv("RE_UPDATER_STORE_PASSWORD") ?: "realityengine-local"
+            keyAlias = System.getenv("RE_UPDATER_KEY_ALIAS") ?: "realityengine"
+            keyPassword = System.getenv("RE_UPDATER_KEY_PASSWORD") ?: "realityengine-local"
+        }
+    }
 
     defaultConfig {
         applicationId = "com.realityengine.v4"
@@ -21,6 +31,11 @@ android {
         versionName = buildName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "BUILD_ID", "\"$buildId\"")
+    }
+
+    buildTypes {
+        debug { if (updaterKeystore.exists()) signingConfig = signingConfigs.getByName("updater") }
+        release { if (updaterKeystore.exists()) signingConfig = signingConfigs.getByName("updater") }
     }
 
     buildFeatures {
