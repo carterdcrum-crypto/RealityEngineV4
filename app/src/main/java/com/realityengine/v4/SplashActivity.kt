@@ -1,10 +1,13 @@
 package com.realityengine.v4
 
+import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.*
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -18,7 +21,9 @@ class SplashActivity : Activity() {
     private val handler=Handler(Looper.getMainLooper());private var launched=false
     private val openMain=Runnable{openApp()}
     override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);window.statusBarColor=Color.BLACK;window.navigationBarColor=Color.BLACK;setContentView(CoreView(this));handler.postDelayed(openMain,1650L)}
-    private fun openApp(){if(launched||isFinishing)return;launched=true;handler.removeCallbacks(openMain);startActivity(Intent(this,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));finish();@Suppress("DEPRECATION") overridePendingTransition(android.R.anim.fade_in,android.R.anim.fade_out)}
+    private fun openApp(){if(launched||isFinishing)return;if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED){handler.removeCallbacks(openMain);requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),REQ_NOTIFICATIONS);return};launchMain()}
+    private fun launchMain(){if(launched||isFinishing)return;launched=true;handler.removeCallbacks(openMain);startActivity(Intent(this,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP));finish();@Suppress("DEPRECATION") overridePendingTransition(android.R.anim.fade_in,android.R.anim.fade_out)}
+    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==REQ_NOTIFICATIONS)launchMain()}
     override fun onDestroy(){handler.removeCallbacks(openMain);super.onDestroy()}
 
     private class CoreView(context:Context):View(context){
@@ -39,4 +44,5 @@ class SplashActivity : Activity() {
             text.typeface=Typeface.create(Typeface.MONOSPACE,Typeface.BOLD);text.textSize=base*.085f;text.letterSpacing=.08f;text.color=Color.argb((255*online).toInt(),0,235,255);c.drawText("CONVERSATION  |  CONTEXT  |  CLARITY",cx,cy+base*2.55f,text);text.color=Color.argb((255*online).toInt(),0,255,190);c.drawText("SYSTEM ONLINE",cx,cy+base*3.05f,text)
         }
     }
+    companion object{private const val REQ_NOTIFICATIONS=2401}
 }
