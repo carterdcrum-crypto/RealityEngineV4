@@ -21,16 +21,16 @@ class AudioRoutePolicyTest {
         assertTrue(d.canTranscribe)
     }
 
-    @Test fun `shizuku ready waits for privileged call capture`() {
+    @Test fun `shizuku ready waits while call audio is checked`() {
         val d = decide(CallAudioBridge.State.SHIZUKU_READY)
         assertEquals(AudioCaptureRouter.Route.UNAVAILABLE, d.route)
         assertFalse(d.canTranscribe)
-        assertTrue(d.reason.contains("privileged", ignoreCase = true))
+        assertTrue(d.reason.contains("checked", ignoreCase = true))
     }
 
-    @Test fun `blocked protected call source never treats voice communication as two sided`() {
+    @Test fun `blocked protected call source does not treat voice communication as two sided`() {
         val probed = decide(CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED, voiceComm = true)
-        assertEquals(AudioCaptureRouter.Route.TWILIO_CONFIGURATION_REQUIRED, probed.route)
+        assertEquals(AudioCaptureRouter.Route.UNAVAILABLE, probed.route)
         assertFalse(probed.canTranscribe)
         val blocked = decide(CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED)
         assertEquals(AudioCaptureRouter.Route.TWILIO_CONFIGURATION_REQUIRED, blocked.route)
