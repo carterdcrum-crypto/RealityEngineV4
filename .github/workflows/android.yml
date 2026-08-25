@@ -27,6 +27,20 @@ jobs:
           gradle-version: '8.11.1'
       - name: Verify Gradle
         run: gradle --version
+      - name: Restore updater signing key
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          rm -f realityengine-updater.jks
+          if gh release download updater-signing-key --pattern realityengine-updater.jks --clobber >/dev/null 2>&1; then
+            echo "Restored persistent updater signing key"
+          else
+            keytool -genkeypair -v -keystore realityengine-updater.jks -storepass realityengine-local -alias realityengine -keypass realityengine-local -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Reality Engine, OU=Android, O=Reality Engine, L=Sioux City, ST=Iowa, C=US"
+            gh release create updater-signing-key realityengine-updater.jks --title "Reality Engine updater signing key" --notes "Persistent CI signing key. Do not delete or replace this release asset." --prerelease
+            echo "Created persistent updater signing key"
+          fi
       - name: Initialize diagnostics
         shell: bash
         run: |
