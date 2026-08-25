@@ -10,16 +10,17 @@ import androidx.annotation.Keep
 import kotlin.math.abs
 
 /** Privileged Shizuku UserService that owns call capture.
- * Uses Android 12+ AudioRecord.Builder with the shell-attributed context and
- * rejects sources that start successfully but only return effectively silent PCM. */
+ * Uses shell-attributed AudioRecord and an adaptive Samsung-oriented source ladder.
+ * Downlink is preferred because it preserves the remote caller as a clean stream;
+ * mixed VOICE_CALL and voice-communication are fallbacks. */
 @Keep
 class PrivilegedAudioService : Binder() {
     private var recorder: AudioRecord? = null
-    @Volatile private var started = false
-    @Volatile private var activeSource = SOURCE_NONE
-    @Volatile private var probeMask = 0
-    @Volatile private var bootstrapHealth = ShellAudioBootstrap.Health.FAILED
-    @Volatile private var lastProbePeak = 0
+    @Volatile private var started=false
+    @Volatile private var activeSource=SOURCE_NONE
+    @Volatile private var probeMask=0
+    @Volatile private var bootstrapHealth=ShellAudioBootstrap.Health.FAILED
+    @Volatile private var lastProbePeak=0
 
     override fun onTransact(code:Int,data:Parcel,reply:Parcel?,flags:Int):Boolean=when(code){
         TRANSACTION_START->{data.enforceInterface(DESCRIPTOR);val result=startCapture();reply?.writeNoException();reply?.writeInt(result);true}
@@ -42,7 +43,16 @@ class PrivilegedAudioService : Binder() {
         val min=AudioRecord.getMinBufferSize(SAMPLE_RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT)
         if(min<=0)return START_FORMAT_UNAVAILABLE
         val format=AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SAMPLE_RATE).setChannelMask(AudioFormat.CHANNEL_IN_MONO).build()
-        val probes=arrayOf(MediaRecorder.AudioSource.VOICE_CALL to PROBE_VOICE_CALL,MediaRecorder.AudioSource.VOICE_DOWNLINK to PROBE_VOICE_DOWNLINK,MediaRecorder.AudioSource.VOICE_UPLINK to PROBE_VOICE_UPLINK,MediaRecorder.AudioSource.VOICE_COMMUNICATION to PROBE_VOICE_COMMUNICATION)
+
+        // Cally-inspired strategy order for Samsung-class devices: preserve the
+        // remote side first, then fall back to a mixed call stream. A true
+        // simultaneous uplink+downlink pair is implemented as the next layer.
+        val probes=arrayOf(
+            MediaRecorder.AudioSource.VOICE_DOWNLINK to PROBE_VOICE_DOWNLINK,
+            MediaRecorder.AudioSource.VOICE_CALL to PROBE_VOICE_CALL,
+            MediaRecorder.AudioSource.VOICE_UPLINK to PROBE_VOICE_UPLINK,
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION to PROBE_VOICE_COMMUNICATION
+        )
         var anyStarted=false
         for((source,bit) in probes){
             probeMask=probeMask or bit
