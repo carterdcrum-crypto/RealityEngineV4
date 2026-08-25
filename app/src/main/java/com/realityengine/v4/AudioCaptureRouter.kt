@@ -2,8 +2,8 @@ package com.realityengine.v4
 
 import android.content.Context
 
-/** Chooses the live transcription audio path. Hardware probes are collected here;
- * the actual decision table lives in AudioRoutePolicy so every route is unit-testable. */
+/** Chooses the live transcription audio path. Protected cellular audio is owned solely
+ * by the Shizuku bridge; the app process never probes VOICE_COMMUNICATION as a substitute. */
 class AudioCaptureRouter(context: Context) {
     enum class Route {
         SHIZUKU_VOICE_CALL,
@@ -20,19 +20,14 @@ class AudioCaptureRouter(context: Context) {
     private val appContext = context.applicationContext
     private val settings = SettingsStore(appContext)
 
-    fun decide(twilioCallActive: Boolean = false): Decision {
-        val bridgeState = CallAudioBridge.state(appContext)
-        val voiceComm = if (bridgeState == CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED)
-            CallAudioDiagnostics.inspect(appContext).voiceCommunicationInitialized else false
-        return AudioRoutePolicy.decide(
-            AudioRoutePolicy.Inputs(
-                bridgeState = bridgeState,
-                shizukuAvailable = ShizukuAudioStatus.binderAvailable(),
-                shizukuGranted = ShizukuAudioStatus.permissionGranted(),
-                voiceCommunicationAvailable = voiceComm,
-                twilioConfigured = settings.twilioMediaConfigured(),
-                twilioCallActive = twilioCallActive
-            )
+    fun decide(twilioCallActive: Boolean = false): Decision = AudioRoutePolicy.decide(
+        AudioRoutePolicy.Inputs(
+            bridgeState = CallAudioBridge.state(appContext),
+            shizukuAvailable = ShizukuAudioStatus.binderAvailable(),
+            shizukuGranted = ShizukuAudioStatus.permissionGranted(),
+            voiceCommunicationAvailable = false,
+            twilioConfigured = settings.twilioMediaConfigured(),
+            twilioCallActive = twilioCallActive
         )
-    }
+    )
 }
