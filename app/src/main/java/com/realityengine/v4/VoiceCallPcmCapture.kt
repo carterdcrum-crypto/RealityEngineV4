@@ -21,17 +21,19 @@ class VoiceCallPcmCapture(context:Context){
   if(!connected){running.set(false);return StartResult.Unavailable("${ShizukuAudioStatus.diagnostic()}; privileged UserService failed to bind after $CONNECT_ATTEMPTS attempts")}
   val startCode=ShizukuAudioClient.start();if(startCode!=PrivilegedAudioService.START_OK){val probe=ShizukuAudioClient.probeSummary();running.set(false);ShizukuAudioClient.disconnect();return StartResult.Unavailable("$probe (code $startCode)")}
   val source=ShizukuAudioClient.activeSourceLabel();val dual=ShizukuAudioClient.captureMode()==PrivilegedAudioService.CAPTURE_MODE_DUAL;val mode=if(dual)Mode.DUAL else Mode.SINGLE;activeSource="SHIZUKU_$source";onStarted(mode)
-  worker=Thread({var failure:String?=null;var lastAudio=SystemClock.elapsedRealtime();var receivedAny=false
-   fun accept(result:ShizukuAudioClient.ReadResult,direction:Direction):Boolean=when(result){is ShizukuAudioClient.ReadResult.Pcm->{val pcm=result.bytes;if(pcm.isNotEmpty()){receivedAny=true;lastAudio=SystemClock.elapsedRealtime();onFrame(pcm,pcm.size,direction)};true};ShizukuAudioClient.ReadResult.Empty->true;is ShizukuAudioClient.ReadResult.Failed->{failure=when(result.code){PrivilegedAudioService.READ_DEAD_OBJECT->"Android audio source died (ERROR_DEAD_OBJECT)";PrivilegedAudioService.READ_NOT_RUNNING->"Privileged recorder stopped unexpectedly";PrivilegedAudioService.READ_FAILED->"Privileged Binder/audio read failed";else->"Privileged audio read failed (code ${result.code})"};false}}
+  worker=Thread({var failure:String?=null;val startedAt=SystemClock.elapsedRealtime();var lastTransport=startedAt;var receivedAny=false
+   fun accept(result:ShizukuAudioClient.ReadResult,direction:Direction):Boolean=when(result){is ShizukuAudioClient.ReadResult.Pcm->{lastTransport=SystemClock.elapsedRealtime();val pcm=result.bytes;if(pcm.isNotEmpty()){receivedAny=true;onFrame(pcm,pcm.size,direction)};true};ShizukuAudioClient.ReadResult.Empty->{lastTransport=SystemClock.elapsedRealtime();true};is ShizukuAudioClient.ReadResult.Failed->{failure=when(result.code){PrivilegedAudioService.READ_DEAD_OBJECT->"Android audio source died (ERROR_DEAD_OBJECT)";PrivilegedAudioService.READ_NOT_RUNNING->"Privileged recorder stopped unexpectedly";PrivilegedAudioService.READ_FAILED->"Privileged Binder/audio read failed";else->"Privileged audio read failed (code ${result.code})"};false}}
    try{while(running.get()){
     val ok=if(dual){val downOk=accept(ShizukuAudioClient.readDownlinkResult(READ_CHUNK_BYTES),Direction.DOWNLINK);val upOk=if(downOk)accept(ShizukuAudioClient.readUplinkResult(READ_CHUNK_BYTES),Direction.UPLINK)else false;downOk&&upOk}else accept(ShizukuAudioClient.readResult(READ_CHUNK_BYTES),Direction.MIXED)
     if(!ok)break
-    if(SystemClock.elapsedRealtime()-lastAudio>STALL_TIMEOUT_MS){failure=if(receivedAny)"Privileged $source audio stream stalled (no PCM for 5s)" else "$source opened but Samsung returned no PCM for 5s";break}
+    val now=SystemClock.elapsedRealtime()
+    if(!receivedAny&&now-startedAt>STARTUP_PCM_TIMEOUT_MS){failure="$source opened but Samsung returned no PCM for 10s";break}
+    if(now-lastTransport>TRANSPORT_STALL_TIMEOUT_MS){failure="Privileged $source transport stalled (no read response for 10s)";break}
     try{Thread.sleep(READ_IDLE_MS)}catch(_:InterruptedException){if(!running.get())break}
    }}catch(t:Throwable){if(running.get())failure="Privileged call audio exception: ${t.javaClass.simpleName}"}finally{running.set(false);activeSource=null;ShizukuAudioClient.disconnect();worker=null;onStopped(failure)}
   },"reality-shizuku-call-pcm").apply{isDaemon=true;start()};return StartResult.Started(Format(channels=if(dual)2 else 1),"SHIZUKU_$source",mode)
  }
  fun stop(){if(!running.getAndSet(false))return;activeSource=null;ShizukuAudioClient.stop();worker?.interrupt()}
  fun isRunning():Boolean=running.get()
- companion object{const val SAMPLE_RATE=16_000;private const val READ_CHUNK_BYTES=8_192;private const val READ_IDLE_MS=10L;private const val STALL_TIMEOUT_MS=5_000L;private const val CONNECT_ATTEMPTS=3;private const val CONNECT_RETRY_MS=350L}
+ companion object{const val SAMPLE_RATE=16_000;private const val READ_CHUNK_BYTES=8_192;private const val READ_IDLE_MS=10L;private const val STARTUP_PCM_TIMEOUT_MS=10_000L;private const val TRANSPORT_STALL_TIMEOUT_MS=10_000L;private const val CONNECT_ATTEMPTS=3;private const val CONNECT_RETRY_MS=350L}
 }
