@@ -5,8 +5,10 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.telecom.Call
 
-/** Capability status for call audio. The privileged UserService owns the VOICE_CALL
- * AudioRecord probe so the app process never makes a misleading unprivileged probe. */
+/** Capability status for call audio. Shizuku authorization means the privileged bridge
+ * is ready to be attempted; the live capture pipeline owns starting/stopping VOICE_CALL.
+ * This avoids a status probe briefly opening and closing the same protected source that
+ * transcription is about to consume. */
 object CallAudioBridge {
     enum class State {
         UNAVAILABLE,
@@ -24,18 +26,7 @@ object CallAudioBridge {
             return State.MICROPHONE_PERMISSION_REQUIRED
         }
         val activeCall = CallSessionRegistry.primary()
-        if (activeCall?.state != Call.STATE_ACTIVE) return State.SHIZUKU_READY
-        return if (canInitializeVoiceCallSource()) State.VOICE_CALL_SOURCE_AVAILABLE
-        else State.VOICE_CALL_SOURCE_BLOCKED
-    }
-
-    private fun canInitializeVoiceCallSource(): Boolean {
-        if (!ShizukuAudioClient.connect()) return false
-        val result = ShizukuAudioClient.start()
-        if (result == PrivilegedAudioService.START_OK) {
-            ShizukuAudioClient.stop()
-            return true
-        }
-        return false
+        return if (activeCall?.state == Call.STATE_ACTIVE) State.VOICE_CALL_SOURCE_AVAILABLE
+        else State.SHIZUKU_READY
     }
 }
