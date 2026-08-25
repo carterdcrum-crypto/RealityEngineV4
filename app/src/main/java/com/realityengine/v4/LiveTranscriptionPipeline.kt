@@ -10,7 +10,7 @@ class LiveTranscriptionPipeline(context: Context) {
     data class Status(val running: Boolean, val transport: DeepgramStreamingClient.State, val failure: String?)
 
     private val appContext=context.applicationContext;private val settings=SettingsStore(appContext);private val capture=VoiceCallPcmCapture(appContext);private val deepgram=DeepgramStreamingClient(settings);private val conversation=LiveConversationSession(appContext);private val evidence=LiveEvidenceEngine(appContext);private val acoustic=AcousticSignalAnalyzer();private val factual=FactualSignalAnalyzer(appContext);private val memory=CallerMemoryExtractor(appContext);private val running=AtomicBoolean(false)
-    @Volatile private var interimCallback:((String)->Unit)?=null;@Volatile private var stoppedCallback:((String?)->Unit)?=null;@Volatile private var acousticScore=0;@Volatile private var callerSpeaker:Int?=null;@Volatile private var multichannel=false;@Volatile private var callerSpeaking=false;@Volatile private var userSpeaking=false
+    @Volatile private var interimCallback:((String)->Unit)?=null;@Volatile private var stoppedCallback:((String?)->Unit)?=null;@Volatile private var acousticScore=0;@Volatile private var callerSpeaker:Int?=null;@Volatile private var multichannel=false;@Volatile private var callerSpeaking=false;@Volatile private var userSpeaking=false;@Volatile private var callerSpeechStartedAt=-1.0;@Volatile private var userSpeechStartedAt=-1.0
     private val pendingLock=Any();private val pendingPcm=ByteArrayOutputStream(MAX_PENDING_PCM);private val stereoLock=Any();private var pendingRx=ByteArray(0);private var pendingTx=ByteArray(0)
 
     fun start(onInterim:(String)->Unit={},onStopped:(String?)->Unit={}):StartResult{
@@ -27,16 +27,23 @@ class LiveTranscriptionPipeline(context: Context) {
     fun startTwilio(onInterim:(String)->Unit={},onStopped:(String?)->Unit={}):StartResult{if(!settings.deepgramConfigured()||!running.compareAndSet(false,true))return StartResult.Unavailable(startFailureReason());prepareSession(onInterim,onStopped);return if(connectDeepgram(8_000,1,false))StartResult.Started else{running.set(false);StartResult.Unavailable(startFailureReason())}}
     fun acceptTwilioMessage(message:String):Boolean{if(!running.get())return false;val frame=TwilioMediaStreamDecoder.decode(message)?:return false;acousticScore=acoustic.analyze(frame.pcm16).score;return deepgram.sendPcm(frame.pcm16)}
 
-    private fun prepareSession(onInterim:(String)->Unit,onStopped:(String?)->Unit){multichannel=false;callerSpeaking=false;userSpeaking=false;acoustic.reset();callerSpeaker=null;clearPending();LiveTranscriptState.clear();interimCallback=onInterim;stoppedCallback=onStopped;conversation.bindActiveCaller()}
-    private fun connectDeepgram(sampleRate:Int,channels:Int,multi:Boolean):Boolean{multichannel=multi;return deepgram.connect(sampleRate=sampleRate,channels=channels,multichannel=multi,onTranscript={result->val isCaller=if(multichannel)result.channel?.let{it==0}else{val speaker=result.speaker;if(callerSpeaker==null&&speaker!=null)callerSpeaker=speaker;speaker?.let{it==callerSpeaker}};LiveTranscriptState.publish(result.text,result.isFinal,isCaller);interimCallback?.invoke(result.text);if(result.isFinal&&result.text.isNotBlank()){val finalIsCaller=isCaller!=false;if(finalIsCaller){conversation.onCallerTurn(result.text);val phone=CallSessionRegistry.primaryNumber().orEmpty();memory.observe(phone,result.text);val linguistic=LinguisticSignalAnalyzer.analyze(result.text);val factualResult=factual.analyze(phone,result.text);val context=buildString{append(result.text.take(150));if(factualResult.reason.isNotBlank())append(" [consistency: ").append(factualResult.reason).append(']')};evidence.update(phone,acousticScore,linguistic.score,factualResult.score,context.take(220))}else conversation.onUserTurn(result.text)};if(result.speechFinal){if(isCaller==true)callerSpeaking=false else if(isCaller==false)userSpeaking=false}},onSpeechEvent={event->handleSpeechEvent(event)},onClosed={reason->if(running.getAndSet(false)){clearPending();capture.stop();stoppedCallback?.invoke(reason)}}).also{started->if(started)primeDeepgram(sampleRate,channels)}}
+    private fun prepareSession(onInterim:(String)->Unit,onStopped:(String?)->Unit){multichannel=false;resetSpeechState();acoustic.reset();callerSpeaker=null;clearPending();LiveTranscriptState.clear();interimCallback=onInterim;stoppedCallback=onStopped;conversation.bindActiveCaller()}
+    private fun connectDeepgram(sampleRate:Int,channels:Int,multi:Boolean):Boolean{multichannel=multi;return deepgram.connect(sampleRate=sampleRate,channels=channels,multichannel=multi,onTranscript={result->val isCaller=if(multichannel)result.channel?.let{it==0}else{val speaker=result.speaker;if(callerSpeaker==null&&speaker!=null)callerSpeaker=speaker;speaker?.let{it==callerSpeaker}};LiveTranscriptState.publish(result.text,result.isFinal,isCaller);interimCallback?.invoke(result.text);if(result.isFinal&&result.text.isNotBlank()){val finalIsCaller=isCaller!=false;if(finalIsCaller){conversation.onCallerTurn(result.text);val phone=CallSessionRegistry.primaryNumber().orEmpty();memory.observe(phone,result.text);val linguistic=LinguisticSignalAnalyzer.analyze(result.text);val factualResult=factual.analyze(phone,result.text);val context=buildString{append(result.text.take(150));if(factualResult.reason.isNotBlank())append(" [consistency: ").append(factualResult.reason).append(']')};evidence.update(phone,acousticScore,linguistic.score,factualResult.score,context.take(220))}else conversation.onUserTurn(result.text)};if(result.speechFinal){if(isCaller==true)callerSpeaking=false else if(isCaller==false)userSpeaking=false}},onSpeechEvent={event->handleSpeechEvent(event)},onClosed={reason->if(running.getAndSet(false)){clearPending();resetSpeechState();capture.stop();stoppedCallback?.invoke(reason)}}).also{started->if(started)primeDeepgram(sampleRate,channels)}}
 
     private fun handleSpeechEvent(event:DeepgramStreamingClient.SpeechEvent){
         if(!multichannel)return
         when(event){
-            is DeepgramStreamingClient.SpeechEvent.Started->when(event.channel){0->callerSpeaking=true;1->userSpeaking=true}
-            is DeepgramStreamingClient.SpeechEvent.Ended->when(event.channel){0->callerSpeaking=false;1->userSpeaking=false}
+            is DeepgramStreamingClient.SpeechEvent.Started->when(event.channel){
+                0->{callerSpeaking=true;callerSpeechStartedAt=event.timestampSeconds}
+                1->{userSpeaking=true;userSpeechStartedAt=event.timestampSeconds}
+            }
+            is DeepgramStreamingClient.SpeechEvent.Ended->when(event.channel){
+                0->if(callerSpeechStartedAt<0.0||event.lastWordEndSeconds>=callerSpeechStartedAt)callerSpeaking=false
+                1->if(userSpeechStartedAt<0.0||event.lastWordEndSeconds>=userSpeechStartedAt)userSpeaking=false
+            }
         }
     }
+    private fun resetSpeechState(){callerSpeaking=false;userSpeaking=false;callerSpeechStartedAt=-1.0;userSpeechStartedAt=-1.0}
 
     /** Deepgram NET-0001 requires at least one binary audio frame soon after opening. A short
      * digital-silence frame is valid linear16 audio and does not imply that either party spoke. */
@@ -78,7 +85,7 @@ class LiveTranscriptionPipeline(context: Context) {
 
     private fun startFailureReason():String=when{!settings.deepgramConfigured()->"Deepgram is not configured";deepgram.failureReason()!=null->deepgram.failureReason()!!.take(160);deepgram.connectionState()==DeepgramStreamingClient.State.CONNECTING->"Deepgram is already connecting";else->"Deepgram stream could not start"}
     fun status():Status=Status(running.get(),deepgram.connectionState(),deepgram.failureReason())
-    fun stop(){if(!running.getAndSet(false))return;clearPending();capture.stop();deepgram.close();conversation.clear();acoustic.reset();acousticScore=0;callerSpeaker=null;callerSpeaking=false;userSpeaking=false;multichannel=false;interimCallback=null;stoppedCallback=null;LiveTranscriptState.clear()}
+    fun stop(){if(!running.getAndSet(false))return;clearPending();capture.stop();deepgram.close();conversation.clear();acoustic.reset();acousticScore=0;callerSpeaker=null;resetSpeechState();multichannel=false;interimCallback=null;stoppedCallback=null;LiveTranscriptState.clear()}
     fun isRunning():Boolean=running.get()
     companion object{private const val MAX_PENDING_PCM=128_000;private const val STEREO_FRAME_MONO_BYTES=3_200;private const val FIRST_AUDIO_DEADLINE_MS=5_000L}
 }
