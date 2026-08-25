@@ -12,8 +12,30 @@ import java.util.concurrent.TimeUnit
 object ShizukuAudioClient {
     sealed class ReadResult { data class Pcm(val bytes:ByteArray):ReadResult();data object Empty:ReadResult();data class Failed(val code:Int):ReadResult() }
     @Volatile private var remote:IBinder?=null;@Volatile private var activeConnection:ServiceConnection?=null;private val lock=Any()
-    private val args:Shizuku.UserServiceArgs get()=Shizuku.UserServiceArgs(ComponentName("com.realityengine.v4",PrivilegedAudioService::class.java.name)).processNameSuffix("call_audio").daemon(false).tag("reality_call_audio").version(1)
-    fun connect(timeoutMs:Long=4000):Boolean{remote?.takeIf{it.isBinderAlive}?.let{return true};if(!ShizukuAudioStatus.binderAvailable()||!ShizukuAudioStatus.permissionGranted())return false;synchronized(lock){remote?.takeIf{it.isBinderAlive}?.let{return true};val connected=CountDownLatch(1);val connection=object:ServiceConnection{override fun onServiceConnected(name:ComponentName?,service:IBinder?){remote=service;connected.countDown()};override fun onServiceDisconnected(name:ComponentName?){remote=null}};activeConnection=connection;return try{Shizuku.bindUserService(args,connection);val ok=connected.await(timeoutMs,TimeUnit.MILLISECONDS)&&remote?.isBinderAlive==true;if(!ok)unbindLocked(connection);ok}catch(_:Throwable){unbindLocked(connection);false}}}
+    private val args:Shizuku.UserServiceArgs get()=Shizuku.UserServiceArgs(ComponentName("com.realityengine.v4",PrivilegedAudioService::class.java.name)).processNameSuffix("call_audio").daemon(true).tag("reality_call_audio").version(2)
+    fun connect(timeoutMs:Long=6000):Boolean{
+        remote?.takeIf{it.isBinderAlive}?.let{return true}
+        if(!ShizukuAudioStatus.binderAvailable()||!ShizukuAudioStatus.permissionGranted())return false
+        synchronized(lock){
+            remote?.takeIf{it.isBinderAlive}?.let{return true}
+            activeConnection?.let{unbindLocked(it)}
+            repeat(2){attempt->
+                val connected=CountDownLatch(1)
+                val connection=object:ServiceConnection{
+                    override fun onServiceConnected(name:ComponentName?,service:IBinder?){remote=service;connected.countDown()}
+                    override fun onServiceDisconnected(name:ComponentName?){if(activeConnection===this){remote=null;activeConnection=null}}
+                    override fun onBindingDied(name:ComponentName?){if(activeConnection===this){remote=null;activeConnection=null};connected.countDown()}
+                    override fun onNullBinding(name:ComponentName?){if(activeConnection===this){remote=null;activeConnection=null};connected.countDown()}
+                }
+                activeConnection=connection
+                val ok=try{Shizuku.bindUserService(args,connection);connected.await(timeoutMs,TimeUnit.MILLISECONDS)&&remote?.isBinderAlive==true}catch(_:Throwable){false}
+                if(ok)return true
+                remote=null;unbindLocked(connection)
+                if(attempt==0)try{Thread.sleep(250)}catch(_:InterruptedException){Thread.currentThread().interrupt();return false}
+            }
+            return false
+        }
+    }
     fun start():Int=transactInt(PrivilegedAudioService.TRANSACTION_START)
     fun activeSource():Int=transactInt(PrivilegedAudioService.TRANSACTION_STATUS)
     fun probeMask():Int=transactInt(PrivilegedAudioService.TRANSACTION_PROBE_STATUS)
@@ -23,6 +45,6 @@ object ShizukuAudioClient {
     fun read(maxBytes:Int):ByteArray?=(readResult(maxBytes) as? ReadResult.Pcm)?.bytes
     fun stop(){transactInt(PrivilegedAudioService.TRANSACTION_STOP)}
     fun disconnect(){synchronized(lock){stop();remote=null;activeConnection?.let{unbindLocked(it)}}}
-    private fun unbindLocked(connection:ServiceConnection){runCatching{Shizuku.unbindUserService(args,connection,true)};if(activeConnection===connection)activeConnection=null}
+    private fun unbindLocked(connection:ServiceConnection){runCatching{Shizuku.unbindUserService(args,connection,false)};if(activeConnection===connection)activeConnection=null}
     private fun transactInt(code:Int):Int{val binder=remote?.takeIf{it.isBinderAlive}?:return PrivilegedAudioService.START_SOURCE_BLOCKED;val data=Parcel.obtain();val reply=Parcel.obtain();return try{data.writeInterfaceToken(PrivilegedAudioService.DESCRIPTOR);if(!binder.transact(code,data,reply,0))PrivilegedAudioService.START_SOURCE_BLOCKED else{reply.readException();when(code){PrivilegedAudioService.TRANSACTION_START,PrivilegedAudioService.TRANSACTION_STATUS,PrivilegedAudioService.TRANSACTION_PROBE_STATUS->reply.readInt();else->PrivilegedAudioService.START_OK}}}catch(_:Throwable){PrivilegedAudioService.START_SOURCE_BLOCKED}finally{reply.recycle();data.recycle()}}
 }
