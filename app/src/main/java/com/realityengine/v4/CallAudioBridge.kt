@@ -3,13 +3,10 @@ package com.realityengine.v4
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.AudioRecord
-import android.media.MediaRecorder
 import android.telecom.Call
 
-/** Capability status for call audio. Hardware probing is deferred until an active call,
- * because some Android devices cannot initialize the call source while idle. */
+/** Capability status for call audio. The privileged UserService owns the VOICE_CALL
+ * AudioRecord probe so the app process never makes a misleading unprivileged probe. */
 object CallAudioBridge {
     enum class State {
         UNAVAILABLE,
@@ -33,19 +30,12 @@ object CallAudioBridge {
     }
 
     private fun canInitializeVoiceCallSource(): Boolean {
-        var recorder: AudioRecord? = null
-        return try {
-            val sampleRate = 16000
-            val minBuffer = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-            if (minBuffer <= 0) return false
-            recorder = AudioRecord(MediaRecorder.AudioSource.VOICE_CALL, sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, minBuffer * 2)
-            recorder.state == AudioRecord.STATE_INITIALIZED
-        } catch (_: SecurityException) {
-            false
-        } catch (_: Throwable) {
-            false
-        } finally {
-            try { recorder?.release() } catch (_: Throwable) { }
+        if (!ShizukuAudioClient.connect()) return false
+        val result = ShizukuAudioClient.start()
+        if (result == PrivilegedAudioService.START_OK) {
+            ShizukuAudioClient.stop()
+            return true
         }
+        return false
     }
 }
