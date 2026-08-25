@@ -4,6 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val ciRun = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+val buildNumber = ciRun ?: 306
+val buildName = "0.$buildNumber.0"
+val buildId = "RE4-W$buildNumber"
+
 android {
     namespace = "com.realityengine.v4"
     compileSdk = 35
@@ -12,10 +17,10 @@ android {
         applicationId = "com.realityengine.v4"
         minSdk = 26
         targetSdk = 35
-        versionCode = 306
-        versionName = "0.306.0"
+        versionCode = buildNumber
+        versionName = buildName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        buildConfigField("String", "BUILD_ID", "\"RE4-W306\"")
+        buildConfigField("String", "BUILD_ID", "\"$buildId\"")
     }
 
     buildFeatures {
