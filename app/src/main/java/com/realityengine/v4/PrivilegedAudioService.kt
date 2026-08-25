@@ -5,13 +5,11 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Binder
 import android.os.Parcel
-import android.os.SystemClock
 import androidx.annotation.Keep
-import kotlin.math.abs
 
 /** Privileged Shizuku UserService for adaptive carrier-call capture.
- * Prefers simultaneous telephony RX/TX streams, then falls back to a single
- * audible downlink/mixed/uplink/voice-communication source. */
+ * Capture health is based on recorder/transport state, never instantaneous loudness.
+ * Silence is valid during pauses and mute; speech detection belongs downstream. */
 @Keep
 class PrivilegedAudioService : Binder() {
     private var recorder: AudioRecord? = null
@@ -22,9 +20,6 @@ class PrivilegedAudioService : Binder() {
     @Volatile private var activeSource=SOURCE_NONE
     @Volatile private var probeMask=0
     @Volatile private var bootstrapHealth=ShellAudioBootstrap.Health.FAILED
-    @Volatile private var lastProbePeak=0
-    @Volatile private var downlinkPeak=0
-    @Volatile private var uplinkPeak=0
 
     override fun onTransact(code:Int,data:Parcel,reply:Parcel?,flags:Int):Boolean=when(code){
         TRANSACTION_START->{data.enforceInterface(DESCRIPTOR);val result=startCapture();reply?.writeNoException();reply?.writeInt(result);true}
@@ -35,9 +30,9 @@ class PrivilegedAudioService : Binder() {
         TRANSACTION_STATUS->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(if(started)activeSource else SOURCE_NONE);true}
         TRANSACTION_PROBE_STATUS->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(probeMask);true}
         TRANSACTION_BOOTSTRAP_STATUS->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(bootstrapHealth.ordinal);true}
-        TRANSACTION_AUDIBILITY_STATUS->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(lastProbePeak);true}
+        TRANSACTION_AUDIBILITY_STATUS->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(0);true}
         TRANSACTION_CAPTURE_MODE->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(if(dualStream)CAPTURE_MODE_DUAL else if(started)CAPTURE_MODE_SINGLE else CAPTURE_MODE_NONE);true}
-        TRANSACTION_DUAL_PEAKS->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(downlinkPeak);reply?.writeInt(uplinkPeak);true}
+        TRANSACTION_DUAL_PEAKS->{data.enforceInterface(DESCRIPTOR);reply?.writeNoException();reply?.writeInt(0);reply?.writeInt(0);true}
         DESTROY_TRANSACTION->{stopCapture();reply?.writeNoException();true}
         else->super.onTransact(code,data,reply,flags)
     }
@@ -52,40 +47,37 @@ class PrivilegedAudioService : Binder() {
         if(min<=0)return START_FORMAT_UNAVAILABLE
         val format=AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(SAMPLE_RATE).setChannelMask(AudioFormat.CHANNEL_IN_MONO).build()
 
-        // Preferred path: clean RX and TX streams. Both must actually contain
-        // audible PCM; merely reaching RECORDSTATE_RECORDING is insufficient.
+        // Preferred path: separate RX/TX. A successfully initialized and started pair is
+        // accepted even if either side is silent right now (normal pause/mute behavior).
         val down=createRecorder(bootstrap.context,MediaRecorder.AudioSource.VOICE_DOWNLINK,format,min)
         val up=createRecorder(bootstrap.context,MediaRecorder.AudioSource.VOICE_UPLINK,format,min)
         probeMask=probeMask or PROBE_VOICE_DOWNLINK or PROBE_VOICE_UPLINK or PROBE_DUAL
-        if(startRecorder(down)&&startRecorder(up)){
-            downlinkPeak=measurePeak(down!!);uplinkPeak=measurePeak(up!!)
-            lastProbePeak=maxOf(downlinkPeak,uplinkPeak)
-            if(downlinkPeak>=AUDIBLE_PEAK_THRESHOLD&&uplinkPeak>=AUDIBLE_PEAK_THRESHOLD){
-                downlinkRecorder=down;uplinkRecorder=up;dualStream=true;started=true;activeSource=SOURCE_DUAL
-                probeMask=probeMask or PROBE_SUCCESS or PROBE_AUDIBLE or PROBE_DUAL_SUCCESS
-                return START_OK
-            }
+        val downStarted=startRecorder(down)
+        val upStarted=startRecorder(up)
+        if(downStarted&&upStarted){
+            downlinkRecorder=down;uplinkRecorder=up;dualStream=true;started=true;activeSource=SOURCE_DUAL
+            probeMask=probeMask or PROBE_SUCCESS or PROBE_DUAL_SUCCESS
+            return START_OK
         }
         releaseRecorder(down);releaseRecorder(up)
 
+        // If dual capture is unavailable, choose the first source that can actually start.
+        // Do not reject it merely because its current PCM happens to be silence.
         val probes=arrayOf(
             MediaRecorder.AudioSource.VOICE_DOWNLINK to PROBE_VOICE_DOWNLINK,
             MediaRecorder.AudioSource.VOICE_CALL to PROBE_VOICE_CALL,
             MediaRecorder.AudioSource.VOICE_UPLINK to PROBE_VOICE_UPLINK,
             MediaRecorder.AudioSource.VOICE_COMMUNICATION to PROBE_VOICE_COMMUNICATION
         )
-        var anyStarted=false
         for((source,bit) in probes){
             probeMask=probeMask or bit
             val candidate=createRecorder(bootstrap.context,source,format,min)?:continue
             if(!startRecorder(candidate)){releaseRecorder(candidate);continue}
-            anyStarted=true
-            val peak=measurePeak(candidate);lastProbePeak=maxOf(lastProbePeak,peak)
-            if(peak>=AUDIBLE_PEAK_THRESHOLD){recorder=candidate;activeSource=source;started=true;probeMask=probeMask or PROBE_SUCCESS or PROBE_AUDIBLE;return START_OK}
-            releaseRecorder(candidate)
+            recorder=candidate;activeSource=source;started=true;probeMask=probeMask or PROBE_SUCCESS
+            return START_OK
         }
         activeSource=SOURCE_NONE
-        return if(anyStarted)START_SILENT_SOURCE else START_SOURCE_BLOCKED
+        return START_SOURCE_BLOCKED
     }
 
     private fun createRecorder(context:android.content.Context,source:Int,format:AudioFormat,min:Int):AudioRecord?=try{
@@ -93,15 +85,6 @@ class PrivilegedAudioService : Binder() {
     }catch(_:Throwable){null}
     private fun startRecorder(candidate:AudioRecord?):Boolean{if(candidate==null)return false;return try{candidate.startRecording();candidate.recordingState==AudioRecord.RECORDSTATE_RECORDING}catch(_:Throwable){false}}
     private fun releaseRecorder(candidate:AudioRecord?){runCatching{candidate?.stop()};runCatching{candidate?.release()}}
-
-    private fun measurePeak(candidate:AudioRecord):Int{
-        val samples=ShortArray(PROBE_SAMPLES);var peak=0;val deadline=SystemClock.elapsedRealtime()+PROBE_WINDOW_MS
-        while(SystemClock.elapsedRealtime()<deadline){
-            val count=try{candidate.read(samples,0,samples.size,AudioRecord.READ_NON_BLOCKING)}catch(_:Throwable){return 0}
-            if(count>0){for(i in 0 until count)peak=maxOf(peak,abs(samples[i].toInt()));if(peak>=AUDIBLE_PEAK_THRESHOLD)return peak}else SystemClock.sleep(PROBE_IDLE_MS)
-        }
-        return peak
-    }
 
     private fun read(buffer:ByteArray):Int=if(dualStream)readFrom(downlinkRecorder,buffer) else readFrom(recorder,buffer)
     private fun readFrom(active:AudioRecord?,buffer:ByteArray):Int{
@@ -111,7 +94,7 @@ class PrivilegedAudioService : Binder() {
         if(result<0&&result!=AudioRecord.ERROR_INVALID_OPERATION&&result!=AudioRecord.ERROR_BAD_VALUE)return READ_FAILED
         return result.coerceAtLeast(0)
     }
-    private fun resetDiagnostics(){probeMask=0;lastProbePeak=0;downlinkPeak=0;uplinkPeak=0;dualStream=false}
+    private fun resetDiagnostics(){probeMask=0;dualStream=false}
     @Synchronized private fun stopCapture(){started=false;dualStream=false;activeSource=SOURCE_NONE;val single=recorder;val down=downlinkRecorder;val up=uplinkRecorder;recorder=null;downlinkRecorder=null;uplinkRecorder=null;releaseRecorder(single);releaseRecorder(down);releaseRecorder(up)}
     @Keep fun destroy(){stopCapture();System.exit(0)}
 
@@ -121,6 +104,5 @@ class PrivilegedAudioService : Binder() {
         const val START_OK=0;const val START_FORMAT_UNAVAILABLE=-1;const val START_SOURCE_BLOCKED=-2;const val READ_NOT_RUNNING=-3;const val READ_FAILED=-4;const val READ_DEAD_OBJECT=-5;const val START_CONTEXT_UNAVAILABLE=-6;const val START_BOOTSTRAP_FAILED=-7;const val START_SILENT_SOURCE=-8;const val MAX_BINDER_CHUNK=16_384
         const val CAPTURE_MODE_NONE=0;const val CAPTURE_MODE_SINGLE=1;const val CAPTURE_MODE_DUAL=2
         const val PROBE_VOICE_CALL=1;const val PROBE_VOICE_DOWNLINK=2;const val PROBE_VOICE_UPLINK=4;const val PROBE_SUCCESS=8;const val PROBE_VOICE_COMMUNICATION=16;const val PROBE_AUDIBLE=32;const val PROBE_DUAL=64;const val PROBE_DUAL_SUCCESS=128
-        private const val PROBE_WINDOW_MS=700L;private const val PROBE_IDLE_MS=10L;private const val PROBE_SAMPLES=1024;private const val AUDIBLE_PEAK_THRESHOLD=256
     }
 }
