@@ -1,3 +1,6 @@
+import java.net.URI
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -9,6 +12,30 @@ val buildNumber = ciRun ?: 306
 val buildName = "0.$buildNumber.0"
 val buildId = "RE4-W$buildNumber"
 val updaterKeystore = rootProject.file("realityengine-updater.jks")
+
+val scrcpyVersion = "4.0"
+val scrcpyServerSha256 = "84924bd564a1eb6089c872c7521f968058977f91f5ff02514a8c74aff3210f3a"
+val scrcpyServerUrl = "https://github.com/Genymobile/scrcpy/releases/download/v$scrcpyVersion/scrcpy-server-v$scrcpyVersion"
+val scrcpyAssetName = "scrcpy-server"
+val scrcpyAssetDir = layout.buildDirectory.dir("generated/scrcpy/assets")
+
+abstract class DownloadVerifiedScrcpyTask : DefaultTask() {
+    @get:OutputDirectory abstract val outputDir: org.gradle.api.file.DirectoryProperty
+    @TaskAction fun download() {
+        val target = outputDir.get().file(scrcpyAssetName).asFile
+        fun hash(file: File): String {
+            val d = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input -> val b=ByteArray(8192); while(true){val n=input.read(b);if(n<0)break;if(n>0)d.update(b,0,n)} }
+            return d.digest().joinToString("") { "%02x".format(it) }
+        }
+        if (target.isFile && hash(target).equals(scrcpyServerSha256, true)) return
+        target.parentFile.mkdirs()
+        URI(scrcpyServerUrl).toURL().openStream().use { input -> target.outputStream().use { input.copyTo(it) } }
+        val actual = hash(target)
+        if (!actual.equals(scrcpyServerSha256, true)) { target.delete(); throw GradleException("scrcpy-server SHA-256 mismatch") }
+    }
+}
+val downloadVerifiedScrcpy = tasks.register<DownloadVerifiedScrcpyTask>("downloadVerifiedScrcpy") { outputDir.set(scrcpyAssetDir) }
 
 android {
     namespace = "com.realityengine.v4"
@@ -38,17 +65,13 @@ android {
         release { if (updaterKeystore.exists()) signingConfig = signingConfigs.getByName("updater") }
     }
 
-    buildFeatures {
-        compose = true
-        buildConfig = true
-    }
-
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-
+    buildFeatures { compose = true; buildConfig = true }
+    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
+}
+
+androidComponents {
+    onVariants { variant -> variant.sources.assets?.addGeneratedSourceDirectory(downloadVerifiedScrcpy, DownloadVerifiedScrcpyTask::outputDir) }
 }
 
 dependencies {
