@@ -12,10 +12,12 @@ import java.util.concurrent.TimeUnit
 /** App-process client for the privileged call-audio UserService. Blocking calls must stay off the UI thread. */
 object ShizukuAudioClient {
     sealed class ReadResult { data class Pcm(val bytes: ByteArray) : ReadResult(); data object Empty : ReadResult(); data class Failed(val code: Int) : ReadResult() }
+    data class DualScrcpyPipes(val downlink: ParcelFileDescriptor, val uplink: ParcelFileDescriptor)
+
     @Volatile private var remote: IBinder? = null
     @Volatile private var activeConnection: ServiceConnection? = null
     private val lock = Any()
-    private val args: Shizuku.UserServiceArgs get() = Shizuku.UserServiceArgs(ComponentName("com.realityengine.v4", PrivilegedAudioService::class.java.name)).processNameSuffix("call_audio").daemon(true).tag("reality_call_audio").version(3)
+    private val args: Shizuku.UserServiceArgs get() = Shizuku.UserServiceArgs(ComponentName("com.realityengine.v4", PrivilegedAudioService::class.java.name)).processNameSuffix("call_audio").daemon(true).tag("reality_call_audio").version(4)
 
     fun connect(timeoutMs: Long = 6000): Boolean {
         remote?.takeIf { it.isBinderAlive }?.let { return true }
@@ -62,11 +64,34 @@ object ShizukuAudioClient {
         }
     }
 
+    /** Returns DOWNLINK first (remote caller), UPLINK second (local microphone). */
+    fun startScrcpyDual(serverPath: String): DualScrcpyPipes? {
+        val binder = remote?.takeIf { it.isBinderAlive } ?: return null
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        return try {
+            data.writeInterfaceToken(PrivilegedAudioService.DESCRIPTOR)
+            data.writeString(serverPath)
+            if (!binder.transact(PrivilegedAudioService.TRANSACTION_START_SCRCPY_DUAL, data, reply, 0)) return null
+            reply.readException()
+            if (reply.readInt() == 0) null
+            else DualScrcpyPipes(
+                downlink = ParcelFileDescriptor.CREATOR.createFromParcel(reply),
+                uplink = ParcelFileDescriptor.CREATOR.createFromParcel(reply)
+            )
+        } catch (_: Throwable) {
+            null
+        } finally {
+            reply.recycle(); data.recycle()
+        }
+    }
+
     fun start(): Int = transactInt(PrivilegedAudioService.TRANSACTION_START)
     fun activeSource(): Int = transactInt(PrivilegedAudioService.TRANSACTION_STATUS)
     fun captureMode(): Int = transactInt(PrivilegedAudioService.TRANSACTION_CAPTURE_MODE)
     fun probeMask(): Int = transactInt(PrivilegedAudioService.TRANSACTION_PROBE_STATUS)
     fun activeSourceLabel(): String = when (activeSource()) {
+        PrivilegedAudioService.SOURCE_SCRCPY_DUAL -> "SCRCPY_RX_TX_RAW"
         PrivilegedAudioService.SOURCE_SCRCPY -> "SCRCPY_VOICE_CALL_RAW"
         PrivilegedAudioService.SOURCE_DUAL -> "DUAL_RX_TX"
         android.media.MediaRecorder.AudioSource.VOICE_CALL -> "VOICE_CALL"
