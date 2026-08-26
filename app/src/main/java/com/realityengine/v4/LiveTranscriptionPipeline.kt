@@ -4,7 +4,7 @@ import android.content.Context
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Live transcription pipeline supporting native Shizuku PCM and Twilio media fallback PCM. */
+/** Live transcription pipeline supporting Shizuku/scrcpy PCM and Twilio media fallback PCM. */
 class LiveTranscriptionPipeline(context: Context) {
     sealed class StartResult { data object Started : StartResult(); data class Unavailable(val reason: String) : StartResult() }
     data class Status(val running: Boolean, val transport: DeepgramStreamingClient.State, val failure: String?)
@@ -16,10 +16,27 @@ class LiveTranscriptionPipeline(context: Context) {
     fun start(onInterim:(String)->Unit={},onStopped:(String?)->Unit={}):StartResult{
         if(!settings.deepgramConfigured()||!running.compareAndSet(false,true))return StartResult.Unavailable(startFailureReason())
         prepareSession(onInterim,onStopped)
-        var transportStarted=false
-        val result=capture.start(onFrame={bytes,length,direction->if(running.get()&&!stopping.get()&&transportStarted){when(direction){VoiceCallPcmCapture.Direction.DOWNLINK->acceptDirectional(bytes,length,true);VoiceCallPcmCapture.Direction.UPLINK->acceptDirectional(bytes,length,false);VoiceCallPcmCapture.Direction.MIXED->{acousticScore=acoustic.analyze(bytes,length).score;sendOrBuffer(bytes,length)}}}},onStarted={mode->val dual=mode==VoiceCallPcmCapture.Mode.DUAL;transportStarted=connectDeepgram(VoiceCallPcmCapture.SAMPLE_RATE,if(dual)2 else 1,dual)},onStopped={reason->beginShutdown(reason,false)})
+        val result=capture.start(
+            onFrame={bytes,length,direction->
+                if(running.get()&&!stopping.get()){
+                    when(direction){
+                        VoiceCallPcmCapture.Direction.DOWNLINK->acceptDirectional(bytes,length,true)
+                        VoiceCallPcmCapture.Direction.UPLINK->acceptDirectional(bytes,length,false)
+                        VoiceCallPcmCapture.Direction.MIXED->{acousticScore=acoustic.analyze(bytes,length).score;sendOrBuffer(bytes,length)}
+                    }
+                }
+            },
+            onStarted={mode->
+                if(!running.get()||stopping.get())return@start
+                val dual=mode==VoiceCallPcmCapture.Mode.DUAL
+                if(!connectDeepgram(VoiceCallPcmCapture.SAMPLE_RATE,if(dual)2 else 1,dual)){
+                    beginShutdown(startFailureReason(),true)
+                }
+            },
+            onStopped={reason->beginShutdown(reason,false)}
+        )
         return when(result){
-            is VoiceCallPcmCapture.StartResult.Started->{if(transportStarted)StartResult.Started else{running.set(false);capture.stop();clearPending();deepgram.close();StartResult.Unavailable(startFailureReason())}}
+            is VoiceCallPcmCapture.StartResult.Started->StartResult.Started
             is VoiceCallPcmCapture.StartResult.Unavailable->{running.set(false);clearPending();deepgram.close();StartResult.Unavailable(result.reason)}
         }
     }
