@@ -34,9 +34,7 @@ class ScrcpyShellAudioRelay : Closeable {
     fun start(spec: LaunchSpec): StartResult {
         if (!active.compareAndSet(false, true)) return StartResult.Failed("scrcpy relay already active")
         if (!spec.serverJar.isFile) return failStart("scrcpy-server artifact missing")
-        if (!sha256(spec.serverJar).equals(SERVER_SHA256, ignoreCase = true)) {
-            return failStart("scrcpy-server integrity check failed")
-        }
+        if (!sha256(spec.serverJar).equals(SERVER_SHA256, ignoreCase = true)) return failStart("scrcpy-server integrity check failed")
 
         return try {
             val pipe = ParcelFileDescriptor.createPipe()
@@ -48,10 +46,15 @@ class ScrcpyShellAudioRelay : Closeable {
 
             val command = arrayListOf(
                 "app_process", "/", SERVER_MAIN_CLASS, SERVER_VERSION,
-                "log_level=info", "video=false", "audio=true", "control=false",
-                "tunnel_forward=false", "send_dummy_byte=false", "scid=$scid",
-                "audio_source=${spec.audioSource}", "audio_codec=${spec.audioCodec}",
-                "send_device_meta=false", "send_frame_meta=true", "send_stream_meta=true"
+                "log_level=info",
+                "video=false",
+                "audio=true",
+                "control=false",
+                "tunnel_forward=false",
+                "scid=$scid",
+                "audio_source=${spec.audioSource}",
+                "audio_codec=${spec.audioCodec}",
+                "raw_stream=true"
             )
             process = ProcessBuilder(command)
                 .redirectErrorStream(true)
@@ -79,14 +82,12 @@ class ScrcpyShellAudioRelay : Closeable {
                 while (active.get()) {
                     val count = input.read(buffer)
                     if (count < 0) break
-                    if (count > 0) {
-                        output.write(buffer, 0, count)
-                        output.flush()
-                    }
+                    if (count > 0) output.write(buffer, 0, count)
                 }
+                output.flush()
             }
         } catch (_: Throwable) {
-            // Closing descriptors intentionally interrupts blocking I/O during shutdown.
+            // Descriptor closure intentionally interrupts blocking I/O during shutdown.
         } finally {
             runCatching { pipeWriteEnd?.close() }
             pipeWriteEnd = null
