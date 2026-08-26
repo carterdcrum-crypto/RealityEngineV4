@@ -20,6 +20,8 @@ class PrivilegedAudioService : Binder {
     private var downlinkRecorder: AudioRecord? = null
     private var uplinkRecorder: AudioRecord? = null
     private var scrcpyRelay: ScrcpyShellAudioRelay? = null
+    private var scrcpyDownlinkRelay: ScrcpyShellAudioRelay? = null
+    private var scrcpyUplinkRelay: ScrcpyShellAudioRelay? = null
     @Volatile private var started = false
     @Volatile private var dualStream = false
     @Volatile private var activeSource = SOURCE_NONE
@@ -42,6 +44,20 @@ class PrivilegedAudioService : Binder {
             } else {
                 reply?.writeInt(1)
                 pfd.writeToParcel(reply!!, Parcelable.PARCELABLE_WRITE_RETURN_VALUE)
+            }
+            true
+        }
+        TRANSACTION_START_SCRCPY_DUAL -> {
+            data.enforceInterface(DESCRIPTOR)
+            val serverPath = data.readString().orEmpty()
+            val pipes = startScrcpyDualCapture(serverPath)
+            reply?.writeNoException()
+            if (pipes == null) {
+                reply?.writeInt(0)
+            } else {
+                reply?.writeInt(1)
+                pipes.first.writeToParcel(reply!!, Parcelable.PARCELABLE_WRITE_RETURN_VALUE)
+                pipes.second.writeToParcel(reply, Parcelable.PARCELABLE_WRITE_RETURN_VALUE)
             }
             true
         }
@@ -92,6 +108,7 @@ class PrivilegedAudioService : Binder {
         TRANSACTION_CAPTURE_MODE -> {
             data.enforceInterface(DESCRIPTOR)
             val mode = when {
+                scrcpyDownlinkRelay?.isActive() == true && scrcpyUplinkRelay?.isActive() == true -> CAPTURE_MODE_DUAL
                 scrcpyRelay?.isActive() == true -> CAPTURE_MODE_SINGLE
                 dualStream -> CAPTURE_MODE_DUAL
                 started -> CAPTURE_MODE_SINGLE
@@ -112,10 +129,15 @@ class PrivilegedAudioService : Binder {
     @Synchronized
     private fun startScrcpyCapture(serverPath: String): ParcelFileDescriptor? {
         if (serverPath.isBlank()) return null
-        stopCapture()
-        scrcpyRelay?.close()
+        stopAllCapture()
         val relay = ScrcpyShellAudioRelay()
-        return when (val result = relay.start(ScrcpyShellAudioRelay.LaunchSpec(serverJar = File(serverPath)))) {
+        return when (val result = relay.start(
+            ScrcpyShellAudioRelay.LaunchSpec(
+                serverJar = File(serverPath),
+                audioSource = "voice-call",
+                audioCodec = "raw"
+            )
+        )) {
             is ScrcpyShellAudioRelay.StartResult.Started -> {
                 scrcpyRelay = relay
                 activeSource = SOURCE_SCRCPY
@@ -128,6 +150,49 @@ class PrivilegedAudioService : Binder {
                 null
             }
         }
+    }
+
+    /**
+     * Starts two independent scrcpy-server audio sessions so the call directions never get mixed.
+     * Pipe order is DOWNLINK (remote caller) first, UPLINK (local microphone) second.
+     */
+    @Synchronized
+    private fun startScrcpyDualCapture(serverPath: String): Pair<ParcelFileDescriptor, ParcelFileDescriptor>? {
+        if (serverPath.isBlank()) return null
+        stopAllCapture()
+        val server = File(serverPath)
+        val downRelay = ScrcpyShellAudioRelay()
+        val down = downRelay.start(
+            ScrcpyShellAudioRelay.LaunchSpec(
+                serverJar = server,
+                audioSource = "voice-call-downlink",
+                audioCodec = "raw"
+            )
+        )
+        if (down !is ScrcpyShellAudioRelay.StartResult.Started) {
+            downRelay.close()
+            return null
+        }
+
+        val upRelay = ScrcpyShellAudioRelay()
+        val up = upRelay.start(
+            ScrcpyShellAudioRelay.LaunchSpec(
+                serverJar = server,
+                audioSource = "voice-call-uplink",
+                audioCodec = "raw"
+            )
+        )
+        if (up !is ScrcpyShellAudioRelay.StartResult.Started) {
+            runCatching { down.pipeReadEnd.close() }
+            downRelay.close()
+            upRelay.close()
+            return null
+        }
+
+        scrcpyDownlinkRelay = downRelay
+        scrcpyUplinkRelay = upRelay
+        activeSource = SOURCE_SCRCPY_DUAL
+        return down.pipeReadEnd to up.pipeReadEnd
     }
 
     @Synchronized
@@ -174,7 +239,12 @@ class PrivilegedAudioService : Binder {
         return START_SOURCE_BLOCKED
     }
 
-    private fun currentSource(): Int = if (scrcpyRelay?.isActive() == true) SOURCE_SCRCPY else if (started) activeSource else SOURCE_NONE
+    private fun currentSource(): Int = when {
+        scrcpyDownlinkRelay?.isActive() == true && scrcpyUplinkRelay?.isActive() == true -> SOURCE_SCRCPY_DUAL
+        scrcpyRelay?.isActive() == true -> SOURCE_SCRCPY
+        started -> activeSource
+        else -> SOURCE_NONE
+    }
 
     private fun createRecorder(context: android.content.Context, source: Int, format: AudioFormat, min: Int): AudioRecord? = try {
         AudioRecord.Builder().setContext(context).setAudioSource(source).setAudioFormat(format).setBufferSizeInBytes(maxOf(min * 2, 8192)).build().takeIf { it.state == AudioRecord.STATE_INITIALIZED }
@@ -201,7 +271,7 @@ class PrivilegedAudioService : Binder {
     @Synchronized
     private fun stopCapture() {
         started = false; dualStream = false
-        if (activeSource != SOURCE_SCRCPY) activeSource = SOURCE_NONE
+        if (activeSource != SOURCE_SCRCPY && activeSource != SOURCE_SCRCPY_DUAL) activeSource = SOURCE_NONE
         val single = recorder; val down = downlinkRecorder; val up = uplinkRecorder
         recorder = null; downlinkRecorder = null; uplinkRecorder = null
         releaseRecorder(single); releaseRecorder(down); releaseRecorder(up)
@@ -212,6 +282,10 @@ class PrivilegedAudioService : Binder {
         stopCapture()
         scrcpyRelay?.close()
         scrcpyRelay = null
+        scrcpyDownlinkRelay?.close()
+        scrcpyDownlinkRelay = null
+        scrcpyUplinkRelay?.close()
+        scrcpyUplinkRelay = null
         activeSource = SOURCE_NONE
     }
 
@@ -223,6 +297,7 @@ class PrivilegedAudioService : Binder {
         const val SOURCE_NONE = -1
         const val SOURCE_DUAL = -2
         const val SOURCE_SCRCPY = -3
+        const val SOURCE_SCRCPY_DUAL = -4
         const val TRANSACTION_START = FIRST_CALL_TRANSACTION
         const val TRANSACTION_READ = FIRST_CALL_TRANSACTION + 1
         const val TRANSACTION_STOP = FIRST_CALL_TRANSACTION + 2
@@ -235,6 +310,7 @@ class PrivilegedAudioService : Binder {
         const val TRANSACTION_READ_UPLINK = FIRST_CALL_TRANSACTION + 9
         const val TRANSACTION_DUAL_PEAKS = FIRST_CALL_TRANSACTION + 10
         const val TRANSACTION_START_SCRCPY = FIRST_CALL_TRANSACTION + 11
+        const val TRANSACTION_START_SCRCPY_DUAL = FIRST_CALL_TRANSACTION + 12
         const val DESTROY_TRANSACTION = 16777115
         const val START_OK = 0
         const val START_FORMAT_UNAVAILABLE = -1
