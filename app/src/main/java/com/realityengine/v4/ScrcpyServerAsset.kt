@@ -5,12 +5,12 @@ import android.content.Context
 import java.io.File
 import java.security.MessageDigest
 
-/** Extracts the pinned scrcpy-server asset to storage readable by the Shizuku shell service. */
+/** Extracts the pinned scrcpy-server asset to shared app storage readable by shell UID 2000. */
 object ScrcpyServerAsset {
-    @SuppressLint("SetWorldReadable", "SetWorldWritable")
+    @SuppressLint("SetWorldReadable")
     fun ensureExtracted(context: Context): File? {
-        val base = context.getExternalFilesDir("scrcpy") ?: return null
-        val target = File(base, "scrcpy-server-${BuildConfig.SCRCPY_SERVER_VERSION}")
+        val base = context.getExternalFilesDir(null) ?: context.externalCacheDir ?: return null
+        val target = File(base, "scrcpy-${BuildConfig.SCRCPY_SERVER_VERSION}-server.jar")
         if (target.isFile && verify(target)) return target
 
         return try {
@@ -30,8 +30,6 @@ object ScrcpyServerAsset {
                 temp.delete()
             }
             target.setReadable(true, false)
-            base.setReadable(true, false)
-            base.setExecutable(true, false)
             target.takeIf { verify(it) }
         } catch (_: Throwable) {
             null
