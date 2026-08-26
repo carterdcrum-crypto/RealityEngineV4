@@ -69,7 +69,7 @@ class ScrcpyRawPcmReader(
         return if (outOffset == output.size) output else output.copyOf(outOffset)
     }
 
-    private inline fun accumulateFrames(bytes: ByteArray, length: Int, emit: ((Int) -> Unit)?) {
+    private fun accumulateFrames(bytes: ByteArray, length: Int, emit: ((Int) -> Unit)?) {
         var offset = 0
         while (offset + 3 < length) {
             val left = littleEndianShort(bytes[offset], bytes[offset + 1])
