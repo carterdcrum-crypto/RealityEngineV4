@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ScrcpyShellAudioRelay : Closeable {
     data class LaunchSpec(
         val serverJar: File,
-        val audioSource: String = "voice_communication",
+        val audioSource: String = "voice-call",
         val audioCodec: String = "raw"
     )
 
@@ -58,7 +58,7 @@ class ScrcpyShellAudioRelay : Closeable {
                 .apply { environment()["CLASSPATH"] = spec.serverJar.absolutePath }
                 .start()
             logThread = Thread({
-                runCatching { process?.inputStream?.bufferedReader()?.use { r -> while (active.get() && r.readLine() != null) Unit } }
+                runCatching { process?.inputStream?.bufferedReader()?.use { reader -> while (active.get() && reader.readLine() != null) Unit } }
             }, "reality-scrcpy-shell-log").apply { isDaemon = true; start() }
             StartResult.Started(readEnd, scid)
         } catch (t: Throwable) {
@@ -79,7 +79,10 @@ class ScrcpyShellAudioRelay : Closeable {
                 while (active.get()) {
                     val count = input.read(buffer)
                     if (count < 0) break
-                    if (count > 0) { output.write(buffer, 0, count); output.flush() }
+                    if (count > 0) {
+                        output.write(buffer, 0, count)
+                        output.flush()
+                    }
                 }
             }
         } catch (_: Throwable) {
@@ -98,19 +101,29 @@ class ScrcpyShellAudioRelay : Closeable {
         runCatching { clientSocket?.close() }
         runCatching { serverSocket?.close() }
         runCatching { pipeWriteEnd?.close() }
-        relayThread?.interrupt(); logThread?.interrupt()
-        process = null; clientSocket = null; serverSocket = null; pipeWriteEnd = null
-        relayThread = null; logThread = null
+        relayThread?.interrupt()
+        logThread?.interrupt()
+        process = null
+        clientSocket = null
+        serverSocket = null
+        pipeWriteEnd = null
+        relayThread = null
+        logThread = null
     }
 
     fun isActive(): Boolean = active.get()
 
     private fun randomScid(): String = SecureRandom().nextInt(Int.MAX_VALUE).toString(16).padStart(8, '0')
+
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().use { input ->
             val buffer = ByteArray(8192)
-            while (true) { val n = input.read(buffer); if (n < 0) break; if (n > 0) digest.update(buffer, 0, n) }
+            while (true) {
+                val n = input.read(buffer)
+                if (n < 0) break
+                if (n > 0) digest.update(buffer, 0, n)
+            }
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
