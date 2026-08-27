@@ -74,12 +74,25 @@ class SettingsDashboardScreen(
 
         root.addView(section("INTELLIGENCE"))
         root.addView(row(
+            "Coach provider",
+            coachProviderSummary(),
+            store.coachProvider,
+            if (store.coachConfigured()) green else amber,
+        ) { chooseCoachProvider() })
+        root.addView(row(
             "Groq API",
-            if (store.groqConfigured()) "API key securely configured" else "Required for response coaching",
+            if (store.groqConfigured()) "Configured · Auto uses Groq first for low latency" else "Add a Groq key for the fast provider",
             if (store.groqConfigured()) "READY" else "KEY",
-            if (store.groqConfigured()) green else amber,
+            if (store.groqConfigured()) green else muted,
         ) { editSecret("Groq API key", store.groqApiKey) { store.groqApiKey = it } })
         root.addView(row("Groq coach model", groqModelSummary(), "MODEL", cyan) { chooseGroqModel() })
+        root.addView(row(
+            "Gemini API",
+            if (store.geminiConfigured()) "Configured · available directly or as Auto fallback" else "Add a Google AI Studio key · free-tier prompts may be used to improve Google products",
+            if (store.geminiConfigured()) "READY" else "KEY",
+            if (store.geminiConfigured()) green else muted,
+        ) { editSecret("Gemini API key", store.geminiApiKey) { store.geminiApiKey = it } })
+        root.addView(row("Gemini coach model", geminiModelSummary(), "MODEL", cyan) { chooseGeminiModel() })
         root.addView(row(
             "Deepgram API",
             if (store.deepgramConfigured()) "Live transcription configured" else "Required for live transcription",
@@ -274,7 +287,6 @@ class SettingsDashboardScreen(
             isClickable = true
             isFocusable = true
             minimumHeight = dp(72)
-
             addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_VERTICAL
@@ -291,7 +303,6 @@ class SettingsDashboardScreen(
                     maxLines = 2
                 })
             }, LinearLayout.LayoutParams(0, -2, 1f))
-
             addView(TextView(activity).apply {
                 text = status
                 gravity = Gravity.CENTER
@@ -313,7 +324,7 @@ class SettingsDashboardScreen(
         Readiness("Microphone", microphoneReady(), if (microphoneReady()) "Allowed" else "Permission required"),
         Readiness("Shizuku", shizukuReady(), shizukuDetail()),
         Readiness("Transcription", store.deepgramConfigured(), if (store.deepgramConfigured()) "Configured" else "Deepgram key required"),
-        Readiness("Response coach", coachReady(), if (coachReady()) "Configured" else "Groq key or coach setting needed"),
+        Readiness("Response coach", coachReady(), if (coachReady()) "${store.coachProvider} configured" else "Selected AI provider needs a key or coach is disabled"),
     )
 
     private fun isDefaultPhone(): Boolean {
@@ -329,15 +340,41 @@ class SettingsDashboardScreen(
         !ShizukuAudioStatus.permissionGranted() -> "Authorization required"
         else -> "Connected and authorized"
     }
-    private fun coachReady() = store.groqConfigured() && store.responseCoachEnabled
+    private fun coachReady() = store.coachConfigured() && store.responseCoachEnabled
 
-    private fun groqModelSummary() = when (store.groqModel) {
-        "openai/gpt-oss-20b" -> "GPT-OSS 20B · balanced"
-        "llama-3.3-70b-versatile" -> "Llama 3.3 70B · higher language quality"
-        else -> "Llama 3.1 8B · lowest latency"
+    private fun coachProviderSummary() = when (store.coachProvider) {
+        SettingsStore.COACH_PROVIDER_GROQ -> "Force Groq for every response-coach request"
+        SettingsStore.COACH_PROVIDER_GEMINI -> "Force Gemini for every response-coach request"
+        else -> "Groq first, then Gemini automatically if Groq fails"
+    }
+
+    private fun groqModelSummary() = "GPT-OSS 20B · low-latency default"
+
+    private fun geminiModelSummary() = when (store.geminiModel) {
+        "gemini-3.7-flash" -> "Gemini 3.7 Flash · newest quality/speed balance"
+        "gemini-2.5-flash" -> "Gemini 2.5 Flash · stable balanced fallback"
+        else -> "Gemini 2.5 Flash-Lite · lower-latency lightweight option"
     }
 
     private fun deepgramModelSummary() = if (store.deepgramModel == "nova-3") "Nova-3 · recommended live transcription" else "Nova-2 Phonecall · compatibility fallback"
+
+    private fun chooseCoachProvider() {
+        val providers = SettingsStore.COACH_PROVIDERS
+        val labels = arrayOf(
+            "Auto — Groq first, Gemini fallback",
+            "Groq — Force GPT-OSS 20B",
+            "Gemini — Force selected Gemini model",
+        )
+        AlertDialog.Builder(activity)
+            .setTitle("Response coach provider")
+            .setSingleChoiceItems(labels, providers.indexOf(store.coachProvider).coerceAtLeast(0)) { dialog, which ->
+                store.coachProvider = providers[which]
+                dialog.dismiss()
+                onRefresh()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     private fun chooseCoachPersona() {
         val personas = CoachPersonaCatalog.all
@@ -353,16 +390,26 @@ class SettingsDashboardScreen(
 
     private fun chooseGroqModel() {
         val models = SettingsStore.GROQ_MODELS
-        val labels = models.map {
-            when (it) {
-                "openai/gpt-oss-20b" -> "GPT-OSS 20B — Balanced"
-                "llama-3.3-70b-versatile" -> "Llama 3.3 70B — Higher quality"
-                else -> "Llama 3.1 8B — Fastest"
-            }
-        }.toTypedArray()
+        val labels = models.map { "GPT-OSS 20B — Low-latency supported model" }.toTypedArray()
         AlertDialog.Builder(activity)
             .setTitle("Groq coach model")
             .setSingleChoiceItems(labels, models.indexOf(store.groqModel).coerceAtLeast(0)) { dialog, which -> store.groqModel = models[which]; dialog.dismiss(); onRefresh() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun chooseGeminiModel() {
+        val models = SettingsStore.GEMINI_MODELS
+        val labels = models.map {
+            when (it) {
+                "gemini-3.7-flash" -> "Gemini 3.7 Flash — Newest Flash"
+                "gemini-2.5-flash" -> "Gemini 2.5 Flash — Stable balanced"
+                else -> "Gemini 2.5 Flash-Lite — Lightweight"
+            }
+        }.toTypedArray()
+        AlertDialog.Builder(activity)
+            .setTitle("Gemini coach model")
+            .setSingleChoiceItems(labels, models.indexOf(store.geminiModel).coerceAtLeast(0)) { dialog, which -> store.geminiModel = models[which]; dialog.dismiss(); onRefresh() }
             .setNegativeButton("Cancel", null)
             .show()
     }
