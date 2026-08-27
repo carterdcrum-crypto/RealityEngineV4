@@ -47,6 +47,8 @@ class CallActivity : Activity(), SensorEventListener {
     private lateinit var speakerButton: Button
     private lateinit var bluetoothButton: Button
     private lateinit var holdButton: Button
+    private lateinit var unhingedButton: Button
+    private lateinit var flirtButton: Button
     private lateinit var recordButton: Button
     private lateinit var keypadButton: Button
     private lateinit var endButton: Button
@@ -386,6 +388,11 @@ class CallActivity : Activity(), SensorEventListener {
         }
         root.addView(controls, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
 
+        val quickActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        unhingedButton = control("Unhinged", R.drawable.ic_re_star, magenta) { requestQuickCoach(CoachQuickModeCatalog.UNHINGED) }
+        flirtButton = control("Flirt", R.drawable.ic_re_star, cyan) { requestQuickCoach(CoachQuickModeCatalog.FLIRT) }
+        quickActions.addView(unhingedButton, buttonLayout(48)); quickActions.addView(flirtButton, buttonLayout(48)); root.addView(quickActions)
+
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         recordButton = control("Record", R.drawable.ic_re_record, magenta) { requestRecording() }
         keypadButton = control("Keypad", R.drawable.ic_re_dialpad) {
@@ -511,6 +518,22 @@ class CallActivity : Activity(), SensorEventListener {
         }
     }
 
+    private fun requestQuickCoach(modeId: String) {
+        val current = call
+        if (current?.state != Call.STATE_ACTIVE && current?.state != Call.STATE_HOLDING) {
+            Toast.makeText(this, "Quick coach is available once the call is connected", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val mode = CoachQuickModeCatalog.byId(modeId) ?: return
+        if (LiveCoachQuickActions.request(mode.id)) {
+            val button = if (mode.id == CoachQuickModeCatalog.UNHINGED) unhingedButton else flirtButton
+            RealityVisuals.pulseOnce(button)
+            Toast.makeText(this, "${mode.label} coach refresh", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Response coach session is not ready yet", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun requestRecording() {
         val service = RealityInCallService.instance ?: return
         if (service.recordingActive()) {
@@ -584,6 +607,8 @@ class CallActivity : Activity(), SensorEventListener {
 
         val interactive = current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING
         muteButton.isEnabled = interactive; speakerButton.isEnabled = interactive; keypadButton.isEnabled = interactive; holdButton.isEnabled = interactive
+        unhingedButton.isEnabled = interactive; flirtButton.isEnabled = interactive
+        unhingedButton.alpha = if (interactive) 1f else .42f; flirtButton.alpha = if (interactive) 1f else .42f
         recordButton.isEnabled = current.state == Call.STATE_ACTIVE || RealityInCallService.instance?.recordingActive() == true
         if (!interactive) keypadContainer.visibility = View.GONE
         holdButton.text = if (current.state == Call.STATE_HOLDING) "Resume" else "Hold"; setControlActive(holdButton, current.state == Call.STATE_HOLDING)
