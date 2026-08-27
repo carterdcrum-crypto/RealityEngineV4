@@ -3,23 +3,51 @@ package com.realityengine.v4
 import android.content.Context
 import kotlin.math.roundToInt
 
-/** Builds a compact, token-free end-of-call summary from persistent caller memory and evidence. */
+/** Builds an immediate local summary, then enriches caller memory from the completed transcript in background. */
 class CallSummaryBuilder(context: Context) {
     private val appContext = context.applicationContext
     private val profiles = CallerProfileStore(appContext)
     private val cloud = SupabaseCallerMemorySync(appContext)
+    private val aiMemory = CallerMemoryAiExtractor(appContext)
 
-    fun finalize(phoneNumber: String): String {
+    fun finalize(phoneNumber: String, transcript: String = ""): String {
         if (phoneNumber.isBlank()) return ""
         val profile = profiles.load(phoneNumber)
         val summary = buildSummary(profile)
         if (summary.isNotBlank()) profiles.update(phoneNumber) { it.lastCallSummary = summary }
+
+        // Persist the immediate local result first. AI enrichment is deliberately background-only so
+        // ending a call and opening recording review never waits on a model provider.
         cloud.pushAsync(phoneNumber)
+        if (transcript.isNotBlank() && aiMemory.configured()) {
+            aiMemory.extractAsync(phoneNumber, transcript) { learned ->
+                if (learned == null) return@extractAsync
+                profiles.update(phoneNumber) { target -> merge(target, learned) }
+                cloud.pushAsync(phoneNumber)
+            }
+        }
         return summary
     }
 
     companion object {
         private fun pct(v: Float) = (v.coerceIn(0f, 1f) * 100f).roundToInt()
+
+        internal fun merge(profile: CallerProfileStore.CallerProfile, learned: CallerMemoryAiExtractor.Learned) {
+            fun addDistinct(target: MutableList<String>, values: List<String>) {
+                values.forEach { value ->
+                    val clean = value.trim().replace(Regex("\\s+"), " ")
+                    if (clean.isNotBlank() && target.none { it.equals(clean, true) }) target.add(clean)
+                }
+            }
+            addDistinct(profile.likes, learned.likes)
+            addDistinct(profile.dislikes, learned.dislikes)
+            addDistinct(profile.importantFacts, learned.facts)
+            addDistinct(profile.topics, learned.topics)
+            addDistinct(profile.conversationStarters, learned.starters)
+            addDistinct(profile.unresolvedTopics, learned.unresolved)
+            if (learned.preferredStyle.isNotBlank()) profile.preferredConversationStyle = learned.preferredStyle
+            if (learned.summary.isNotBlank()) profile.lastCallSummary = learned.summary
+        }
 
         internal fun buildSummary(profile: CallerProfileStore.CallerProfile): String {
             val recentEvents = profile.evidenceEvents.takeLast(12)
