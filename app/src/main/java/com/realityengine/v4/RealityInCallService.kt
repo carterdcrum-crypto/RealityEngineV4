@@ -126,8 +126,8 @@ class RealityInCallService : InCallService() {
     private fun finalizeOnce(call: Call, phoneNumber: String) {
         if (!finalizedCalls.add(call)) return
         val transcriptKey = phoneNumber.ifBlank { "Unknown" }
-        CallTranscriptStore.save(applicationContext, transcriptKey, LiveTranscriptState.transcript())
-        if (phoneNumber.isNotBlank()) summaryBuilder.finalize(phoneNumber)
+        val savedTranscript = CallTranscriptStore.save(applicationContext, transcriptKey, LiveTranscriptState.transcript())
+        if (phoneNumber.isNotBlank()) summaryBuilder.finalize(phoneNumber, savedTranscript?.text.orEmpty())
     }
 
     @Synchronized
