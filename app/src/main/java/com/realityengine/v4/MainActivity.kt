@@ -81,6 +81,7 @@ class MainActivity : Activity() {
             updateRoleStatus()
             updateShizukuStatus()
             updateAudioStatus()
+            if (screen == "SETTINGS" && ::content.isInitialized) showSettings()
         }
     }
 
@@ -352,43 +353,23 @@ class MainActivity : Activity() {
         screen = "SETTINGS"
         content.gravity = Gravity.TOP
         content.removeAllViews()
-        sectionTitle("Settings & telephony architecture")
-        content.addView(settingCard("Setup walkthrough", "Open the beginner setup guide") { showWalkthrough() })
-        content.addView(settingCard("About Reality Engine", "Capabilities • Developed by: Carter Crum") { showAbout() })
-        content.addView(settingCard("App updates", "Check the private GitHub release for the newest green build") { checkForUpdate() })
-        content.addView(settingCard("Private update access", if (settingsStore.privateUpdaterConfigured()) "GitHub token configured" else "GitHub token required") {
-            editSecret("GitHub updater token", settingsStore.githubUpdaterToken) { settingsStore.githubUpdaterToken = it }
-        })
-        content.addView(settingCard("Groq API", if (settingsStore.groqConfigured()) "API key configured" else "API key required") {
-            editSecret("Groq API key", settingsStore.groqApiKey) { settingsStore.groqApiKey = it }
-        })
-        content.addView(settingCard("Groq coach model", groqModelSummary()) { selectGroqModel() })
-        content.addView(settingCard("Deepgram API", if (settingsStore.deepgramConfigured()) "API key configured" else "API key required") {
-            editSecret("Deepgram API key", settingsStore.deepgramApiKey) { settingsStore.deepgramApiKey = it }
-        })
-        content.addView(settingCard("Deepgram model", deepgramModelSummary()) { selectDeepgramModel() })
-        content.addView(settingCard("Supabase caller profiles", if (settingsStore.supabaseConfigured()) "Configured" else "Configuration required") {
-            editTextValue("Supabase URL", settingsStore.supabaseUrl) { settingsStore.supabaseUrl = it }
-        })
-        content.addView(settingCard("Response coach", if (settingsStore.responseCoachEnabled) "Enabled" else "Disabled") {
-            settingsStore.responseCoachEnabled = !settingsStore.responseCoachEnabled
-            showSettings()
-        })
-        content.addView(settingCard("Haptics", if (settingsStore.hapticsEnabled) "Enabled" else "Disabled") {
-            settingsStore.hapticsEnabled = !settingsStore.hapticsEnabled
-            showSettings()
-        })
-        content.addView(settingCard("Analysis frequency", "Every ${settingsStore.analysisFrequencyTurns} turn${if (settingsStore.analysisFrequencyTurns == 1) "" else "s"}") {
-            settingsStore.analysisFrequencyTurns = if (settingsStore.analysisFrequencyTurns >= 10) 1 else settingsStore.analysisFrequencyTurns + 1
-            showSettings()
-        })
-        content.addView(settingCard("Default phone application", status.text.toString()) { requestDefaultPhoneRole() })
-        content.addView(settingCard("Button geometry", shapeName()) { cycleButtonShape() })
-        content.addView(settingCard("Shizuku audio", shizukuStatus.text.toString()) { requestShizuku() })
-        content.addView(settingCard("Call audio", audioStatus.text.toString()) { checkCallAudio() })
-        content.addView(settingCard("Android phone settings", "Manage system calling apps") {
-            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-        })
+        val dashboard = SettingsDashboardScreen(
+            activity = this,
+            store = settingsStore,
+            buttonShapeLabel = shapeName(),
+            onRefresh = { showSettings() },
+            onWalkthrough = { showWalkthrough() },
+            onAbout = { showAbout() },
+            onCheckUpdate = { checkForUpdate() },
+            onDefaultPhone = { requestDefaultPhoneRole() },
+            onCycleButtonShape = { cycleButtonShape() },
+            onShizuku = { requestShizuku() },
+            onCallAudio = { checkCallAudio() },
+            onAndroidPhoneSettings = {
+                startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            },
+        )
+        content.addView(dashboard.build(), LinearLayout.LayoutParams(-1, -2))
         refreshNav()
     }
 
