@@ -20,6 +20,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
     data class Result(val best: Suggestion, val alternatives: List<Suggestion>, val inputTokens: Int, val outputTokens: Int)
     data class ChosenResponse(val suggestion: Suggestion?, val confidence: Float, val classification: String)
     private data class RequestTicket(val generation: Long, val phoneNumber: String)
+    private class GroqHttpException(val code: Int, message: String) : IllegalStateException(message)
 
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -130,7 +131,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         }
         ResponseCoachState.publishStatus(
             ResponseCoachState.Phase.ANALYZING,
-            "Generating replies…",
+            "Generating strategy replies…",
             clearSuggestions = true
         )
         executor.execute { executeAnalysis(ticket, callback) }
@@ -225,8 +226,26 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
 
     private fun normalizeWhitespace(value: String) = value.trim().replace(Regex("\\s+"), " ")
 
+    /**
+     * Use the saved model first. If Groq says that model cannot be found, verify the key's
+     * active model catalog and repair stale model settings before retrying the request.
+     */
     private fun requestSuggestions(): Result {
         val snapshot = context.snapshot()
+        val preferred = settings.groqModel
+        return try {
+            requestSuggestions(snapshot, preferred)
+        } catch (first: GroqHttpException) {
+            if (first.code != 404) throw first
+            val available = fetchAvailableModels()
+            val fallback = SettingsStore.DEFAULT_GROQ_MODEL.takeIf { it in available }
+                ?: throw IllegalStateException("GROQ MODEL UNAVAILABLE // CHECK GROQ PROJECT ACCESS")
+            settings.groqModel = fallback
+            requestSuggestions(snapshot, fallback)
+        }
+    }
+
+    private fun requestSuggestions(snapshot: ConversationContext.Snapshot, model: String): Result {
         val connection = URL("https://api.groq.com/openai/v1/chat/completions").openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
@@ -236,11 +255,11 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             connection.setRequestProperty("Authorization", "Bearer ${settings.groqApiKey}")
             connection.setRequestProperty("Content-Type", "application/json")
 
-            val system = """You are a live phone-call response coach. Suggest concise natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. For each reply choose a strategy and a short delivery tone. Strategies: BONDING, CLARIFY, MIRROR, PIVOT, COGNITIVE_PROBE. Tone examples: warm/relaxed, calm/curious, neutral/firm, light/playful, slow/deliberate. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 24 words and each reason under 12 words."""
+            val system = """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Return exactly five strategic choices total: one BEST choice plus four alternatives. Across those five choices, use each strategy exactly once: BONDING, CLARIFY, MIRROR, PIVOT, COGNITIVE_PROBE. Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, or slow/deliberate. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 24 words and each reason under 12 words."""
             val body = JSONObject().apply {
-                put("model", settings.groqModel)
+                put("model", model)
                 put("temperature", .35)
-                put("max_completion_tokens", 190)
+                put("max_completion_tokens", 420)
                 put("response_format", JSONObject().put("type", "json_object"))
                 put("messages", JSONArray().apply {
                     put(JSONObject().put("role", "system").put("content", system))
@@ -250,18 +269,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
             val code = connection.responseCode
-            if (code !in 200..299) {
-                throw IllegalStateException(
-                    when (code) {
-                        401 -> "GROQ AUTH FAILED // CHECK API KEY"
-                        403 -> "GROQ ACCESS DENIED // CHECK MODEL PERMISSION"
-                        404 -> "GROQ MODEL/ENDPOINT NOT FOUND"
-                        429 -> "GROQ RATE LIMITED // TRY AGAIN"
-                        in 500..599 -> "GROQ SERVER ERROR // HTTP $code"
-                        else -> "GROQ ERROR // HTTP $code"
-                    }
-                )
-            }
+            if (code !in 200..299) throw GroqHttpException(code, groqHttpMessage(code))
 
             val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
             val root = JSONObject(response)
@@ -269,7 +277,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             val parsed = JSONObject(content)
 
             fun suggestion(item: JSONObject) = Suggestion(
-                item.optString("mode", "CLARIFY"),
+                item.optString("mode", "CLARIFY").uppercase(Locale.US).take(32),
                 item.optString("tone", "calm/curious").take(48),
                 item.optString("text").trim().take(180),
                 item.optString("reason").trim().take(100)
@@ -279,7 +287,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             if (best.text.isBlank()) throw IllegalStateException("GROQ RESPONSE INVALID // EMPTY REPLY")
             val array = parsed.optJSONArray("alternatives") ?: JSONArray()
             val alternatives = buildList {
-                for (i in 0 until minOf(array.length(), 2)) {
+                for (i in 0 until minOf(array.length(), 4)) {
                     val candidate = suggestion(array.getJSONObject(i))
                     if (candidate.text.isNotBlank()) add(candidate)
                 }
@@ -294,6 +302,37 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun fetchAvailableModels(): Set<String> {
+        val connection = URL("https://api.groq.com/openai/v1/models").openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "GET"
+            connection.connectTimeout = 7_000
+            connection.readTimeout = 9_000
+            connection.setRequestProperty("Authorization", "Bearer ${settings.groqApiKey}")
+            connection.setRequestProperty("Content-Type", "application/json")
+            val code = connection.responseCode
+            if (code !in 200..299) throw GroqHttpException(code, groqHttpMessage(code))
+            val root = JSONObject(BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() })
+            val data = root.optJSONArray("data") ?: JSONArray()
+            return buildSet {
+                for (i in 0 until data.length()) {
+                    data.optJSONObject(i)?.optString("id")?.takeIf { it.isNotBlank() }?.let(::add)
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun groqHttpMessage(code: Int): String = when (code) {
+        401 -> "GROQ AUTH FAILED // CHECK API KEY"
+        403 -> "GROQ ACCESS DENIED // CHECK MODEL PERMISSION"
+        404 -> "GROQ MODEL/ENDPOINT NOT FOUND"
+        429 -> "GROQ RATE LIMITED // TRY AGAIN"
+        in 500..599 -> "GROQ SERVER ERROR // HTTP $code"
+        else -> "GROQ ERROR // HTTP $code"
     }
 
     private fun coachFailure(t: Throwable): String = when (t) {
