@@ -17,7 +17,13 @@ import java.util.concurrent.Executors
 /** Token-efficient Groq response coach with tone guidance and local chosen-response detection. */
 class LiveResponseEngine(private val settings: SettingsStore, private val context: ConversationContext, appContext: Context? = null) {
     data class Suggestion(val mode: String, val tone: String, val text: String, val reason: String = "")
-    data class Result(val best: Suggestion, val alternatives: List<Suggestion>, val inputTokens: Int, val outputTokens: Int)
+    data class Result(
+        val best: Suggestion,
+        val alternatives: List<Suggestion>,
+        val inputTokens: Int,
+        val outputTokens: Int,
+        val model: String
+    )
     data class ChosenResponse(val suggestion: Suggestion?, val confidence: Float, val classification: String)
     private data class RequestTicket(val generation: Long, val phoneNumber: String)
     private class GroqHttpException(val code: Int, message: String) : IllegalStateException(message)
@@ -129,6 +135,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             inFlight = true
             RequestTicket(sessionGeneration, activePhoneNumber)
         }
+        ResponseCoachState.publishGroqRateLimit(settings.groqModel, null, null, null)
         ResponseCoachState.publishStatus(
             ResponseCoachState.Phase.ANALYZING,
             "Generating strategy replies…",
@@ -238,7 +245,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         } catch (first: GroqHttpException) {
             if (first.code != 404) throw first
             val available = fetchAvailableModels()
-            val fallback = SettingsStore.DEFAULT_GROQ_MODEL.takeIf { it in available }
+            val fallback = SettingsStore.GROQ_MODELS.firstOrNull { it in available }
                 ?: throw IllegalStateException("GROQ MODEL UNAVAILABLE // CHECK GROQ PROJECT ACCESS")
             settings.groqModel = fallback
             requestSuggestions(snapshot, fallback)
@@ -255,12 +262,13 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             connection.setRequestProperty("Authorization", "Bearer ${settings.groqApiKey}")
             connection.setRequestProperty("Content-Type", "application/json")
 
-            val system = """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Return exactly five strategic choices total: one BEST choice plus four alternatives. Across those five choices, use each strategy exactly once: BONDING, CLARIFY, MIRROR, PIVOT, COGNITIVE_PROBE. Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, or slow/deliberate. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 24 words and each reason under 12 words."""
+            val system = """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Return exactly five strategic choices total: one BEST choice plus four alternatives. Across those five choices, use each strategy exactly once: BONDING, CLARIFY, MIRROR, PIVOT, COGNITIVE_PROBE. Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, or slow/deliberate. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 18 words and each reason under 6 words. No commentary outside the JSON."""
             val body = JSONObject().apply {
                 put("model", model)
-                put("temperature", .35)
-                put("max_completion_tokens", 420)
+                put("temperature", .25)
+                put("max_completion_tokens", 360)
                 put("response_format", JSONObject().put("type", "json_object"))
+                if (model.startsWith("openai/gpt-oss-")) put("reasoning_effort", "low")
                 put("messages", JSONArray().apply {
                     put(JSONObject().put("role", "system").put("content", system))
                     put(JSONObject().put("role", "user").put("content", snapshot.asPromptContext()))
@@ -269,6 +277,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
             val code = connection.responseCode
+            publishRateLimitHeaders(connection, model)
             if (code !in 200..299) throw GroqHttpException(code, groqHttpMessage(code))
 
             val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
@@ -294,14 +303,25 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             }
             val usage = root.optJSONObject("usage")
             return Result(
-                best,
-                alternatives,
-                usage?.optInt("prompt_tokens", snapshot.estimatedTokens) ?: snapshot.estimatedTokens,
-                usage?.optInt("completion_tokens", 0) ?: 0
+                best = best,
+                alternatives = alternatives,
+                inputTokens = usage?.optInt("prompt_tokens", snapshot.estimatedTokens) ?: snapshot.estimatedTokens,
+                outputTokens = usage?.optInt("completion_tokens", 0) ?: 0,
+                model = model
             )
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun publishRateLimitHeaders(connection: HttpURLConnection, model: String) {
+        fun intHeader(name: String): Int? = connection.getHeaderField(name)?.trim()?.toIntOrNull()
+        ResponseCoachState.publishGroqRateLimit(
+            model = model,
+            remainingTokens = intHeader("x-ratelimit-remaining-tokens"),
+            limitTokens = intHeader("x-ratelimit-limit-tokens"),
+            resetTokens = connection.getHeaderField("x-ratelimit-reset-tokens")?.trim()
+        )
     }
 
     private fun fetchAvailableModels(): Set<String> {
