@@ -30,6 +30,7 @@ class SettingsDashboardScreen(
     private val onDefaultPhone: () -> Unit,
     private val onCycleButtonShape: () -> Unit,
     private val onShizuku: () -> Unit,
+    private val onCallAudio: () -> Unit,
     private val onAndroidPhoneSettings: () -> Unit,
 ) {
     private data class Readiness(val label: String, val ready: Boolean, val detail: String, val attention: Boolean = false)
