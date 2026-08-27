@@ -23,6 +23,7 @@
         <activity android:name=".PostCallReviewActivity" android:exported="false" android:excludeFromRecents="true" />
         <activity android:name=".CoachPersonaManagerActivity" android:exported="false" />
         <activity android:name=".SupabaseSetupActivity" android:exported="false" />
+        <activity android:name=".CallerMemoryActivity" android:exported="false" />
         <activity android:name=".SoundboardSettingsActivity" android:exported="false" />
         <activity android:name=".TranscriptLibraryActivity" android:exported="false" />
         <activity android:name=".CallActivity" android:exported="false" android:launchMode="singleTask" android:excludeFromRecents="true" android:showWhenLocked="true" android:turnScreenOn="true" />
