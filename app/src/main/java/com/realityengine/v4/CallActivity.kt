@@ -4,9 +4,9 @@ import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -25,83 +25,900 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.*
+import android.widget.Button
+import android.widget.GridLayout
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.TextView
 
 class CallActivity : Activity(), SensorEventListener {
-    private var call:Call?=null
-    private var sensorManager:SensorManager?=null;private var proximitySensor:Sensor?=null;private var proximityRegistered=false
-    private lateinit var caller:TextView;private lateinit var state:TextView;private lateinit var timer:TextView
-    private lateinit var answerButton:Button;private lateinit var rejectButton:Button;private lateinit var muteButton:Button;private lateinit var speakerButton:Button;private lateinit var bluetoothButton:Button;private lateinit var holdButton:Button;private lateinit var keypadButton:Button;private lateinit var endButton:Button;private lateinit var keypadContainer:LinearLayout
-    private lateinit var transcript:TextView;private lateinit var analysis:TextView;private lateinit var responseCoach:TextView;private lateinit var groqUsage:TextView
-    private lateinit var acousticBar:ProgressBar;private lateinit var linguisticBar:ProgressBar;private lateinit var factualBar:ProgressBar
-    private val handler=Handler(Looper.getMainLooper());private var connectedStartedAt:Long?=null;private var finishScheduled=false;private var lastNumber:String?=null;private var restoreKeypadOpen=false;private var createdAtElapsed=0L
-    private val bg=Color.rgb(3,7,12);private val panel=Color.rgb(9,18,27);private val cyan=Color.rgb(40,224,255);private val magenta=Color.rgb(255,55,190);private val green=Color.rgb(75,255,165);private val muted=Color.rgb(118,147,163)
-    private val registryListener:()->Unit={runOnUiThread{refresh()}};private val coachListener:(ResponseCoachState.Snapshot)->Unit={snapshot->runOnUiThread{renderCoach(snapshot)}};private val transcriptListener:(LiveTranscriptState.State)->Unit={snapshot->runOnUiThread{renderTranscript(snapshot)}};private val timerTick=object:Runnable{override fun run(){updateTimer();renderLiveSignals();handler.postDelayed(this,500L)}}
-    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);setShowWhenLocked(true);setTurnScreenOn(true);window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);sensorManager=getSystemService(Context.SENSOR_SERVICE) as? SensorManager;proximitySensor=sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY);createdAtElapsed=SystemClock.elapsedRealtime();connectedStartedAt=savedInstanceState?.getLong(KEY_CONNECTED_AT)?.takeIf{it>0};restoreKeypadOpen=savedInstanceState?.getBoolean(KEY_KEYPAD_OPEN,false)==true;buildUi();refresh()}
-    override fun onSaveInstanceState(outState:Bundle){connectedStartedAt?.let{outState.putLong(KEY_CONNECTED_AT,it)};outState.putBoolean(KEY_KEYPAD_OPEN,::keypadContainer.isInitialized&&keypadContainer.visibility==View.VISIBLE);super.onSaveInstanceState(outState)}
-    override fun onResume(){super.onResume();CallSessionRegistry.addListener(registryListener);ResponseCoachState.addListener(coachListener);LiveTranscriptState.addListener(transcriptListener);refresh();handler.removeCallbacks(timerTick);handler.post(timerTick);updateProximityRegistration()}
-    override fun onPause(){call?.stopDtmfTone();unregisterProximity();restoreScreen();handler.removeCallbacks(timerTick);CallSessionRegistry.removeListener(registryListener);ResponseCoachState.removeListener(coachListener);LiveTranscriptState.removeListener(transcriptListener);super.onPause()}
-    override fun onSensorChanged(event:SensorEvent){if(event.sensor.type!=Sensor.TYPE_PROXIMITY)return;val near=event.values.firstOrNull()?.let{it<event.sensor.maximumRange}==true;if(shouldUseProximity())setScreenDimmed(near)else restoreScreen()}
-    override fun onAccuracyChanged(sensor:Sensor?,accuracy:Int)=Unit
-    private fun shouldUseProximity():Boolean{val current=call?:return false;val audio=RealityInCallService.instance?.callAudioState;val earpiece=audio==null||audio.route==CallAudioState.ROUTE_EARPIECE;return current.state==Call.STATE_ACTIVE&&earpiece}
-    private fun updateProximityRegistration(){if(shouldUseProximity()){if(!proximityRegistered){proximitySensor?.let{sensorManager?.registerListener(this,it,SensorManager.SENSOR_DELAY_NORMAL);proximityRegistered=true}}}else{unregisterProximity();restoreScreen()}}
-    private fun unregisterProximity(){if(proximityRegistered){sensorManager?.unregisterListener(this);proximityRegistered=false}}
-    private fun setScreenDimmed(dim:Boolean){val lp=window.attributes;val target=if(dim)0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE;if(lp.screenBrightness!=target){lp.screenBrightness=target;window.attributes=lp}}
-    private fun restoreScreen(){setScreenDimmed(false)}
-    private fun shapeRadius()=when(getSharedPreferences("MainActivity",MODE_PRIVATE).getInt("buttonShape",1)){0->3f;2->30f;else->14f}
-    private fun neon(fill:Int=panel,stroke:Int=cyan,r:Float=shapeRadius())=GradientDrawable().apply{setColor(fill);setStroke(1.dp(),stroke);cornerRadius=r*resources.displayMetrics.density}
-    private fun control(label:String,stroke:Int=Color.rgb(20,88,108),action:()->Unit)=Button(this).apply{text=label;textSize=10f;letterSpacing=.07f;setTextColor(cyan);typeface=Typeface.create(Typeface.MONOSPACE,Typeface.BOLD);background=neon(panel,stroke);stateListAnimator=null;setOnClickListener{action()}}
-    private fun signalRow(label:String):Pair<LinearLayout,ProgressBar>{val row=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL};row.addView(TextView(this).apply{text=label;textSize=8f;letterSpacing=.08f;setTextColor(muted);typeface=Typeface.MONOSPACE},LinearLayout.LayoutParams(82.dp(),24.dp()));val bar=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=100;progress=0;progressTintList=android.content.res.ColorStateList.valueOf(cyan);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(15,40,51))};row.addView(bar,LinearLayout.LayoutParams(0,5.dp(),1f));return row to bar}
-    private fun buildUi(){
-        val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER_HORIZONTAL;setPadding(14.dp(),14.dp(),14.dp(),12.dp());setBackgroundColor(bg)}
-        val identity=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL};caller=TextView(this).apply{textSize=18f;setTextColor(cyan);typeface=Typeface.create(Typeface.MONOSPACE,Typeface.BOLD);gravity=Gravity.START or Gravity.CENTER_VERTICAL};identity.addView(caller,LinearLayout.LayoutParams(0,54.dp(),1f));val telemetry=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.END or Gravity.CENTER_VERTICAL};state=TextView(this).apply{textSize=9f;letterSpacing=.10f;setTextColor(green);typeface=Typeface.MONOSPACE;gravity=Gravity.END};timer=TextView(this).apply{text="00:00";textSize=15f;setTextColor(Color.WHITE);typeface=Typeface.MONOSPACE;gravity=Gravity.END};telemetry.addView(state);telemetry.addView(timer);identity.addView(telemetry,LinearLayout.LayoutParams(132.dp(),54.dp()));root.addView(identity)
-        root.addView(View(this).apply{setBackgroundColor(Color.rgb(18,75,91))},LinearLayout.LayoutParams(-1,1.dp()))
-        val workspace=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(0,8.dp(),0,6.dp())};workspace.addView(TextView(this).apply{text="// LIVE TRANSCRIPT";textSize=9f;letterSpacing=.16f;setTextColor(magenta);typeface=Typeface.MONOSPACE});val transcriptScroll=ScrollView(this).apply{background=neon(Color.rgb(5,12,19),Color.rgb(15,65,80),8f);setPadding(10.dp(),8.dp(),10.dp(),8.dp())};transcript=TextView(this).apply{text="AWAITING AUDIO STREAM…";textSize=12f;setTextColor(Color.rgb(184,219,227));typeface=Typeface.MONOSPACE};transcriptScroll.addView(transcript);workspace.addView(transcriptScroll,LinearLayout.LayoutParams(-1,0,1f).apply{setMargins(0,5.dp(),0,6.dp())})
-        responseCoach=TextView(this).apply{text="RESPONSE COACH  // STANDBY";textSize=10f;setTextColor(Color.rgb(220,249,253));typeface=Typeface.MONOSPACE;background=neon(Color.rgb(6,15,23),magenta,8f);setPadding(10.dp(),8.dp(),10.dp(),8.dp());gravity=Gravity.TOP;movementMethod=ScrollingMovementMethod.getInstance();isVerticalScrollBarEnabled=true};workspace.addView(responseCoach,LinearLayout.LayoutParams(-1,154.dp()).apply{setMargins(0,0,0,4.dp())})
-        groqUsage=TextView(this).apply{text="GROQ // WAITING FOR FIRST COACH REQUEST";textSize=8.5f;letterSpacing=.04f;setTextColor(Color.rgb(151,218,232));typeface=Typeface.MONOSPACE;gravity=Gravity.CENTER_VERTICAL;background=neon(Color.rgb(5,13,19),Color.rgb(15,65,80),6f);setPadding(10.dp(),0,10.dp(),0)};workspace.addView(groqUsage,LinearLayout.LayoutParams(-1,30.dp()).apply{setMargins(0,0,0,6.dp())})
-        val signals=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;background=neon(Color.rgb(7,16,23),Color.rgb(20,88,108),8f);setPadding(10.dp(),5.dp(),10.dp(),5.dp())};val acoustic=signalRow("ACOUSTIC");acousticBar=acoustic.second;signals.addView(acoustic.first);val linguistic=signalRow("LINGUISTIC");linguisticBar=linguistic.second;signals.addView(linguistic.first);val factual=signalRow("FACTUAL");factualBar=factual.second;signals.addView(factual.first);workspace.addView(signals,LinearLayout.LayoutParams(-1,82.dp()).apply{setMargins(0,0,0,5.dp())});analysis=TextView(this).apply{text="NEXT ACTION  // STANDBY";textSize=10f;letterSpacing=.04f;setTextColor(cyan);typeface=Typeface.MONOSPACE;gravity=Gravity.CENTER_VERTICAL;background=neon(Color.rgb(7,16,23),Color.rgb(20,88,108),8f);setPadding(10.dp(),8.dp(),10.dp(),8.dp())};workspace.addView(analysis,LinearLayout.LayoutParams(-1,38.dp()));root.addView(workspace,LinearLayout.LayoutParams(-1,0,1f))
-        val incoming=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER};answerButton=control("ACCEPT",green){call?.takeIf{it.state==Call.STATE_RINGING}?.answer(0)};rejectButton=control("DECLINE",magenta){call?.takeIf{it.state==Call.STATE_RINGING}?.reject(false,null)};incoming.addView(answerButton,LinearLayout.LayoutParams(0,48.dp(),1f).apply{setMargins(3.dp(),3.dp(),3.dp(),3.dp())});incoming.addView(rejectButton,LinearLayout.LayoutParams(0,48.dp(),1f).apply{setMargins(3.dp(),3.dp(),3.dp(),3.dp())});root.addView(incoming)
-        val controls=GridLayout(this).apply{columnCount=4;alignmentMode=GridLayout.ALIGN_BOUNDS;useDefaultMargins=false};muteButton=control("MUTE"){toggleMute()};speakerButton=control("SPEAKER"){toggleSpeaker()};bluetoothButton=control("BT"){toggleBluetooth()};holdButton=control("HOLD"){toggleHold()};arrayOf(muteButton,speakerButton,bluetoothButton,holdButton).forEach{controls.addView(it,GridLayout.LayoutParams().apply{width=0;height=46.dp();columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);setMargins(3.dp(),3.dp(),3.dp(),3.dp())})};root.addView(controls,LinearLayout.LayoutParams(-1,ViewGroup.LayoutParams.WRAP_CONTENT));val bottom=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER};keypadButton=control("KEYPAD"){keypadContainer.visibility=if(keypadContainer.visibility==View.VISIBLE)View.GONE else View.VISIBLE};endButton=control("TERMINATE",magenta){call?.disconnect()};endButton.setTextColor(magenta);bottom.addView(keypadButton,LinearLayout.LayoutParams(0,48.dp(),1f).apply{setMargins(3.dp(),3.dp(),3.dp(),3.dp())});bottom.addView(endButton,LinearLayout.LayoutParams(0,48.dp(),1f).apply{setMargins(3.dp(),3.dp(),3.dp(),3.dp())});root.addView(bottom)
-        keypadContainer=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;visibility=if(restoreKeypadOpen)View.VISIBLE else View.GONE};val digits=arrayOf("1","2","3","4","5","6","7","8","9","*","0","#");val grid=GridLayout(this).apply{columnCount=3;useDefaultMargins=false};digits.forEach{digit->grid.addView(Button(this).apply{text=digit;textSize=17f;setTextColor(cyan);typeface=Typeface.MONOSPACE;background=neon(panel,Color.rgb(20,88,108));stateListAnimator=null;minWidth=0;minHeight=0;setOnTouchListener{_,event->when(event.actionMasked){MotionEvent.ACTION_DOWN->{call?.playDtmfTone(digit[0]);true};MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->{call?.stopDtmfTone();performClick();true};else->false}}},GridLayout.LayoutParams().apply{width=0;height=44.dp();columnSpec=GridLayout.spec(GridLayout.UNDEFINED,1f);setMargins(2.dp(),2.dp(),2.dp(),2.dp())})};keypadContainer.addView(grid);root.addView(keypadContainer);setContentView(root);renderCoach(ResponseCoachState.current());renderLiveSignals();renderTranscript(LiveTranscriptState.snapshot())
+    private var call: Call? = null
+    private var sensorManager: SensorManager? = null
+    private var proximitySensor: Sensor? = null
+    private var proximityRegistered = false
+
+    private lateinit var callerAvatar: TextView
+    private lateinit var caller: TextView
+    private lateinit var state: TextView
+    private lateinit var timer: TextView
+    private lateinit var answerButton: Button
+    private lateinit var rejectButton: Button
+    private lateinit var muteButton: Button
+    private lateinit var speakerButton: Button
+    private lateinit var bluetoothButton: Button
+    private lateinit var holdButton: Button
+    private lateinit var keypadButton: Button
+    private lateinit var endButton: Button
+    private lateinit var keypadContainer: LinearLayout
+    private lateinit var transcript: TextView
+    private lateinit var analysis: TextView
+    private lateinit var responseCoach: TextView
+    private lateinit var groqUsage: TextView
+    private lateinit var acousticBar: ProgressBar
+    private lateinit var linguisticBar: ProgressBar
+    private lateinit var factualBar: ProgressBar
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var connectedStartedAt: Long? = null
+    private var finishScheduled = false
+    private var lastNumber: String? = null
+    private var restoreKeypadOpen = false
+    private var createdAtElapsed = 0L
+    private var lastCoachPhase: ResponseCoachState.Phase? = null
+    private var lastBestSuggestion: String? = null
+    private var lastRenderedCallState: Int? = null
+
+    private val bg = RealityVisuals.Colors.Background
+    private val panel = RealityVisuals.Colors.Panel
+    private val cyan = RealityVisuals.Colors.Cyan
+    private val magenta = RealityVisuals.Colors.Magenta
+    private val green = RealityVisuals.Colors.Green
+    private val muted = RealityVisuals.Colors.TextDim
+
+    private val registryListener: () -> Unit = { runOnUiThread { refresh() } }
+    private val coachListener: (ResponseCoachState.Snapshot) -> Unit = { snapshot ->
+        runOnUiThread { renderCoach(snapshot) }
     }
-    private fun renderTranscript(snapshot:LiveTranscriptState.State){if(!::transcript.isInitialized)return;transcript.text=TranscriptPresenter.render(snapshot,AudioRouteState.snapshot());transcript.setTextColor(if(snapshot.text.isNotBlank()&&!snapshot.isFinal)Color.rgb(128,185,198) else Color.rgb(214,244,248))}
-    private fun renderCoach(snapshot:ResponseCoachState.Snapshot){
+    private val transcriptListener: (LiveTranscriptState.State) -> Unit = { snapshot ->
+        runOnUiThread { renderTranscript(snapshot) }
+    }
+    private val timerTick = object : Runnable {
+        override fun run() {
+            updateTimer()
+            renderLiveSignals()
+            handler.postDelayed(this, 500L)
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setShowWhenLocked(true)
+        setTurnScreenOn(true)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        proximitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+        createdAtElapsed = SystemClock.elapsedRealtime()
+        connectedStartedAt = savedInstanceState?.getLong(KEY_CONNECTED_AT)?.takeIf { it > 0 }
+        restoreKeypadOpen = savedInstanceState?.getBoolean(KEY_KEYPAD_OPEN, false) == true
+        buildUi()
+        refresh()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        connectedStartedAt?.let { outState.putLong(KEY_CONNECTED_AT, it) }
+        outState.putBoolean(
+            KEY_KEYPAD_OPEN,
+            ::keypadContainer.isInitialized && keypadContainer.visibility == View.VISIBLE,
+        )
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        CallSessionRegistry.addListener(registryListener)
+        ResponseCoachState.addListener(coachListener)
+        LiveTranscriptState.addListener(transcriptListener)
+        refresh()
+        handler.removeCallbacks(timerTick)
+        handler.post(timerTick)
+        updateProximityRegistration()
+    }
+
+    override fun onPause() {
+        call?.stopDtmfTone()
+        unregisterProximity()
+        restoreScreen()
+        handler.removeCallbacks(timerTick)
+        CallSessionRegistry.removeListener(registryListener)
+        ResponseCoachState.removeListener(coachListener)
+        LiveTranscriptState.removeListener(transcriptListener)
+        super.onPause()
+    }
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (event.sensor.type != Sensor.TYPE_PROXIMITY) return
+        val near = event.values.firstOrNull()?.let { it < event.sensor.maximumRange } == true
+        if (shouldUseProximity()) setScreenDimmed(near) else restoreScreen()
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    private fun shouldUseProximity(): Boolean {
+        val current = call ?: return false
+        val audio = RealityInCallService.instance?.callAudioState
+        val earpiece = audio == null || audio.route == CallAudioState.ROUTE_EARPIECE
+        return current.state == Call.STATE_ACTIVE && earpiece
+    }
+
+    private fun updateProximityRegistration() {
+        if (shouldUseProximity()) {
+            if (!proximityRegistered) {
+                proximitySensor?.let {
+                    sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+                    proximityRegistered = true
+                }
+            }
+        } else {
+            unregisterProximity()
+            restoreScreen()
+        }
+    }
+
+    private fun unregisterProximity() {
+        if (proximityRegistered) {
+            sensorManager?.unregisterListener(this)
+            proximityRegistered = false
+        }
+    }
+
+    private fun setScreenDimmed(dim: Boolean) {
+        val lp = window.attributes
+        val target = if (dim) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        if (lp.screenBrightness != target) {
+            lp.screenBrightness = target
+            window.attributes = lp
+        }
+    }
+
+    private fun restoreScreen() = setScreenDimmed(false)
+
+    private fun shapeRadius() = when (
+        getSharedPreferences("MainActivity", MODE_PRIVATE).getInt("buttonShape", 1)
+    ) {
+        0 -> 3f
+        2 -> 30f
+        else -> 14f
+    }
+
+    private fun neon(fill: Int = panel, stroke: Int = cyan, r: Float = shapeRadius()) =
+        RealityVisuals.panel(this, fill = fill, stroke = stroke, radiusDp = r)
+
+    private fun control(
+        label: String,
+        iconRes: Int,
+        stroke: Int = RealityVisuals.Colors.Border,
+        destructive: Boolean = false,
+        action: () -> Unit,
+    ) = Button(this).apply {
+        text = label
+        RealityVisuals.styleControl(
+            button = this,
+            iconRes = iconRes,
+            accent = stroke,
+            destructive = destructive,
+            radiusDp = shapeRadius(),
+        )
+        setOnClickListener { action() }
+    }
+
+    private fun signalRow(label: String, accent: Int): Pair<LinearLayout, ProgressBar> {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        row.addView(
+            TextView(this).apply {
+                text = "●  $label"
+                RealityVisuals.styleMicroLabel(this, accent)
+            },
+            LinearLayout.LayoutParams(94.dp(), 24.dp()),
+        )
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            progress = 0
+            RealityVisuals.styleSignal(this, accent)
+        }
+        row.addView(bar, LinearLayout.LayoutParams(0, 7.dp(), 1f))
+        return row to bar
+    }
+
+    private fun buildUi() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(14.dp(), 12.dp(), 14.dp(), 12.dp())
+            setBackgroundColor(bg)
+        }
+
+        val identity = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            background = neon(
+                fill = RealityVisuals.Colors.BackgroundRaised,
+                stroke = RealityVisuals.Colors.Border,
+                r = 14f,
+            )
+            setPadding(10.dp(), 7.dp(), 10.dp(), 7.dp())
+        }
+        callerAvatar = TextView(this).apply {
+            text = "?"
+            textSize = 16f
+            setTextColor(cyan)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = RealityVisuals.circle(this@CallActivity)
+        }
+        identity.addView(callerAvatar, LinearLayout.LayoutParams(42.dp(), 42.dp()))
+
+        val callerStack = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(10.dp(), 0, 6.dp(), 0)
+        }
+        callerStack.addView(TextView(this).apply {
+            text = "ACTIVE CONTACT"
+            RealityVisuals.styleMicroLabel(this, magenta)
+        })
+        caller = TextView(this).apply {
+            textSize = 17f
+            setTextColor(cyan)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            maxLines = 1
+        }
+        callerStack.addView(caller)
+        identity.addView(callerStack, LinearLayout.LayoutParams(0, 52.dp(), 1f))
+
+        val telemetry = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        state = TextView(this).apply {
+            textSize = 8.5f
+            letterSpacing = .09f
+            setTextColor(green)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            background = RealityVisuals.panel(
+                this@CallActivity,
+                fill = Color.rgb(6, 28, 22),
+                stroke = green,
+                radiusDp = 20f,
+            )
+            setPadding(8.dp(), 3.dp(), 8.dp(), 3.dp())
+        }
+        timer = TextView(this).apply {
+            text = "00:00"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.END
+            setPadding(0, 3.dp(), 0, 0)
+        }
+        telemetry.addView(state)
+        telemetry.addView(timer)
+        identity.addView(telemetry, LinearLayout.LayoutParams(118.dp(), 52.dp()))
+        root.addView(identity, LinearLayout.LayoutParams(-1, 66.dp()).apply {
+            setMargins(0, 0, 0, 8.dp())
+        })
+
+        val workspace = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val transcriptHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        transcriptHeader.addView(TextView(this).apply {
+            text = "LIVE TRANSCRIPT"
+            RealityVisuals.styleMicroLabel(this, magenta)
+        }, LinearLayout.LayoutParams(0, 22.dp(), 1f))
+        transcriptHeader.addView(TextView(this).apply {
+            text = "● AUDIO FEED"
+            RealityVisuals.styleMicroLabel(this, green)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }, LinearLayout.LayoutParams(100.dp(), 22.dp()))
+        workspace.addView(transcriptHeader)
+
+        val transcriptScroll = ScrollView(this).apply {
+            background = neon(
+                RealityVisuals.Colors.BackgroundRaised,
+                Color.rgb(15, 65, 80),
+                10f,
+            )
+            setPadding(11.dp(), 9.dp(), 11.dp(), 9.dp())
+        }
+        transcript = TextView(this).apply {
+            text = "AWAITING AUDIO STREAM…"
+            textSize = 12f
+            setTextColor(Color.rgb(184, 219, 227))
+            typeface = Typeface.MONOSPACE
+            setLineSpacing(2f, 1.08f)
+        }
+        transcriptScroll.addView(transcript)
+        workspace.addView(
+            transcriptScroll,
+            LinearLayout.LayoutParams(-1, 0, 1f).apply {
+                setMargins(0, 3.dp(), 0, 7.dp())
+            },
+        )
+
+        val coachPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = neon(
+                fill = Color.rgb(7, 15, 24),
+                stroke = magenta,
+                r = 10f,
+            )
+            setPadding(10.dp(), 7.dp(), 10.dp(), 7.dp())
+        }
+        val coachHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        coachHeader.addView(TextView(this).apply {
+            text = "RESPONSE COACH"
+            RealityVisuals.styleMicroLabel(this, magenta)
+        }, LinearLayout.LayoutParams(0, 20.dp(), 1f))
+        coachHeader.addView(TextView(this).apply {
+            text = "DECISION LAYER"
+            RealityVisuals.styleMicroLabel(this, muted)
+            gravity = Gravity.END
+        })
+        coachPanel.addView(coachHeader)
+
+        responseCoach = TextView(this).apply {
+            text = "STANDBY\nListening for the next caller turn."
+            textSize = 10.5f
+            setTextColor(RealityVisuals.Colors.Text)
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.TOP
+            movementMethod = ScrollingMovementMethod.getInstance()
+            isVerticalScrollBarEnabled = true
+            setLineSpacing(2f, 1.06f)
+        }
+        coachPanel.addView(responseCoach, LinearLayout.LayoutParams(-1, 0, 1f).apply {
+            setMargins(0, 4.dp(), 0, 0)
+        })
+        workspace.addView(coachPanel, LinearLayout.LayoutParams(-1, 164.dp()).apply {
+            setMargins(0, 0, 0, 5.dp())
+        })
+
+        groqUsage = TextView(this).apply {
+            text = "GROQ // WAITING FOR FIRST COACH REQUEST"
+            textSize = 8.5f
+            letterSpacing = .04f
+            setTextColor(Color.rgb(151, 218, 232))
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.CENTER_VERTICAL
+            background = neon(
+                RealityVisuals.Colors.BackgroundRaised,
+                Color.rgb(15, 65, 80),
+                8f,
+            )
+            setPadding(10.dp(), 0, 10.dp(), 0)
+        }
+        workspace.addView(groqUsage, LinearLayout.LayoutParams(-1, 30.dp()).apply {
+            setMargins(0, 0, 0, 6.dp())
+        })
+
+        val signals = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = neon(
+                RealityVisuals.Colors.Panel,
+                RealityVisuals.Colors.Border,
+                10f,
+            )
+            setPadding(10.dp(), 6.dp(), 10.dp(), 5.dp())
+        }
+        signals.addView(TextView(this).apply {
+            text = "LIVE SIGNALS"
+            RealityVisuals.styleMicroLabel(this, cyan)
+        }, LinearLayout.LayoutParams(-1, 18.dp()))
+        val acoustic = signalRow("ACOUSTIC", cyan)
+        acousticBar = acoustic.second
+        signals.addView(acoustic.first)
+        val linguistic = signalRow("LINGUISTIC", magenta)
+        linguisticBar = linguistic.second
+        signals.addView(linguistic.first)
+        val factual = signalRow("FACTUAL", green)
+        factualBar = factual.second
+        signals.addView(factual.first)
+        workspace.addView(signals, LinearLayout.LayoutParams(-1, 96.dp()).apply {
+            setMargins(0, 0, 0, 5.dp())
+        })
+
+        analysis = TextView(this).apply {
+            text = "NEXT ACTION  // STANDBY"
+            textSize = 10f
+            letterSpacing = .04f
+            setTextColor(cyan)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            gravity = Gravity.CENTER_VERTICAL
+            background = neon(
+                RealityVisuals.Colors.PanelStrong,
+                cyan,
+                10f,
+            )
+            setPadding(10.dp(), 8.dp(), 10.dp(), 8.dp())
+        }
+        workspace.addView(analysis, LinearLayout.LayoutParams(-1, 40.dp()))
+        root.addView(workspace, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        val incoming = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        answerButton = control("Accept", R.drawable.ic_re_call, green) {
+            call?.takeIf { it.state == Call.STATE_RINGING }?.answer(0)
+        }
+        rejectButton = control(
+            "Decline",
+            R.drawable.ic_re_call_end,
+            magenta,
+            destructive = true,
+        ) {
+            call?.takeIf { it.state == Call.STATE_RINGING }?.reject(false, null)
+        }
+        incoming.addView(answerButton, buttonLayout(50))
+        incoming.addView(rejectButton, buttonLayout(50))
+        root.addView(incoming)
+
+        val controls = GridLayout(this).apply {
+            columnCount = 4
+            alignmentMode = GridLayout.ALIGN_BOUNDS
+            useDefaultMargins = false
+        }
+        muteButton = control("Mute", R.drawable.ic_re_mic) { toggleMute() }
+        speakerButton = control("Speaker", R.drawable.ic_re_speaker) { toggleSpeaker() }
+        bluetoothButton = control("Bluetooth", R.drawable.ic_re_bluetooth) { toggleBluetooth() }
+        holdButton = control("Hold", R.drawable.ic_re_hold) { toggleHold() }
+        arrayOf(muteButton, speakerButton, bluetoothButton, holdButton).forEach {
+            controls.addView(
+                it,
+                GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = 48.dp()
+                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                    setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp())
+                },
+            )
+        }
+        root.addView(controls, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        keypadButton = control("Keypad", R.drawable.ic_re_dialpad) {
+            keypadContainer.visibility =
+                if (keypadContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            RealityVisuals.reveal(keypadContainer)
+        }
+        endButton = control(
+            "End call",
+            R.drawable.ic_re_call_end,
+            magenta,
+            destructive = true,
+        ) { call?.disconnect() }
+        bottom.addView(keypadButton, buttonLayout(50))
+        bottom.addView(endButton, buttonLayout(50))
+        root.addView(bottom)
+
+        keypadContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (restoreKeypadOpen) View.VISIBLE else View.GONE
+            background = neon(
+                RealityVisuals.Colors.BackgroundRaised,
+                RealityVisuals.Colors.Border,
+                10f,
+            )
+            setPadding(5.dp(), 5.dp(), 5.dp(), 5.dp())
+        }
+        val digits = arrayOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#")
+        val grid = GridLayout(this).apply {
+            columnCount = 3
+            useDefaultMargins = false
+        }
+        digits.forEach { digit ->
+            grid.addView(
+                Button(this).apply {
+                    text = digit
+                    textSize = 17f
+                    setTextColor(cyan)
+                    typeface = Typeface.MONOSPACE
+                    background = neon(panel, RealityVisuals.Colors.Border)
+                    stateListAnimator = null
+                    minWidth = 0
+                    minHeight = 0
+                    setOnTouchListener { _, event ->
+                        when (event.actionMasked) {
+                            MotionEvent.ACTION_DOWN -> {
+                                call?.playDtmfTone(digit[0])
+                                true
+                            }
+                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                call?.stopDtmfTone()
+                                performClick()
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                },
+                GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = 44.dp()
+                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                    setMargins(2.dp(), 2.dp(), 2.dp(), 2.dp())
+                },
+            )
+        }
+        keypadContainer.addView(grid)
+        root.addView(keypadContainer)
+
+        setContentView(root)
+        renderCoach(ResponseCoachState.current())
+        renderLiveSignals()
+        renderTranscript(LiveTranscriptState.snapshot())
+    }
+
+    private fun buttonLayout(heightDp: Int) =
+        LinearLayout.LayoutParams(0, heightDp.dp(), 1f).apply {
+            setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp())
+        }
+
+    private fun renderTranscript(snapshot: LiveTranscriptState.State) {
+        if (!::transcript.isInitialized) return
+        transcript.text = TranscriptPresenter.render(snapshot, AudioRouteState.snapshot())
+        transcript.setTextColor(
+            if (snapshot.text.isNotBlank() && !snapshot.isFinal) {
+                Color.rgb(128, 185, 198)
+            } else {
+                Color.rgb(214, 244, 248)
+            },
+        )
+        if (snapshot.text.isNotBlank() && snapshot.isFinal) RealityVisuals.reveal(transcript)
+    }
+
+    private fun renderCoach(snapshot: ResponseCoachState.Snapshot) {
         renderGroqUsage(snapshot)
-        val best=snapshot.best
-        if(best==null){
-            val chosen=snapshot.chosen
-            responseCoach.text=when(snapshot.phase){
-                ResponseCoachState.Phase.ANALYZING->"RESPONSE COACH  // ANALYZING\n${snapshot.message?:"Generating replies…"}"
-                ResponseCoachState.Phase.LISTENING->"RESPONSE COACH  // LISTENING\n${snapshot.message?:"Waiting for the next caller turn"}"
-                ResponseCoachState.Phase.KEY_REQUIRED->"RESPONSE COACH  // GROQ KEY REQUIRED\nOpen Settings → Groq"
-                ResponseCoachState.Phase.DISABLED->"RESPONSE COACH  // DISABLED\nEnable Response Coach in Settings"
-                ResponseCoachState.Phase.ERROR->"RESPONSE COACH  // ERROR\n${snapshot.message?:"Suggestion request failed"}"
-                else->if(chosen?.suggestion!=null)"LAST  // ${chosen.classification} · ${chosen.suggestion.mode}\n${chosen.suggestion.text}" else "RESPONSE COACH  // STANDBY"
+        val phaseChanged = lastCoachPhase != snapshot.phase
+        lastCoachPhase = snapshot.phase
+        val best = snapshot.best
+
+        if (best == null) {
+            val chosen = snapshot.chosen
+            responseCoach.text = when (snapshot.phase) {
+                ResponseCoachState.Phase.ANALYZING ->
+                    "ANALYZING\n${snapshot.message ?: "Generating replies…"}"
+                ResponseCoachState.Phase.LISTENING ->
+                    "LISTENING\n${snapshot.message ?: "Waiting for the next caller turn"}"
+                ResponseCoachState.Phase.KEY_REQUIRED ->
+                    "GROQ KEY REQUIRED\nOpen Settings → Groq"
+                ResponseCoachState.Phase.DISABLED ->
+                    "COACH DISABLED\nEnable Response Coach in Settings"
+                ResponseCoachState.Phase.ERROR ->
+                    "COACH ERROR\n${snapshot.message ?: "Suggestion request failed"}"
+                else -> if (chosen?.suggestion != null) {
+                    "LAST // ${chosen.classification} · ${chosen.suggestion.mode}\n${chosen.suggestion.text}"
+                } else {
+                    "STANDBY\nListening for the next caller turn."
+                }
+            }
+            if (phaseChanged && snapshot.phase == ResponseCoachState.Phase.ANALYZING) {
+                RealityVisuals.pulseOnce(responseCoach)
             }
             return
         }
-        responseCoach.scrollTo(0,0)
-        responseCoach.text=buildString{
-            append("BEST  // ${best.mode} · TONE ${best.tone}\n${best.text}")
-            snapshot.alternatives.take(4).forEach{alt->append("\n${alt.mode} · TONE ${alt.tone}\n${alt.text}")}
+
+        responseCoach.scrollTo(0, 0)
+        responseCoach.text = buildString {
+            append("BEST // ${best.mode} · TONE ${best.tone}\n${best.text}")
+            snapshot.alternatives.take(4).forEach { alt ->
+                append("\n\n${alt.mode} · TONE ${alt.tone}\n${alt.text}")
+            }
         }
-        analysis.text="NEXT ACTION  // ${best.mode} · ${best.tone}"
+        analysis.text = "NEXT ACTION  // ${best.mode} · ${best.tone}"
+        if (lastBestSuggestion != best.text) {
+            lastBestSuggestion = best.text
+            RealityVisuals.reveal(responseCoach)
+            RealityVisuals.reveal(analysis)
+        }
     }
-    private fun renderGroqUsage(snapshot:ResponseCoachState.Snapshot){if(!::groqUsage.isInitialized)return;val model=shortGroqModel(snapshot.groqModel);val rate=if(snapshot.groqRemainingTokens!=null&&snapshot.groqLimitTokens!=null)"TPM LEFT ${compactTokens(snapshot.groqRemainingTokens)}/${compactTokens(snapshot.groqLimitTokens)}" else "TPM LEFT —";val reset=snapshot.groqResetTokens?.takeIf{it.isNotBlank()}?.let{" · RESET $it"}.orEmpty();groqUsage.text="GROQ // $model · $rate$reset · CALL ${compactTokens(snapshot.callTotalTokens)}"}
-    private fun shortGroqModel(model:String)=when(model){"openai/gpt-oss-20b"->"GPT-OSS 20B";"llama-3.3-70b-versatile"->"LLAMA 3.3 70B";"llama-3.1-8b-instant"->"LLAMA 3.1 8B";""->"WAITING";else->model.substringAfterLast('/').uppercase().take(22)}
-    private fun compactTokens(value:Int):String=when{value>=1_000_000->String.format("%.1fM",value/1_000_000f);value>=1_000->String.format("%.1fK",value/1_000f);else->value.toString()}
-    private fun renderLiveSignals(){val signal=LiveSignalState.snapshot();acousticBar.progress=signal.acoustic;linguisticBar.progress=signal.linguistic;factualBar.progress=signal.factual;val coach=ResponseCoachState.current();val best=coach.best;analysis.text=when{best!=null->"NEXT ACTION  // ${best.mode} · ${best.tone}  |  FUSED ${signal.combined}%";coach.phase==ResponseCoachState.Phase.ANALYZING->"NEXT ACTION  // ANALYZING  |  FUSED ${signal.combined}%";coach.phase==ResponseCoachState.Phase.ERROR->"NEXT ACTION  // COACH ERROR  |  FUSED ${signal.combined}%";coach.phase==ResponseCoachState.Phase.KEY_REQUIRED->"NEXT ACTION  // GROQ KEY REQUIRED";coach.phase==ResponseCoachState.Phase.DISABLED->"NEXT ACTION  // COACH DISABLED";else->"NEXT ACTION  // FUSED ${signal.combined}% · ${signal.elevatedStreams}/3 ELEVATED"}}
-    fun updateLiveSignals(acoustic:Int,linguistic:Int,factual:Int,nextAction:String?=null){runOnUiThread{acousticBar.progress=acoustic.coerceIn(0,100);linguisticBar.progress=linguistic.coerceIn(0,100);factualBar.progress=factual.coerceIn(0,100);analysis.text="NEXT ACTION  // ${nextAction?.takeIf{it.isNotBlank()}?:"STANDBY"}"}}
-    private fun toggleMute(){val service=RealityInCallService.instance?:return;val isNowMuted=!service.isMutedNow();service.setMuted(isNowMuted);muteButton.text=if(isNowMuted)"UNMUTE" else "MUTE"}
-    private fun toggleSpeaker(){val service=RealityInCallService.instance?:return;val audio=service.callAudioState?:return;val target=if(audio.route==CallAudioState.ROUTE_SPEAKER)CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER;if(audio.supportedRouteMask and target!=0)service.setAudioRoute(target);refreshAudioButtons();updateProximityRegistration()}
-    private fun toggleBluetooth(){val service=RealityInCallService.instance?:return;val audio=service.callAudioState?:return;val bluetooth=CallAudioState.ROUTE_BLUETOOTH;val fallback=if(audio.supportedRouteMask and CallAudioState.ROUTE_EARPIECE!=0)CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER;val target=if(audio.route==bluetooth)fallback else bluetooth;if(audio.supportedRouteMask and target!=0)service.setAudioRoute(target);refreshAudioButtons();updateProximityRegistration()}
-    private fun toggleHold(){val current=call?:return;when(current.state){Call.STATE_ACTIVE->current.hold();Call.STATE_HOLDING->current.unhold()};updateProximityRegistration()}
-    private fun refresh(){call=CallSessionRegistry.primary();val current=call;if(current==null){unregisterProximity();restoreScreen();scheduleFinish();return};handler.removeCallbacks(finishRunnable);finishScheduled=false;val number=current.details?.handle?.schemeSpecificPart?:"UNKNOWN CALLER";if(number!=lastNumber){lastNumber=number;caller.text=resolveCallerLabel(number)};state.text=when(current.state){Call.STATE_RINGING->"● INCOMING";Call.STATE_DIALING->"● DIALING";Call.STATE_CONNECTING->"● CONNECTING";Call.STATE_ACTIVE->"● LIVE";Call.STATE_HOLDING->"● HOLD";Call.STATE_DISCONNECTED->"● CLOSED";else->"● CALL"};if(current.state==Call.STATE_DISCONNECTED){connectedStartedAt=null;scheduleFinish()}else finishScheduled=false;val ringing=current.state==Call.STATE_RINGING;answerButton.visibility=if(ringing)View.VISIBLE else View.GONE;rejectButton.visibility=if(ringing)View.VISIBLE else View.GONE;val interactive=current.state==Call.STATE_ACTIVE||current.state==Call.STATE_HOLDING;muteButton.isEnabled=interactive;speakerButton.isEnabled=interactive;keypadButton.isEnabled=interactive;holdButton.isEnabled=interactive;if(!interactive)keypadContainer.visibility=View.GONE;holdButton.text=if(current.state==Call.STATE_HOLDING)"RESUME" else "HOLD";endButton.isEnabled=current.state!=Call.STATE_DISCONNECTED;if((current.state==Call.STATE_ACTIVE||current.state==Call.STATE_HOLDING)&&connectedStartedAt==null)connectedStartedAt=SystemClock.elapsedRealtime();updateTimer();renderLiveSignals();renderTranscript(LiveTranscriptState.snapshot());renderGroqUsage(ResponseCoachState.current());val service=RealityInCallService.instance;muteButton.text=if(service?.isMutedNow()==true)"UNMUTE" else "MUTE";refreshAudioButtons();updateProximityRegistration()}
-    private fun refreshAudioButtons(){val audio=RealityInCallService.instance?.callAudioState;speakerButton.text=if(audio?.route==CallAudioState.ROUTE_SPEAKER)"EAR" else "SPKR";bluetoothButton.text=if(audio?.route==CallAudioState.ROUTE_BLUETOOTH)"BT OFF" else "BT";val interactive=call?.state==Call.STATE_ACTIVE||call?.state==Call.STATE_HOLDING;bluetoothButton.isEnabled=interactive&&((audio?.supportedRouteMask?:0) and CallAudioState.ROUTE_BLUETOOTH!=0)}
-    private val finishRunnable=Runnable{finishScheduled=false;if(CallSessionRegistry.primary()==null&&!isFinishing)finish()}
-    private fun scheduleFinish(){if(finishScheduled)return;finishScheduled=true;val age=SystemClock.elapsedRealtime()-createdAtElapsed;val delay=maxOf(2500L-age,1200L);handler.removeCallbacks(finishRunnable);handler.postDelayed(finishRunnable,delay)}
-    private fun resolveCallerLabel(number:String):String{if(number=="UNKNOWN CALLER"||checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED)return number;return try{val lookup=Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI,Uri.encode(number));contentResolver.query(lookup,arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),null,null,null)?.use{c->if(c.moveToFirst())c.getString(0)?.takeIf{it.isNotBlank()}?.let{return it}};number}catch(_:Throwable){number}}
-    private fun updateTimer(){val started=connectedStartedAt;if(started==null){timer.text="00:00";return};val total=(SystemClock.elapsedRealtime()-started)/1000L;val hours=total/3600L;val minutes=(total%3600L)/60L;val seconds=total%60L;timer.text=if(hours>0)String.format("%d:%02d:%02d",hours,minutes,seconds)else String.format("%02d:%02d",minutes,seconds)}
-    private fun Int.dp():Int=(this*resources.displayMetrics.density).toInt()
-    companion object{private const val KEY_CONNECTED_AT="connected_started_at";private const val KEY_KEYPAD_OPEN="keypad_open"}
+
+    private fun renderGroqUsage(snapshot: ResponseCoachState.Snapshot) {
+        if (!::groqUsage.isInitialized) return
+        val model = shortGroqModel(snapshot.groqModel)
+        val rate = if (snapshot.groqRemainingTokens != null && snapshot.groqLimitTokens != null) {
+            "TPM LEFT ${compactTokens(snapshot.groqRemainingTokens)}/${compactTokens(snapshot.groqLimitTokens)}"
+        } else {
+            "TPM LEFT —"
+        }
+        val reset = snapshot.groqResetTokens
+            ?.takeIf { it.isNotBlank() }
+            ?.let { " · RESET $it" }
+            .orEmpty()
+        groqUsage.text =
+            "GROQ // $model · $rate$reset · CALL ${compactTokens(snapshot.callTotalTokens)}"
+    }
+
+    private fun shortGroqModel(model: String) = when (model) {
+        "openai/gpt-oss-20b" -> "GPT-OSS 20B"
+        "llama-3.3-70b-versatile" -> "LLAMA 3.3 70B"
+        "llama-3.1-8b-instant" -> "LLAMA 3.1 8B"
+        "" -> "WAITING"
+        else -> model.substringAfterLast('/').uppercase().take(22)
+    }
+
+    private fun compactTokens(value: Int): String = when {
+        value >= 1_000_000 -> String.format("%.1fM", value / 1_000_000f)
+        value >= 1_000 -> String.format("%.1fK", value / 1_000f)
+        else -> value.toString()
+    }
+
+    private fun renderLiveSignals() {
+        val signal = LiveSignalState.snapshot()
+        RealityVisuals.animateSignal(acousticBar, signal.acoustic)
+        RealityVisuals.animateSignal(linguisticBar, signal.linguistic)
+        RealityVisuals.animateSignal(factualBar, signal.factual)
+        val coach = ResponseCoachState.current()
+        val best = coach.best
+        analysis.text = when {
+            best != null ->
+                "NEXT ACTION  // ${best.mode} · ${best.tone}  |  FUSED ${signal.combined}%"
+            coach.phase == ResponseCoachState.Phase.ANALYZING ->
+                "NEXT ACTION  // ANALYZING  |  FUSED ${signal.combined}%"
+            coach.phase == ResponseCoachState.Phase.ERROR ->
+                "NEXT ACTION  // COACH ERROR  |  FUSED ${signal.combined}%"
+            coach.phase == ResponseCoachState.Phase.KEY_REQUIRED ->
+                "NEXT ACTION  // GROQ KEY REQUIRED"
+            coach.phase == ResponseCoachState.Phase.DISABLED ->
+                "NEXT ACTION  // COACH DISABLED"
+            else ->
+                "NEXT ACTION  // FUSED ${signal.combined}% · ${signal.elevatedStreams}/3 ELEVATED"
+        }
+    }
+
+    fun updateLiveSignals(
+        acoustic: Int,
+        linguistic: Int,
+        factual: Int,
+        nextAction: String? = null,
+    ) {
+        runOnUiThread {
+            RealityVisuals.animateSignal(acousticBar, acoustic)
+            RealityVisuals.animateSignal(linguisticBar, linguistic)
+            RealityVisuals.animateSignal(factualBar, factual)
+            analysis.text = "NEXT ACTION  // ${nextAction?.takeIf { it.isNotBlank() } ?: "STANDBY"}"
+        }
+    }
+
+    private fun toggleMute() {
+        val service = RealityInCallService.instance ?: return
+        val isNowMuted = !service.isMutedNow()
+        service.setMuted(isNowMuted)
+        muteButton.text = if (isNowMuted) "Unmute" else "Mute"
+        setControlActive(muteButton, isNowMuted)
+    }
+
+    private fun toggleSpeaker() {
+        val service = RealityInCallService.instance ?: return
+        val audio = service.callAudioState ?: return
+        val target = if (audio.route == CallAudioState.ROUTE_SPEAKER) {
+            CallAudioState.ROUTE_EARPIECE
+        } else {
+            CallAudioState.ROUTE_SPEAKER
+        }
+        if (audio.supportedRouteMask and target != 0) service.setAudioRoute(target)
+        refreshAudioButtons()
+        updateProximityRegistration()
+    }
+
+    private fun toggleBluetooth() {
+        val service = RealityInCallService.instance ?: return
+        val audio = service.callAudioState ?: return
+        val bluetooth = CallAudioState.ROUTE_BLUETOOTH
+        val fallback = if (audio.supportedRouteMask and CallAudioState.ROUTE_EARPIECE != 0) {
+            CallAudioState.ROUTE_EARPIECE
+        } else {
+            CallAudioState.ROUTE_SPEAKER
+        }
+        val target = if (audio.route == bluetooth) fallback else bluetooth
+        if (audio.supportedRouteMask and target != 0) service.setAudioRoute(target)
+        refreshAudioButtons()
+        updateProximityRegistration()
+    }
+
+    private fun toggleHold() {
+        val current = call ?: return
+        when (current.state) {
+            Call.STATE_ACTIVE -> current.hold()
+            Call.STATE_HOLDING -> current.unhold()
+        }
+        updateProximityRegistration()
+    }
+
+    private fun refresh() {
+        call = CallSessionRegistry.primary()
+        val current = call
+        if (current == null) {
+            unregisterProximity()
+            restoreScreen()
+            scheduleFinish()
+            return
+        }
+
+        handler.removeCallbacks(finishRunnable)
+        finishScheduled = false
+        val number = current.details?.handle?.schemeSpecificPart ?: "UNKNOWN CALLER"
+        if (number != lastNumber) {
+            lastNumber = number
+            val label = resolveCallerLabel(number)
+            caller.text = label
+            callerAvatar.text = initials(label)
+            RealityVisuals.reveal(callerAvatar)
+        }
+
+        val stateText = when (current.state) {
+            Call.STATE_RINGING -> "● INCOMING"
+            Call.STATE_DIALING -> "● DIALING"
+            Call.STATE_CONNECTING -> "● CONNECTING"
+            Call.STATE_ACTIVE -> "● LIVE"
+            Call.STATE_HOLDING -> "● HOLD"
+            Call.STATE_DISCONNECTED -> "● CLOSED"
+            else -> "● CALL"
+        }
+        state.text = stateText
+        if (lastRenderedCallState != current.state) {
+            lastRenderedCallState = current.state
+            RealityVisuals.pulseOnce(state)
+        }
+
+        if (current.state == Call.STATE_DISCONNECTED) {
+            connectedStartedAt = null
+            scheduleFinish()
+        } else {
+            finishScheduled = false
+        }
+
+        val ringing = current.state == Call.STATE_RINGING
+        answerButton.visibility = if (ringing) View.VISIBLE else View.GONE
+        rejectButton.visibility = if (ringing) View.VISIBLE else View.GONE
+
+        val interactive = current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING
+        muteButton.isEnabled = interactive
+        speakerButton.isEnabled = interactive
+        keypadButton.isEnabled = interactive
+        holdButton.isEnabled = interactive
+        if (!interactive) keypadContainer.visibility = View.GONE
+        holdButton.text = if (current.state == Call.STATE_HOLDING) "Resume" else "Hold"
+        setControlActive(holdButton, current.state == Call.STATE_HOLDING)
+        endButton.isEnabled = current.state != Call.STATE_DISCONNECTED
+
+        if ((current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING) && connectedStartedAt == null) {
+            connectedStartedAt = SystemClock.elapsedRealtime()
+        }
+
+        updateTimer()
+        renderLiveSignals()
+        renderTranscript(LiveTranscriptState.snapshot())
+        renderGroqUsage(ResponseCoachState.current())
+
+        val service = RealityInCallService.instance
+        val mutedNow = service?.isMutedNow() == true
+        muteButton.text = if (mutedNow) "Unmute" else "Mute"
+        setControlActive(muteButton, mutedNow)
+        refreshAudioButtons()
+        updateProximityRegistration()
+    }
+
+    private fun refreshAudioButtons() {
+        val audio = RealityInCallService.instance?.callAudioState
+        val speakerOn = audio?.route == CallAudioState.ROUTE_SPEAKER
+        val bluetoothOn = audio?.route == CallAudioState.ROUTE_BLUETOOTH
+        speakerButton.text = if (speakerOn) "Earpiece" else "Speaker"
+        bluetoothButton.text = if (bluetoothOn) "BT off" else "Bluetooth"
+        setControlActive(speakerButton, speakerOn)
+        setControlActive(bluetoothButton, bluetoothOn)
+        val interactive = call?.state == Call.STATE_ACTIVE || call?.state == Call.STATE_HOLDING
+        bluetoothButton.isEnabled = interactive &&
+            ((audio?.supportedRouteMask ?: 0) and CallAudioState.ROUTE_BLUETOOTH != 0)
+    }
+
+    private fun setControlActive(button: Button, active: Boolean) {
+        val accent = if (active) green else cyan
+        button.setTextColor(accent)
+        button.compoundDrawableTintList = ColorStateList.valueOf(accent)
+        button.background = RealityVisuals.panel(
+            this,
+            fill = if (active) Color.rgb(7, 28, 24) else panel,
+            stroke = if (active) green else RealityVisuals.Colors.Border,
+            radiusDp = shapeRadius(),
+        )
+        button.alpha = if (button.isEnabled) 1f else .42f
+    }
+
+    private val finishRunnable = Runnable {
+        finishScheduled = false
+        if (CallSessionRegistry.primary() == null && !isFinishing) finish()
+    }
+
+    private fun scheduleFinish() {
+        if (finishScheduled) return
+        finishScheduled = true
+        val age = SystemClock.elapsedRealtime() - createdAtElapsed
+        val delay = maxOf(2500L - age, 1200L)
+        handler.removeCallbacks(finishRunnable)
+        handler.postDelayed(finishRunnable, delay)
+    }
+
+    private fun resolveCallerLabel(number: String): String {
+        if (
+            number == "UNKNOWN CALLER" ||
+            checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED
+        ) return number
+
+        return try {
+            val lookup = Uri.withAppendedPath(
+                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                Uri.encode(number),
+            )
+            contentResolver.query(
+                lookup,
+                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                null,
+                null,
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    cursor.getString(0)?.takeIf { it.isNotBlank() }?.let { return it }
+                }
+            }
+            number
+        } catch (_: Throwable) {
+            number
+        }
+    }
+
+    private fun initials(label: String): String {
+        if (label == "UNKNOWN CALLER") return "?"
+        val pieces = label.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+        if (pieces.isEmpty()) return "?"
+        return pieces.take(2).joinToString("") { it.first().uppercaseChar().toString() }
+    }
+
+    private fun updateTimer() {
+        val started = connectedStartedAt
+        if (started == null) {
+            timer.text = "00:00"
+            return
+        }
+        val total = (SystemClock.elapsedRealtime() - started) / 1000L
+        val hours = total / 3600L
+        val minutes = (total % 3600L) / 60L
+        val seconds = total % 60L
+        timer.text = if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("%02d:%02d", minutes, seconds)
+        }
+    }
+
+    private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
+
+    companion object {
+        private const val KEY_CONNECTED_AT = "connected_started_at"
+        private const val KEY_KEYPAD_OPEN = "keypad_open"
+    }
 }
