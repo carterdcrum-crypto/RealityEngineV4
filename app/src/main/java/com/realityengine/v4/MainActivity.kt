@@ -19,54 +19,654 @@ import android.view.View
 import android.widget.*
 
 class MainActivity : Activity() {
-    private lateinit var status:TextView;private lateinit var shizukuStatus:TextView;private lateinit var audioStatus:TextView;private lateinit var number:EditText;private lateinit var contactMatch:TextView;private lateinit var error:TextView;private lateinit var content:LinearLayout;private lateinit var nav:LinearLayout
-    private lateinit var contactIndex:ContactIndex;private lateinit var callHistory:CallHistoryIndex;private lateinit var settingsStore:SettingsStore;private lateinit var profileView:CallerProfileView;private lateinit var contactManager:ContactManager;private lateinit var contactActions:ContactActionsDialog;private lateinit var contactPanel:ContactManagementPanel;private lateinit var onboardingState:OnboardingState;private lateinit var appUpdater:AppUpdater
-    private var dialScreen:DialScreen?=null;private var pendingNumber=""
-    private var screen="DIAL";private var buttonShape=1
-    private val bg=Color.rgb(3,7,12);private val panel=Color.rgb(9,18,27);private val soft=Color.rgb(13,27,39);private val cyan=Color.rgb(40,224,255);private val green=Color.rgb(75,255,165);private val muted=Color.rgb(118,147,163)
-    override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState);contactIndex=ContactIndex(this);callHistory=CallHistoryIndex(this,contactIndex);settingsStore=SettingsStore(this);profileView=CallerProfileView(this);contactManager=ContactManager(this);contactActions=ContactActionsDialog(this,contactManager);contactPanel=ContactManagementPanel(this,contactIndex,contactManager,contactActions);onboardingState=OnboardingState(this);appUpdater=AppUpdater(this,settingsStore);buttonShape=getPreferences(MODE_PRIVATE).getInt("buttonShape",1);pendingNumber=savedInstanceState?.getString("pendingNumber").orEmpty();buildPhoneUi();if(savedInstanceState==null&&onboardingState.shouldShowOnLaunch())showWalkthrough()}
-    override fun onSaveInstanceState(outState:Bundle){capturePendingNumber();outState.putString("pendingNumber",pendingNumber);super.onSaveInstanceState(outState)}
-    override fun onResume(){super.onResume();if(::status.isInitialized){updateRoleStatus();updateShizukuStatus();updateAudioStatus()}}
-    override fun onBackPressed(){if(screen!="DIAL")showPhone() else super.onBackPressed()}
-    private fun capturePendingNumber(){if(::number.isInitialized)pendingNumber=number.text.toString()}
-    private fun radius()=when(buttonShape){0->3f;2->30f;else->14f}
-    private fun neon(fill:Int=panel,stroke:Int=cyan,r:Float=radius())=GradientDrawable().apply{setColor(fill);setStroke(1.dp(),stroke);cornerRadius=r.dpF()}
-    private fun cyberButton(label:String,click:()->Unit)=Button(this).apply{text=label;setTextColor(cyan);RealityTypography.technical(this,12f);background=neon(soft,Color.rgb(24,91,111));setOnClickListener{click()};stateListAnimator=null}
-    private fun navItem(icon:String,label:String,target:String,click:()->Unit):LinearLayout{val active=screen==target;return LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(3.dp(),2.dp(),3.dp(),2.dp());addView(TextView(this@MainActivity).apply{text=icon;gravity=Gravity.CENTER;setTextColor(if(active)Color.rgb(0,28,34) else muted);RealityTypography.displayMedium(this,18f);background=if(active)neon(cyan,cyan,22f) else null},LinearLayout.LayoutParams(54.dp(),28.dp()));addView(TextView(this@MainActivity).apply{text=label;gravity=Gravity.CENTER;setTextColor(if(active)cyan else muted);RealityTypography.technical(this,9f)},LinearLayout.LayoutParams(-1,20.dp()));setOnClickListener{capturePendingNumber();click()}}}
-    private fun refreshNav(){if(!::nav.isInitialized)return;nav.removeAllViews();nav.addView(navItem("⌁","Phone","DIAL"){showPhone()},LinearLayout.LayoutParams(0,54.dp(),1f));nav.addView(navItem("◴","Traffic","TRAFFIC"){showRecents()},LinearLayout.LayoutParams(0,54.dp(),1f));nav.addView(navItem("▣","Index","INDEX"){showContacts()},LinearLayout.LayoutParams(0,54.dp(),1f));nav.addView(navItem("⚙","Settings","SETTINGS"){showSettings()},LinearLayout.LayoutParams(0,54.dp(),1f))}
-    private fun buildPhoneUi(){val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(18.dp(),34.dp(),18.dp(),8.dp());setBackgroundColor(bg)};val utility=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL};status=TextView(this).apply{setTextColor(green);gravity=Gravity.CENTER_VERTICAL;RealityTypography.signal(this,11f)};utility.addView(status,LinearLayout.LayoutParams(0,42.dp(),1f));root.addView(utility);root.addView(View(this).apply{setBackgroundColor(Color.rgb(18,75,91))},LinearLayout.LayoutParams(-1,1.dp()).apply{setMargins(0,2.dp(),0,4.dp())});shizukuStatus=TextView(this).apply{visibility=View.GONE};audioStatus=TextView(this).apply{visibility=View.GONE};root.addView(shizukuStatus);root.addView(audioStatus);val scroll=ScrollView(this).apply{isFillViewport=true};content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.TOP};scroll.addView(content);root.addView(scroll,LinearLayout.LayoutParams(-1,0,1f));nav=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER;setPadding(0,4.dp(),0,0)};root.addView(nav,LinearLayout.LayoutParams(-1,58.dp()));setContentView(root);updateRoleStatus();updateShizukuStatus();updateAudioStatus();showPhone()}
-    private fun showWalkthrough(){WalkthroughScreen(this,onboardingState,onExit={buildPhoneUi()},onAction={step->handleWalkthroughAction(step)}).show()}
-    private fun handleWalkthroughAction(step:WalkthroughContent.Step){when(WalkthroughActionResolver.resolve(step)){WalkthroughAction.DEFAULT_PHONE->requestDefaultPhoneRole();WalkthroughAction.PERMISSIONS->requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO,Manifest.permission.READ_CONTACTS,Manifest.permission.READ_CALL_LOG),REQ_AUDIO);WalkthroughAction.SHIZUKU->requestShizuku();WalkthroughAction.TRANSCRIPTION_SETTINGS,WalkthroughAction.COACH_SETTINGS->{buildPhoneUi();showSettings()};WalkthroughAction.CALL_AUDIO->checkCallAudio();WalkthroughAction.NONE->{}}}
-    private fun showAbout(){AboutScreen(this){buildPhoneUi();showSettings()}.show()}
-    private fun showPhone(){screen="DIAL";content.removeAllViews();content.gravity=Gravity.BOTTOM;val dial=DialScreen(this,contactIndex){placeCall(it)};dialScreen=dial;number=dial.number;contactMatch=dial.contactMatch;error=dial.error;content.addView(dial.build(),LinearLayout.LayoutParams(-1,-1));if(pendingNumber.isNotEmpty())dial.setNumber(pendingNumber);refreshNav()}
-    private fun showRecents(){screen="TRAFFIC";content.gravity=Gravity.TOP;content.removeAllViews();sectionTitle("Traffic");if(!callHistory.hasPermission()){content.addView(cyberButton("Authorize call history"){requestPermissions(arrayOf(Manifest.permission.READ_CALL_LOG),REQ_CALL_LOG)});refreshNav();return};callHistory.recent().forEach{entry->val summary=entry.realitySummary.takeIf{it.isNotBlank()}?.let{"\nRE // ${it.take(210)}"}.orEmpty();content.addView(listButton("${entry.displayName}\n${entry.direction}  •  ${entry.number}  •  ${entry.durationSeconds}s$summary"){showCallerProfile(entry.number,entry.displayName)}.apply{minHeight=if(summary.isBlank())70.dp() else 112.dp();setOnLongClickListener{contactPanel.unsavedNumberActions(entry.number){showRecents()};true}})};refreshNav()}
-    private fun showCallerProfile(phone:String,name:String){screen="PROFILE";content.gravity=Gravity.TOP;content.removeAllViews();val p=profileView.load(phone,name);sectionTitle(p.name.ifBlank{p.phoneNumber});profileLine("NUMBER",p.phoneNumber);profileLine("CONVERSATION STYLE",p.preferredStyle);profileLine("LIKES",p.likes.joinToString(" • "));profileLine("DISLIKES",p.dislikes.joinToString(" • "));profileLine("RECENT TOPICS",p.recentTopics.joinToString(" • "));profileLine("BEST STARTERS",p.starters.joinToString("\n"));profileLine("IMPORTANT",p.importantFacts.joinToString(" • "));if(p.peakCombined>0)profileLine("PEAK SIGNAL","${p.peakCombined}%${if(p.peakContext.isBlank())"" else " • ${p.peakContext}"}");profileLine("LAST CALL",p.lastCallSummary);content.addView(cyberButton("Call ${p.name.ifBlank{p.phoneNumber}}"){placeCall(phone)});content.addView(contactPanel.blockButton(phone){showCallerProfile(phone,name)});refreshNav()}
-    private fun profileLine(label:String,value:String){if(value.isBlank())return;content.addView(TextView(this).apply{text="$label\n$value";setTextColor(Color.rgb(205,241,248));setPadding(16.dp(),12.dp(),16.dp(),12.dp());background=neon(panel,Color.rgb(15,66,81));RealityTypography.display(this,13f)},LinearLayout.LayoutParams(-1,-2).apply{setMargins(0,4.dp(),0,4.dp())})}
-    private fun showContacts(query:String=""){screen="INDEX";content.gravity=Gravity.TOP;content.removeAllViews();sectionTitle("Index");if(checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){content.addView(cyberButton("Authorize contacts"){requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS),REQ_CONTACTS)});refreshNav();return};val search=EditText(this).apply{hint="Search contacts";setHintTextColor(muted);setTextColor(Color.rgb(222,244,248));setText(query);isSingleLine=true;background=neon(panel,Color.rgb(18,88,107));setPadding(16.dp(),0,16.dp(),0);RealityTypography.display(this,16f)};content.addView(search,LinearLayout.LayoutParams(-1,52.dp()).apply{setMargins(0,0,0,10.dp())});val actionsRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL};actionsRow.addView(cyberButton("Search"){showContacts(search.text.toString().trim())},LinearLayout.LayoutParams(0,52.dp(),1f));actionsRow.addView(contactPanel.addContactButton{showContacts(query)},LinearLayout.LayoutParams(0,52.dp(),1f));content.addView(actionsRow);contactIndex.search(query).forEach{contact->val row=listButton("${contact.name}\n${contact.number}"){numberFromContact(contact.number)};contactPanel.bindContactActions(row,contact){showContacts(query)};content.addView(row)};refreshNav()}
-    private fun showSettings(){screen="SETTINGS";content.gravity=Gravity.TOP;content.removeAllViews();sectionTitle("Settings & telephony architecture");content.addView(settingCard("Setup walkthrough","Open the beginner setup guide"){showWalkthrough()});content.addView(settingCard("About Reality Engine","Capabilities • Developed by: Carter Crum"){showAbout()});content.addView(settingCard("App updates","Check the private GitHub release for the newest green build"){checkForUpdate()});content.addView(settingCard("Private update access",if(settingsStore.privateUpdaterConfigured()) "GitHub token configured" else "GitHub token required"){editSecret("GitHub updater token",settingsStore.githubUpdaterToken){settingsStore.githubUpdaterToken=it}});content.addView(settingCard("Groq API",if(settingsStore.groqConfigured()) "API key configured" else "API key required"){editSecret("Groq API key",settingsStore.groqApiKey){settingsStore.groqApiKey=it}});content.addView(settingCard("Groq coach model",groqModelSummary()){selectGroqModel()});content.addView(settingCard("Deepgram API",if(settingsStore.deepgramConfigured()) "API key configured" else "API key required"){editSecret("Deepgram API key",settingsStore.deepgramApiKey){settingsStore.deepgramApiKey=it}});content.addView(settingCard("Deepgram model",deepgramModelSummary()){selectDeepgramModel()});content.addView(settingCard("Supabase caller profiles",if(settingsStore.supabaseConfigured()) "Configured" else "Configuration required"){editTextValue("Supabase URL",settingsStore.supabaseUrl){settingsStore.supabaseUrl=it}});content.addView(settingCard("Response coach",if(settingsStore.responseCoachEnabled) "Enabled" else "Disabled"){settingsStore.responseCoachEnabled=!settingsStore.responseCoachEnabled;showSettings()});content.addView(settingCard("Haptics",if(settingsStore.hapticsEnabled) "Enabled" else "Disabled"){settingsStore.hapticsEnabled=!settingsStore.hapticsEnabled;showSettings()});content.addView(settingCard("Analysis frequency","Every ${settingsStore.analysisFrequencyTurns} turn${if(settingsStore.analysisFrequencyTurns==1) "" else "s"}"){settingsStore.analysisFrequencyTurns=if(settingsStore.analysisFrequencyTurns>=10)1 else settingsStore.analysisFrequencyTurns+1;showSettings()});content.addView(settingCard("Default phone application",status.text.toString()){requestDefaultPhoneRole()});content.addView(settingCard("Button geometry",shapeName()){cycleButtonShape()});content.addView(settingCard("Shizuku audio",shizukuStatus.text.toString()){requestShizuku()});content.addView(settingCard("Call audio",audioStatus.text.toString()){checkCallAudio()});content.addView(settingCard("Android phone settings","Manage system calling apps"){startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))});refreshNav()}
-    private fun selectGroqModel(){val models=SettingsStore.GROQ_MODELS;val labels=models.map{groqModelLabel(it)}.toTypedArray();val selected=models.indexOf(settingsStore.groqModel).coerceAtLeast(0);AlertDialog.Builder(this).setTitle("Groq coach model").setSingleChoiceItems(labels,selected){dialog,which->settingsStore.groqModel=models[which];dialog.dismiss();showSettings()}.setNegativeButton("Cancel",null).show()}
-    private fun selectDeepgramModel(){val models=SettingsStore.DEEPGRAM_MODELS;val labels=models.map{deepgramModelLabel(it)}.toTypedArray();val selected=models.indexOf(settingsStore.deepgramModel).coerceAtLeast(0);AlertDialog.Builder(this).setTitle("Deepgram transcription model").setSingleChoiceItems(labels,selected){dialog,which->settingsStore.deepgramModel=models[which];dialog.dismiss();showSettings()}.setNegativeButton("Cancel",null).show()}
-    private fun groqModelSummary()=when(settingsStore.groqModel){"openai/gpt-oss-20b"->"GPT-OSS 20B · low reasoning · balanced";"llama-3.3-70b-versatile"->"Llama 3.3 70B · higher language quality";else->"Llama 3.1 8B · lowest latency"}
-    private fun groqModelLabel(model:String)=when(model){"openai/gpt-oss-20b"->"GPT-OSS 20B — Balanced / recommended";"llama-3.3-70b-versatile"->"Llama 3.3 70B — Higher quality";else->"Llama 3.1 8B — Fastest / lightest"}
-    private fun deepgramModelSummary()=when(settingsStore.deepgramModel){"nova-3"->"Nova-3 · recommended live transcription";else->"Nova-2 Phonecall · compatibility fallback"}
-    private fun deepgramModelLabel(model:String)=when(model){"nova-3"->"Nova-3 — Recommended";else->"Nova-2 Phonecall — Compatibility"}
-    private fun checkForUpdate(){Toast.makeText(this,"Checking private update…",Toast.LENGTH_SHORT).show();appUpdater.check{result->runOnUiThread{when(result){is AppUpdater.CheckResult.Current->AlertDialog.Builder(this).setTitle("Reality Engine is current").setMessage("Installed version ${result.versionName} is the newest green build.").setPositiveButton("OK",null).show();is AppUpdater.CheckResult.Failed->AlertDialog.Builder(this).setTitle("Update check failed").setMessage(result.reason).setPositiveButton("OK",null).show();is AppUpdater.CheckResult.Available->AlertDialog.Builder(this).setTitle("Update available").setMessage("${result.info.versionName} · ${result.info.buildId}\n\nDownload and install this private green build now?").setNegativeButton("Later",null).setPositiveButton("Install"){_,_->if(!appUpdater.canInstallPackages()){Toast.makeText(this,"Allow Reality Engine to install updates, then tap App updates again.",Toast.LENGTH_LONG).show();appUpdater.openInstallPermission()}else{Toast.makeText(this,"Downloading private update…",Toast.LENGTH_SHORT).show();appUpdater.downloadAndInstall(result.info){message->runOnUiThread{Toast.makeText(this,message,Toast.LENGTH_LONG).show()}}}}.show()}}}}
-    private fun editSecret(title:String,current:String,save:(String)->Unit){val input=EditText(this).apply{setText(current);inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD;setSelection(length())};AlertDialog.Builder(this).setTitle(title).setView(input).setNegativeButton("Cancel",null).setPositiveButton("Save"){_,_->save(input.text.toString());showSettings()}.show()}
-    private fun editTextValue(title:String,current:String,save:(String)->Unit){val input=EditText(this).apply{setText(current);inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI;setSelection(length())};AlertDialog.Builder(this).setTitle(title).setView(input).setNegativeButton("Cancel",null).setPositiveButton("Save"){_,_->save(input.text.toString());showSettings()}.show()}
-    private fun shapeName()=when(buttonShape){0->"Angular · 03";2->"Rounded · 30";else->"Tactical · 14"}
-    private fun cycleButtonShape(){buttonShape=(buttonShape+1)%3;getPreferences(MODE_PRIVATE).edit().putInt("buttonShape",buttonShape).apply();buildPhoneUi();showSettings()}
-    private fun sectionTitle(t:String){content.addView(TextView(this).apply{text=t;setTextColor(Color.rgb(229,249,252));setPadding(2.dp(),20.dp(),0,16.dp());RealityTypography.displayMedium(this,22f)})}
-    private fun listButton(label:String,click:()->Unit)=Button(this).apply{text=label;gravity=Gravity.START or Gravity.CENTER_VERTICAL;setTextColor(Color.rgb(205,241,248));RealityTypography.display(this,14f);background=neon(panel,Color.rgb(15,66,81));stateListAnimator=null;setPadding(16.dp(),0,16.dp(),0);setOnClickListener{click()}}.also{it.layoutParams=LinearLayout.LayoutParams(-1,70.dp()).apply{setMargins(0,4.dp(),0,4.dp())}}
-    private fun settingCard(title:String,sub:String,click:()->Unit)=Button(this).apply{text="$title\n$sub";gravity=Gravity.START or Gravity.CENTER_VERTICAL;setTextColor(Color.rgb(218,245,249));background=neon(panel,Color.rgb(20,78,94));stateListAnimator=null;setPadding(18.dp(),0,18.dp(),0);RealityTypography.display(this,14f);setOnClickListener{click()}}.also{it.layoutParams=LinearLayout.LayoutParams(-1,78.dp()).apply{setMargins(0,5.dp(),0,5.dp())}}
-    private fun updateShizukuStatus(){shizukuStatus.text=when{!ShizukuAudioStatus.binderAvailable()->"Offline";!ShizukuAudioStatus.permissionGranted()->"Authorization required";else->"Connected"}}
-    private fun updateAudioStatus(){audioStatus.text=when(CallAudioBridge.state(this)){CallAudioBridge.State.UNAVAILABLE->"Waiting for Shizuku";CallAudioBridge.State.SHIZUKU_READY->"Shizuku ready";CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED->"Microphone authorization required";CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE->"Voice call available";CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED->"Voice call blocked"}}
-    private fun checkCallAudio(){if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),REQ_AUDIO);return};updateAudioStatus();showSettings()}
-    private fun requestShizuku(){if(ShizukuAudioStatus.binderAvailable()&&!ShizukuAudioStatus.permissionGranted())ShizukuAudioStatus.requestPermission();updateShizukuStatus();updateAudioStatus();showSettings()}
-    private fun numberFromContact(phone:String){pendingNumber=phone;showPhone()}
-    private fun updateRoleStatus(){val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;status.text=if(t.defaultDialerPackage==packageName)"● Native cellular phone" else "● Default phone app needed"}
-    private fun requestDefaultPhoneRole(){val r=getSystemService(RoleManager::class.java);if(r!=null&&r.isRoleAvailable(RoleManager.ROLE_DIALER)&&!r.isRoleHeld(RoleManager.ROLE_DIALER))startActivityForResult(r.createRequestRoleIntent(RoleManager.ROLE_DIALER),REQ_ROLE)else updateRoleStatus()}
-    private fun placeCall(v:String){if(v.isEmpty()){if(::error.isInitialized)error.text="No target number";return};val t=getSystemService(Context.TELECOM_SERVICE) as TelecomManager;if(t.defaultDialerPackage==packageName){if(checkSelfPermission(Manifest.permission.CALL_PHONE)!=PackageManager.PERMISSION_GRANTED){requestPermissions(arrayOf(Manifest.permission.CALL_PHONE),REQ_CALL);return};try{t.placeCall(Uri.fromParts("tel",v,null),null)}catch(e:Exception){if(::error.isInitialized)error.text="Connection failed"}}else{if(::error.isInitialized)error.text="Default phone app required"}}
-    override fun onRequestPermissionsResult(rc:Int,p:Array<out String>,g:IntArray){super.onRequestPermissionsResult(rc,p,g);when(rc){REQ_CALL->if(g.firstOrNull()==PackageManager.PERMISSION_GRANTED&&::number.isInitialized)placeCall(number.text.toString().trim());REQ_CALL_LOG->showRecents();REQ_CONTACTS->showContacts();REQ_AUDIO->{updateAudioStatus();if(::content.isInitialized)showSettings()};REQ_CONTACT_WRITE->showContacts()}}
-    private fun Int.dp()=(this*resources.displayMetrics.density).toInt();private fun Float.dpF()=this*resources.displayMetrics.density
-    companion object{private const val REQ_ROLE=1001;private const val REQ_CALL=1002;private const val REQ_CALL_LOG=1003;private const val REQ_CONTACTS=1004;private const val REQ_AUDIO=1005;private const val REQ_CONTACT_WRITE=1006}
+    private lateinit var status: TextView
+    private lateinit var shizukuStatus: TextView
+    private lateinit var audioStatus: TextView
+    private lateinit var number: EditText
+    private lateinit var contactMatch: TextView
+    private lateinit var error: TextView
+    private lateinit var content: LinearLayout
+    private lateinit var nav: LinearLayout
+
+    private lateinit var contactIndex: ContactIndex
+    private lateinit var callHistory: CallHistoryIndex
+    private lateinit var settingsStore: SettingsStore
+    private lateinit var profileView: CallerProfileView
+    private lateinit var contactManager: ContactManager
+    private lateinit var contactActions: ContactActionsDialog
+    private lateinit var contactPanel: ContactManagementPanel
+    private lateinit var contactFavorites: ContactFavoritesStore
+    private lateinit var onboardingState: OnboardingState
+    private lateinit var appUpdater: AppUpdater
+
+    private var dialScreen: DialScreen? = null
+    private var pendingNumber = ""
+    private var screen = "DIAL"
+    private var buttonShape = 1
+
+    private val bg = Color.rgb(3, 7, 12)
+    private val panel = Color.rgb(9, 18, 27)
+    private val soft = Color.rgb(13, 27, 39)
+    private val cyan = Color.rgb(40, 224, 255)
+    private val green = Color.rgb(75, 255, 165)
+    private val muted = Color.rgb(118, 147, 163)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        contactIndex = ContactIndex(this)
+        callHistory = CallHistoryIndex(this, contactIndex)
+        settingsStore = SettingsStore(this)
+        profileView = CallerProfileView(this)
+        contactManager = ContactManager(this)
+        contactActions = ContactActionsDialog(this, contactManager)
+        contactPanel = ContactManagementPanel(this, contactIndex, contactManager, contactActions)
+        contactFavorites = ContactFavoritesStore(this)
+        onboardingState = OnboardingState(this)
+        appUpdater = AppUpdater(this, settingsStore)
+        buttonShape = getPreferences(MODE_PRIVATE).getInt("buttonShape", 1)
+        pendingNumber = savedInstanceState?.getString("pendingNumber").orEmpty()
+        buildPhoneUi()
+        if (savedInstanceState == null && onboardingState.shouldShowOnLaunch()) showWalkthrough()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        capturePendingNumber()
+        outState.putString("pendingNumber", pendingNumber)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::status.isInitialized) {
+            updateRoleStatus()
+            updateShizukuStatus()
+            updateAudioStatus()
+        }
+    }
+
+    override fun onBackPressed() {
+        if (screen != "DIAL") showPhone() else super.onBackPressed()
+    }
+
+    private fun capturePendingNumber() {
+        if (::number.isInitialized) pendingNumber = number.text.toString()
+    }
+
+    private fun radius() = when (buttonShape) {
+        0 -> 3f
+        2 -> 30f
+        else -> 14f
+    }
+
+    private fun neon(fill: Int = panel, stroke: Int = cyan, r: Float = radius()) =
+        GradientDrawable().apply {
+            setColor(fill)
+            setStroke(1.dp(), stroke)
+            cornerRadius = r.dpF()
+        }
+
+    private fun cyberButton(label: String, click: () -> Unit) = Button(this).apply {
+        text = label
+        setTextColor(cyan)
+        RealityTypography.technical(this, 12f)
+        background = neon(soft, Color.rgb(24, 91, 111))
+        setOnClickListener { click() }
+        stateListAnimator = null
+    }
+
+    private fun navItem(icon: String, label: String, target: String, click: () -> Unit): LinearLayout {
+        val active = screen == target
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(3.dp(), 2.dp(), 3.dp(), 2.dp())
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = icon
+                    gravity = Gravity.CENTER
+                    setTextColor(if (active) Color.rgb(0, 28, 34) else muted)
+                    RealityTypography.displayMedium(this, 18f)
+                    background = if (active) neon(cyan, cyan, 22f) else null
+                },
+                LinearLayout.LayoutParams(54.dp(), 28.dp()),
+            )
+            addView(
+                TextView(this@MainActivity).apply {
+                    text = label
+                    gravity = Gravity.CENTER
+                    setTextColor(if (active) cyan else muted)
+                    RealityTypography.technical(this, 9f)
+                },
+                LinearLayout.LayoutParams(-1, 20.dp()),
+            )
+            setOnClickListener {
+                capturePendingNumber()
+                click()
+            }
+        }
+    }
+
+    private fun refreshNav() {
+        if (!::nav.isInitialized) return
+        nav.removeAllViews()
+        nav.addView(navItem("⌁", "Phone", "DIAL") { showPhone() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
+        nav.addView(navItem("◴", "Traffic", "TRAFFIC") { showRecents() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
+        nav.addView(navItem("▣", "Index", "INDEX") { showContacts() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
+        nav.addView(navItem("⚙", "Settings", "SETTINGS") { showSettings() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
+    }
+
+    private fun buildPhoneUi() {
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18.dp(), 34.dp(), 18.dp(), 8.dp())
+            setBackgroundColor(bg)
+        }
+        val utility = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        status = TextView(this).apply {
+            setTextColor(green)
+            gravity = Gravity.CENTER_VERTICAL
+            RealityTypography.signal(this, 11f)
+        }
+        utility.addView(status, LinearLayout.LayoutParams(0, 42.dp(), 1f))
+        root.addView(utility)
+        root.addView(
+            View(this).apply { setBackgroundColor(Color.rgb(18, 75, 91)) },
+            LinearLayout.LayoutParams(-1, 1.dp()).apply { setMargins(0, 2.dp(), 0, 4.dp()) },
+        )
+        shizukuStatus = TextView(this).apply { visibility = View.GONE }
+        audioStatus = TextView(this).apply { visibility = View.GONE }
+        root.addView(shizukuStatus)
+        root.addView(audioStatus)
+        val scroll = ScrollView(this).apply { isFillViewport = true }
+        content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.TOP
+        }
+        scroll.addView(content)
+        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        nav = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 4.dp(), 0, 0)
+        }
+        root.addView(nav, LinearLayout.LayoutParams(-1, 58.dp()))
+        setContentView(root)
+        updateRoleStatus()
+        updateShizukuStatus()
+        updateAudioStatus()
+        showPhone()
+    }
+
+    private fun showWalkthrough() {
+        WalkthroughScreen(
+            this,
+            onboardingState,
+            onExit = { buildPhoneUi() },
+            onAction = { step -> handleWalkthroughAction(step) },
+        ).show()
+    }
+
+    private fun handleWalkthroughAction(step: WalkthroughContent.Step) {
+        when (WalkthroughActionResolver.resolve(step)) {
+            WalkthroughAction.DEFAULT_PHONE -> requestDefaultPhoneRole()
+            WalkthroughAction.PERMISSIONS -> requestPermissions(
+                arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG),
+                REQ_AUDIO,
+            )
+            WalkthroughAction.SHIZUKU -> requestShizuku()
+            WalkthroughAction.TRANSCRIPTION_SETTINGS, WalkthroughAction.COACH_SETTINGS -> {
+                buildPhoneUi()
+                showSettings()
+            }
+            WalkthroughAction.CALL_AUDIO -> checkCallAudio()
+            WalkthroughAction.NONE -> Unit
+        }
+    }
+
+    private fun showAbout() {
+        AboutScreen(this) {
+            buildPhoneUi()
+            showSettings()
+        }.show()
+    }
+
+    private fun showPhone() {
+        screen = "DIAL"
+        content.removeAllViews()
+        content.gravity = Gravity.BOTTOM
+        val dial = DialScreen(this, contactIndex) { placeCall(it) }
+        dialScreen = dial
+        number = dial.number
+        contactMatch = dial.contactMatch
+        error = dial.error
+        content.addView(dial.build(), LinearLayout.LayoutParams(-1, -1))
+        if (pendingNumber.isNotEmpty()) dial.setNumber(pendingNumber)
+        refreshNav()
+    }
+
+    private fun showRecents() {
+        screen = "TRAFFIC"
+        content.gravity = Gravity.TOP
+        content.removeAllViews()
+        sectionTitle("Traffic")
+        if (!callHistory.hasPermission()) {
+            content.addView(cyberButton("Authorize call history") {
+                requestPermissions(arrayOf(Manifest.permission.READ_CALL_LOG), REQ_CALL_LOG)
+            })
+            refreshNav()
+            return
+        }
+        callHistory.recent().forEach { entry ->
+            val summary = entry.realitySummary.takeIf { it.isNotBlank() }?.let {
+                "\nRE // ${it.take(210)}"
+            }.orEmpty()
+            content.addView(
+                listButton(
+                    "${entry.displayName}\n${entry.direction}  •  ${entry.number}  •  ${entry.durationSeconds}s$summary",
+                ) { showCallerProfile(entry.number, entry.displayName) }.apply {
+                    minHeight = if (summary.isBlank()) 70.dp() else 112.dp()
+                    setOnLongClickListener {
+                        contactPanel.unsavedNumberActions(entry.number) { showRecents() }
+                        true
+                    }
+                },
+            )
+        }
+        refreshNav()
+    }
+
+    private fun showCallerProfile(phone: String, name: String) {
+        screen = "PROFILE"
+        content.gravity = Gravity.TOP
+        content.removeAllViews()
+        val p = profileView.load(phone, name)
+        sectionTitle(p.name.ifBlank { p.phoneNumber })
+        profileLine("NUMBER", p.phoneNumber)
+        profileLine("CONVERSATION STYLE", p.preferredStyle)
+        profileLine("LIKES", p.likes.joinToString(" • "))
+        profileLine("DISLIKES", p.dislikes.joinToString(" • "))
+        profileLine("RECENT TOPICS", p.recentTopics.joinToString(" • "))
+        profileLine("BEST STARTERS", p.starters.joinToString("\n"))
+        profileLine("IMPORTANT", p.importantFacts.joinToString(" • "))
+        if (p.peakCombined > 0) {
+            profileLine(
+                "PEAK SIGNAL",
+                "${p.peakCombined}%${if (p.peakContext.isBlank()) "" else " • ${p.peakContext}"}",
+            )
+        }
+        profileLine("LAST CALL", p.lastCallSummary)
+        content.addView(cyberButton("Call ${p.name.ifBlank { p.phoneNumber }}") { placeCall(phone) })
+        content.addView(contactPanel.blockButton(phone) { showCallerProfile(phone, name) })
+        refreshNav()
+    }
+
+    private fun profileLine(label: String, value: String) {
+        if (value.isBlank()) return
+        content.addView(
+            TextView(this).apply {
+                text = "$label\n$value"
+                setTextColor(Color.rgb(205, 241, 248))
+                setPadding(16.dp(), 12.dp(), 16.dp(), 12.dp())
+                background = neon(panel, Color.rgb(15, 66, 81))
+                RealityTypography.display(this, 13f)
+            },
+            LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 4.dp(), 0, 4.dp()) },
+        )
+    }
+
+    private fun showContacts(query: String = "") {
+        screen = "INDEX"
+        content.gravity = Gravity.TOP
+        content.removeAllViews()
+        if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+            sectionTitle("Index")
+            content.addView(cyberButton("Authorize contacts") {
+                requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQ_CONTACTS)
+            })
+            refreshNav()
+            return
+        }
+
+        val contactsScreen = ContactsScreen(
+            activity = this,
+            index = contactIndex,
+            callHistory = callHistory,
+            favorites = contactFavorites,
+            management = contactPanel,
+            onDialContact = { numberFromContact(it) },
+            onRequestContactsPermission = {
+                requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQ_CONTACTS)
+            },
+        )
+        content.addView(
+            contactsScreen.build(initialQuery = query),
+            LinearLayout.LayoutParams(-1, -2),
+        )
+        refreshNav()
+    }
+
+    private fun showSettings() {
+        screen = "SETTINGS"
+        content.gravity = Gravity.TOP
+        content.removeAllViews()
+        sectionTitle("Settings & telephony architecture")
+        content.addView(settingCard("Setup walkthrough", "Open the beginner setup guide") { showWalkthrough() })
+        content.addView(settingCard("About Reality Engine", "Capabilities • Developed by: Carter Crum") { showAbout() })
+        content.addView(settingCard("App updates", "Check the private GitHub release for the newest green build") { checkForUpdate() })
+        content.addView(settingCard("Private update access", if (settingsStore.privateUpdaterConfigured()) "GitHub token configured" else "GitHub token required") {
+            editSecret("GitHub updater token", settingsStore.githubUpdaterToken) { settingsStore.githubUpdaterToken = it }
+        })
+        content.addView(settingCard("Groq API", if (settingsStore.groqConfigured()) "API key configured" else "API key required") {
+            editSecret("Groq API key", settingsStore.groqApiKey) { settingsStore.groqApiKey = it }
+        })
+        content.addView(settingCard("Groq coach model", groqModelSummary()) { selectGroqModel() })
+        content.addView(settingCard("Deepgram API", if (settingsStore.deepgramConfigured()) "API key configured" else "API key required") {
+            editSecret("Deepgram API key", settingsStore.deepgramApiKey) { settingsStore.deepgramApiKey = it }
+        })
+        content.addView(settingCard("Deepgram model", deepgramModelSummary()) { selectDeepgramModel() })
+        content.addView(settingCard("Supabase caller profiles", if (settingsStore.supabaseConfigured()) "Configured" else "Configuration required") {
+            editTextValue("Supabase URL", settingsStore.supabaseUrl) { settingsStore.supabaseUrl = it }
+        })
+        content.addView(settingCard("Response coach", if (settingsStore.responseCoachEnabled) "Enabled" else "Disabled") {
+            settingsStore.responseCoachEnabled = !settingsStore.responseCoachEnabled
+            showSettings()
+        })
+        content.addView(settingCard("Haptics", if (settingsStore.hapticsEnabled) "Enabled" else "Disabled") {
+            settingsStore.hapticsEnabled = !settingsStore.hapticsEnabled
+            showSettings()
+        })
+        content.addView(settingCard("Analysis frequency", "Every ${settingsStore.analysisFrequencyTurns} turn${if (settingsStore.analysisFrequencyTurns == 1) "" else "s"}") {
+            settingsStore.analysisFrequencyTurns = if (settingsStore.analysisFrequencyTurns >= 10) 1 else settingsStore.analysisFrequencyTurns + 1
+            showSettings()
+        })
+        content.addView(settingCard("Default phone application", status.text.toString()) { requestDefaultPhoneRole() })
+        content.addView(settingCard("Button geometry", shapeName()) { cycleButtonShape() })
+        content.addView(settingCard("Shizuku audio", shizukuStatus.text.toString()) { requestShizuku() })
+        content.addView(settingCard("Call audio", audioStatus.text.toString()) { checkCallAudio() })
+        content.addView(settingCard("Android phone settings", "Manage system calling apps") {
+            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        })
+        refreshNav()
+    }
+
+    private fun selectGroqModel() {
+        val models = SettingsStore.GROQ_MODELS
+        val labels = models.map { groqModelLabel(it) }.toTypedArray()
+        val selected = models.indexOf(settingsStore.groqModel).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Groq coach model")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                settingsStore.groqModel = models[which]
+                dialog.dismiss()
+                showSettings()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun selectDeepgramModel() {
+        val models = SettingsStore.DEEPGRAM_MODELS
+        val labels = models.map { deepgramModelLabel(it) }.toTypedArray()
+        val selected = models.indexOf(settingsStore.deepgramModel).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Deepgram transcription model")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                settingsStore.deepgramModel = models[which]
+                dialog.dismiss()
+                showSettings()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun groqModelSummary() = when (settingsStore.groqModel) {
+        "openai/gpt-oss-20b" -> "GPT-OSS 20B · low reasoning · balanced"
+        "llama-3.3-70b-versatile" -> "Llama 3.3 70B · higher language quality"
+        else -> "Llama 3.1 8B · lowest latency"
+    }
+
+    private fun groqModelLabel(model: String) = when (model) {
+        "openai/gpt-oss-20b" -> "GPT-OSS 20B — Balanced / recommended"
+        "llama-3.3-70b-versatile" -> "Llama 3.3 70B — Higher quality"
+        else -> "Llama 3.1 8B — Fastest / lightest"
+    }
+
+    private fun deepgramModelSummary() = when (settingsStore.deepgramModel) {
+        "nova-3" -> "Nova-3 · recommended live transcription"
+        else -> "Nova-2 Phonecall · compatibility fallback"
+    }
+
+    private fun deepgramModelLabel(model: String) = when (model) {
+        "nova-3" -> "Nova-3 — Recommended"
+        else -> "Nova-2 Phonecall — Compatibility"
+    }
+
+    private fun checkForUpdate() {
+        Toast.makeText(this, "Checking private update…", Toast.LENGTH_SHORT).show()
+        appUpdater.check { result ->
+            runOnUiThread {
+                when (result) {
+                    is AppUpdater.CheckResult.Current -> AlertDialog.Builder(this)
+                        .setTitle("Reality Engine is current")
+                        .setMessage("Installed version ${result.versionName} is the newest green build.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                    is AppUpdater.CheckResult.Failed -> AlertDialog.Builder(this)
+                        .setTitle("Update check failed")
+                        .setMessage(result.reason)
+                        .setPositiveButton("OK", null)
+                        .show()
+                    is AppUpdater.CheckResult.Available -> AlertDialog.Builder(this)
+                        .setTitle("Update available")
+                        .setMessage("${result.info.versionName} · ${result.info.buildId}\n\nDownload and install this private green build now?")
+                        .setNegativeButton("Later", null)
+                        .setPositiveButton("Install") { _, _ ->
+                            if (!appUpdater.canInstallPackages()) {
+                                Toast.makeText(this, "Allow Reality Engine to install updates, then tap App updates again.", Toast.LENGTH_LONG).show()
+                                appUpdater.openInstallPermission()
+                            } else {
+                                Toast.makeText(this, "Downloading private update…", Toast.LENGTH_SHORT).show()
+                                appUpdater.downloadAndInstall(result.info) { message ->
+                                    runOnUiThread { Toast.makeText(this, message, Toast.LENGTH_LONG).show() }
+                                }
+                            }
+                        }
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun editSecret(title: String, current: String, save: (String) -> Unit) {
+        val input = EditText(this).apply {
+            setText(current)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSelection(length())
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                save(input.text.toString())
+                showSettings()
+            }
+            .show()
+    }
+
+    private fun editTextValue(title: String, current: String, save: (String) -> Unit) {
+        val input = EditText(this).apply {
+            setText(current)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setSelection(length())
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                save(input.text.toString())
+                showSettings()
+            }
+            .show()
+    }
+
+    private fun shapeName() = when (buttonShape) {
+        0 -> "Angular · 03"
+        2 -> "Rounded · 30"
+        else -> "Tactical · 14"
+    }
+
+    private fun cycleButtonShape() {
+        buttonShape = (buttonShape + 1) % 3
+        getPreferences(MODE_PRIVATE).edit().putInt("buttonShape", buttonShape).apply()
+        buildPhoneUi()
+        showSettings()
+    }
+
+    private fun sectionTitle(t: String) {
+        content.addView(TextView(this).apply {
+            text = t
+            setTextColor(Color.rgb(229, 249, 252))
+            setPadding(2.dp(), 20.dp(), 0, 16.dp())
+            RealityTypography.displayMedium(this, 22f)
+        })
+    }
+
+    private fun listButton(label: String, click: () -> Unit) = Button(this).apply {
+        text = label
+        gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        setTextColor(Color.rgb(205, 241, 248))
+        RealityTypography.display(this, 14f)
+        background = neon(panel, Color.rgb(15, 66, 81))
+        stateListAnimator = null
+        setPadding(16.dp(), 0, 16.dp(), 0)
+        setOnClickListener { click() }
+    }.also {
+        it.layoutParams = LinearLayout.LayoutParams(-1, 70.dp()).apply { setMargins(0, 4.dp(), 0, 4.dp()) }
+    }
+
+    private fun settingCard(title: String, sub: String, click: () -> Unit) = Button(this).apply {
+        text = "$title\n$sub"
+        gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        setTextColor(Color.rgb(218, 245, 249))
+        background = neon(panel, Color.rgb(20, 78, 94))
+        stateListAnimator = null
+        setPadding(18.dp(), 0, 18.dp(), 0)
+        RealityTypography.display(this, 14f)
+        setOnClickListener { click() }
+    }.also {
+        it.layoutParams = LinearLayout.LayoutParams(-1, 78.dp()).apply { setMargins(0, 5.dp(), 0, 5.dp()) }
+    }
+
+    private fun updateShizukuStatus() {
+        shizukuStatus.text = when {
+            !ShizukuAudioStatus.binderAvailable() -> "Offline"
+            !ShizukuAudioStatus.permissionGranted() -> "Authorization required"
+            else -> "Connected"
+        }
+    }
+
+    private fun updateAudioStatus() {
+        audioStatus.text = when (CallAudioBridge.state(this)) {
+            CallAudioBridge.State.UNAVAILABLE -> "Waiting for Shizuku"
+            CallAudioBridge.State.SHIZUKU_READY -> "Shizuku ready"
+            CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED -> "Microphone authorization required"
+            CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE -> "Voice call available"
+            CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED -> "Voice call blocked"
+        }
+    }
+
+    private fun checkCallAudio() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQ_AUDIO)
+            return
+        }
+        updateAudioStatus()
+        showSettings()
+    }
+
+    private fun requestShizuku() {
+        if (ShizukuAudioStatus.binderAvailable() && !ShizukuAudioStatus.permissionGranted()) {
+            ShizukuAudioStatus.requestPermission()
+        }
+        updateShizukuStatus()
+        updateAudioStatus()
+        showSettings()
+    }
+
+    private fun numberFromContact(phone: String) {
+        pendingNumber = phone
+        showPhone()
+    }
+
+    private fun updateRoleStatus() {
+        val telecom = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+        status.text = if (telecom.defaultDialerPackage == packageName) {
+            "● Native cellular phone"
+        } else {
+            "● Default phone app needed"
+        }
+    }
+
+    private fun requestDefaultPhoneRole() {
+        val role = getSystemService(RoleManager::class.java)
+        if (role != null && role.isRoleAvailable(RoleManager.ROLE_DIALER) && !role.isRoleHeld(RoleManager.ROLE_DIALER)) {
+            startActivityForResult(role.createRequestRoleIntent(RoleManager.ROLE_DIALER), REQ_ROLE)
+        } else {
+            updateRoleStatus()
+        }
+    }
+
+    private fun placeCall(value: String) {
+        if (value.isEmpty()) {
+            if (::error.isInitialized) error.text = "No target number"
+            return
+        }
+        val telecom = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+        if (telecom.defaultDialerPackage == packageName) {
+            if (checkSelfPermission(Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.CALL_PHONE), REQ_CALL)
+                return
+            }
+            try {
+                telecom.placeCall(Uri.fromParts("tel", value, null), null)
+            } catch (_: Exception) {
+                if (::error.isInitialized) error.text = "Connection failed"
+            }
+        } else {
+            if (::error.isInitialized) error.text = "Default phone app required"
+        }
+    }
+
+    override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, g: IntArray) {
+        super.onRequestPermissionsResult(rc, p, g)
+        when (rc) {
+            REQ_CALL -> if (g.firstOrNull() == PackageManager.PERMISSION_GRANTED && ::number.isInitialized) {
+                placeCall(number.text.toString().trim())
+            }
+            REQ_CALL_LOG -> showRecents()
+            REQ_CONTACTS -> showContacts()
+            REQ_AUDIO -> {
+                updateAudioStatus()
+                if (::content.isInitialized) showSettings()
+            }
+            REQ_CONTACT_WRITE -> showContacts()
+        }
+    }
+
+    private fun Int.dp() = (this * resources.displayMetrics.density).toInt()
+    private fun Float.dpF() = this * resources.displayMetrics.density
+
+    companion object {
+        private const val REQ_ROLE = 1001
+        private const val REQ_CALL = 1002
+        private const val REQ_CALL_LOG = 1003
+        private const val REQ_CONTACTS = 1004
+        private const val REQ_AUDIO = 1005
+        private const val REQ_CONTACT_WRITE = 1006
+    }
 }
