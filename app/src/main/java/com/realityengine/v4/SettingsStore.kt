@@ -43,7 +43,7 @@ class SettingsStore(context: Context) {
         prefs.edit().putString("groq_model", DEFAULT_GROQ_MODEL).putBoolean(KEY_GROQ_BALANCED_MIGRATED, true).apply()
     }
 
-    /** Gemini key is kept in the app's encrypted secret store rather than ordinary preferences. */
+    /** Provider API keys below are stored in the app's encrypted secret store. */
     var geminiApiKey: String
         get() = secrets.get(KEY_GEMINI_API_KEY)
         set(value) = secrets.put(KEY_GEMINI_API_KEY, value.trim())
@@ -59,6 +59,42 @@ class SettingsStore(context: Context) {
             val clean = value.trim()
             prefs.edit().putString(KEY_GEMINI_MODEL, clean.takeIf { it in GEMINI_MODELS } ?: DEFAULT_GEMINI_MODEL).apply()
         }
+
+    var cerebrasApiKey: String
+        get() = secrets.get(KEY_CEREBRAS_API_KEY)
+        set(value) = secrets.put(KEY_CEREBRAS_API_KEY, value.trim())
+
+    var cerebrasModel: String
+        get() = prefs.getString(KEY_CEREBRAS_MODEL, DEFAULT_CEREBRAS_MODEL).orEmpty().trim()
+            .takeIf { it in CEREBRAS_MODELS } ?: DEFAULT_CEREBRAS_MODEL
+        set(value) = prefs.edit().putString(
+            KEY_CEREBRAS_MODEL,
+            value.trim().takeIf { it in CEREBRAS_MODELS } ?: DEFAULT_CEREBRAS_MODEL
+        ).apply()
+
+    var mistralApiKey: String
+        get() = secrets.get(KEY_MISTRAL_API_KEY)
+        set(value) = secrets.put(KEY_MISTRAL_API_KEY, value.trim())
+
+    var mistralModel: String
+        get() = prefs.getString(KEY_MISTRAL_MODEL, DEFAULT_MISTRAL_MODEL).orEmpty().trim()
+            .takeIf { it in MISTRAL_MODELS } ?: DEFAULT_MISTRAL_MODEL
+        set(value) = prefs.edit().putString(
+            KEY_MISTRAL_MODEL,
+            value.trim().takeIf { it in MISTRAL_MODELS } ?: DEFAULT_MISTRAL_MODEL
+        ).apply()
+
+    var openRouterApiKey: String
+        get() = secrets.get(KEY_OPENROUTER_API_KEY)
+        set(value) = secrets.put(KEY_OPENROUTER_API_KEY, value.trim())
+
+    var openRouterModel: String
+        get() = prefs.getString(KEY_OPENROUTER_MODEL, DEFAULT_OPENROUTER_MODEL).orEmpty().trim()
+            .takeIf { it in OPENROUTER_MODELS } ?: DEFAULT_OPENROUTER_MODEL
+        set(value) = prefs.edit().putString(
+            KEY_OPENROUTER_MODEL,
+            value.trim().takeIf { it in OPENROUTER_MODELS } ?: DEFAULT_OPENROUTER_MODEL
+        ).apply()
 
     var deepgramApiKey: String
         get() = prefs.getString("deepgram_api_key", "").orEmpty()
@@ -100,10 +136,6 @@ class SettingsStore(context: Context) {
             editor.apply()
         }
 
-    /**
-     * Saves the Supabase credential pair in one synchronous transaction so the setup screen can
-     * immediately verify that the values survived before starting auth/network work.
-     */
     fun saveSupabaseCredentials(url: String, anonKey: String): Boolean {
         val cleanUrl = url.trim().trimEnd('/')
         val cleanKey = anonKey.trim()
@@ -150,7 +182,6 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("response_coach_enabled", true)
         set(value) = prefs.edit().putBoolean("response_coach_enabled", value).apply()
 
-    /** Global delivery style. Individual callers can override this with their own persona. */
     var coachPersonaId: String
         get() {
             val saved = prefs.getString("coach_persona_id", DEFAULT_COACH_PERSONA).orEmpty()
@@ -164,7 +195,6 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("haptics_enabled", true)
         set(value) = prefs.edit().putBoolean("haptics_enabled", value).apply()
 
-    /** Off by default. When enabled, active call audio is visibly recorded and reviewed after every call. */
     var autoRecordCalls: Boolean
         get() = prefs.getBoolean("auto_record_calls", false)
         set(value) = prefs.edit().putBoolean("auto_record_calls", value).apply()
@@ -179,11 +209,24 @@ class SettingsStore(context: Context) {
 
     fun groqConfigured() = groqApiKey.isNotBlank()
     fun geminiConfigured() = geminiApiKey.isNotBlank()
-    fun coachConfigured(): Boolean = when (coachProvider) {
+    fun cerebrasConfigured() = cerebrasApiKey.isNotBlank()
+    fun mistralConfigured() = mistralApiKey.isNotBlank()
+    fun openRouterConfigured() = openRouterApiKey.isNotBlank()
+
+    fun providerConfigured(provider: String): Boolean = when (provider) {
         COACH_PROVIDER_GROQ -> groqConfigured()
         COACH_PROVIDER_GEMINI -> geminiConfigured()
-        else -> groqConfigured() || geminiConfigured()
+        COACH_PROVIDER_CEREBRAS -> cerebrasConfigured()
+        COACH_PROVIDER_MISTRAL -> mistralConfigured()
+        COACH_PROVIDER_OPENROUTER -> openRouterConfigured()
+        else -> false
     }
+
+    fun coachConfigured(): Boolean = when (coachProvider) {
+        COACH_PROVIDER_AUTO -> COACH_FALLBACK_ORDER.any(::providerConfigured)
+        else -> providerConfigured(coachProvider)
+    }
+
     fun deepgramConfigured() = deepgramApiKey.isNotBlank()
     fun supabaseConfigured() = supabaseUrl.isNotBlank() && supabaseAnonKey.isNotBlank()
     fun twilioMediaConfigured() = twilioMediaWebSocketUrl.startsWith("wss://") && twilioAccessTokenEndpoint.startsWith("https://")
@@ -192,23 +235,58 @@ class SettingsStore(context: Context) {
     fun coachModelLabel(): String = when (coachProvider) {
         COACH_PROVIDER_GEMINI -> geminiModel
         COACH_PROVIDER_GROQ -> groqModel
-        else -> if (groqConfigured()) groqModel else geminiModel
+        COACH_PROVIDER_CEREBRAS -> cerebrasModel
+        COACH_PROVIDER_MISTRAL -> mistralModel
+        COACH_PROVIDER_OPENROUTER -> openRouterModel
+        else -> COACH_FALLBACK_ORDER.firstOrNull(::providerConfigured)?.let { provider ->
+            when (provider) {
+                COACH_PROVIDER_GROQ -> groqModel
+                COACH_PROVIDER_GEMINI -> geminiModel
+                COACH_PROVIDER_CEREBRAS -> cerebrasModel
+                COACH_PROVIDER_MISTRAL -> mistralModel
+                else -> openRouterModel
+            }
+        } ?: "no-provider"
     }
 
     companion object {
         const val COACH_PROVIDER_AUTO = "AUTO"
         const val COACH_PROVIDER_GROQ = "GROQ"
         const val COACH_PROVIDER_GEMINI = "GEMINI"
+        const val COACH_PROVIDER_CEREBRAS = "CEREBRAS"
+        const val COACH_PROVIDER_MISTRAL = "MISTRAL"
+        const val COACH_PROVIDER_OPENROUTER = "OPENROUTER"
         const val DEFAULT_COACH_PROVIDER = COACH_PROVIDER_AUTO
-        val COACH_PROVIDERS = listOf(COACH_PROVIDER_AUTO, COACH_PROVIDER_GROQ, COACH_PROVIDER_GEMINI)
+        val COACH_PROVIDERS = listOf(
+            COACH_PROVIDER_AUTO,
+            COACH_PROVIDER_GROQ,
+            COACH_PROVIDER_GEMINI,
+            COACH_PROVIDER_CEREBRAS,
+            COACH_PROVIDER_MISTRAL,
+            COACH_PROVIDER_OPENROUTER,
+        )
+        val COACH_FALLBACK_ORDER = listOf(
+            COACH_PROVIDER_GROQ,
+            COACH_PROVIDER_GEMINI,
+            COACH_PROVIDER_CEREBRAS,
+            COACH_PROVIDER_MISTRAL,
+            COACH_PROVIDER_OPENROUTER,
+        )
 
         const val DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
-        // Free/developer Groq retired the previous Llama coach models on 2026-08-16.
-        // Pin the live coach to the supported low-latency replacement until model probing is added.
         val GROQ_MODELS = listOf(DEFAULT_GROQ_MODEL)
 
         const val DEFAULT_GEMINI_MODEL = "gemini-3.7-flash"
         val GEMINI_MODELS = listOf(DEFAULT_GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.5-flash-lite")
+
+        const val DEFAULT_CEREBRAS_MODEL = "gpt-oss-120b"
+        val CEREBRAS_MODELS = listOf(DEFAULT_CEREBRAS_MODEL)
+
+        const val DEFAULT_MISTRAL_MODEL = "mistral-small-2603"
+        val MISTRAL_MODELS = listOf(DEFAULT_MISTRAL_MODEL)
+
+        const val DEFAULT_OPENROUTER_MODEL = "openrouter/free"
+        val OPENROUTER_MODELS = listOf(DEFAULT_OPENROUTER_MODEL)
 
         const val DEFAULT_DEEPGRAM_MODEL = "nova-3"
         val DEEPGRAM_MODELS = listOf(DEFAULT_DEEPGRAM_MODEL, "nova-2-phonecall")
@@ -218,6 +296,12 @@ class SettingsStore(context: Context) {
         private const val KEY_COACH_PROVIDER = "coach_provider"
         private const val KEY_GEMINI_API_KEY = "gemini_api_key"
         private const val KEY_GEMINI_MODEL = "gemini_model"
+        private const val KEY_CEREBRAS_API_KEY = "cerebras_api_key"
+        private const val KEY_CEREBRAS_MODEL = "cerebras_model"
+        private const val KEY_MISTRAL_API_KEY = "mistral_api_key"
+        private const val KEY_MISTRAL_MODEL = "mistral_model"
+        private const val KEY_OPENROUTER_API_KEY = "openrouter_api_key"
+        private const val KEY_OPENROUTER_MODEL = "openrouter_model"
         private const val KEY_SUPABASE_URL = "supabase_url"
         private const val KEY_SUPABASE_ANON_KEY = "supabase_anon_key"
         private const val KEY_SUPABASE_VERIFIED_AT_MS = "supabase_verified_at_ms"
