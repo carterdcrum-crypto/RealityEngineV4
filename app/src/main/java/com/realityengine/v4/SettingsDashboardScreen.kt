@@ -17,13 +17,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 
-/**
- * Visual settings dashboard for Reality Engine V4.
- *
- * The screen keeps configuration actions grouped by intent and surfaces the
- * same real readiness signals used by onboarding, so setup state is visible
- * without opening individual rows.
- */
+/** Visual settings dashboard for Reality Engine V4. */
 class SettingsDashboardScreen(
     private val activity: Activity,
     private val store: SettingsStore,
@@ -146,6 +140,26 @@ class SettingsDashboardScreen(
         ) {
             store.hapticsEnabled = !store.hapticsEnabled
             onRefresh()
+        })
+        root.addView(toggleRow(
+            title = "Auto-record calls for review",
+            subtitle = "Show REC while active, then require Save or Permanently Delete after hangup",
+            enabled = store.autoRecordCalls,
+        ) {
+            if (store.autoRecordCalls) {
+                store.autoRecordCalls = false
+                onRefresh()
+            } else {
+                AlertDialog.Builder(activity)
+                    .setTitle("Enable call recording?")
+                    .setMessage("Recording will be visibly marked during calls and reviewed after every recorded call. Only record calls where recording is permitted.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Enable") { _, _ ->
+                        store.autoRecordCalls = true
+                        onRefresh()
+                    }
+                    .show()
+            }
         })
         root.addView(row(
             title = "Analysis frequency",
@@ -384,16 +398,11 @@ class SettingsDashboardScreen(
     private fun coachReady(): Boolean = store.groqConfigured() && store.responseCoachEnabled
 
     private fun callAudioReadiness(): Readiness = when (CallAudioBridge.state(activity)) {
-        CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE ->
-            Readiness("Call audio", true, "Supported voice-call audio source available")
-        CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED ->
-            Readiness("Call audio", false, "Microphone permission required")
-        CallAudioBridge.State.UNAVAILABLE ->
-            Readiness("Call audio", false, "Connect Shizuku first")
-        CallAudioBridge.State.SHIZUKU_READY ->
-            Readiness("Call audio", false, "Run the call-audio check")
-        CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED ->
-            Readiness("Call audio", false, "This phone is blocking the voice-call source", attention = true)
+        CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE -> Readiness("Call audio", true, "Supported voice-call audio source available")
+        CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED -> Readiness("Call audio", false, "Microphone permission required")
+        CallAudioBridge.State.UNAVAILABLE -> Readiness("Call audio", false, "Connect Shizuku first")
+        CallAudioBridge.State.SHIZUKU_READY -> Readiness("Call audio", false, "Run the call-audio check")
+        CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED -> Readiness("Call audio", false, "This phone is blocking the voice-call source", attention = true)
     }
 
     private fun groqModelSummary(): String = when (store.groqModel) {
@@ -430,9 +439,7 @@ class SettingsDashboardScreen(
 
     private fun chooseDeepgramModel() {
         val models = SettingsStore.DEEPGRAM_MODELS
-        val labels = models.map {
-            if (it == "nova-3") "Nova-3 — Recommended" else "Nova-2 Phonecall — Compatibility"
-        }.toTypedArray()
+        val labels = models.map { if (it == "nova-3") "Nova-3 — Recommended" else "Nova-2 Phonecall — Compatibility" }.toTypedArray()
         val selected = models.indexOf(store.deepgramModel).coerceAtLeast(0)
         AlertDialog.Builder(activity)
             .setTitle("Deepgram transcription model")
@@ -495,6 +502,5 @@ class SettingsDashboardScreen(
             .show()
     }
 
-    private fun dp(value: Int): Int =
-        (value * activity.resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
 }
