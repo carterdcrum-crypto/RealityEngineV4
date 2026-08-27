@@ -149,6 +149,7 @@ class RealityInCallService : InCallService() {
     }
 
     private fun clearLiveSession() {
+        if (::transcription.isInitialized) transcription.clearConversation()
         LiveTranscriptState.clear()
         LiveSignalState.clear()
         AudioRouteState.clear()
