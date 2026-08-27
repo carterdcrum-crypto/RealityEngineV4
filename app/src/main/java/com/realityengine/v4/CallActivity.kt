@@ -1,9 +1,7 @@
 package com.realityengine.v4
 
-import android.Manifest
 import android.app.Activity
 import android.content.Context
-import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -11,12 +9,10 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.provider.ContactsContract
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.text.method.ScrollingMovementMethod
@@ -38,7 +34,7 @@ class CallActivity : Activity(), SensorEventListener {
     private var proximitySensor: Sensor? = null
     private var proximityRegistered = false
 
-    private lateinit var callerAvatar: TextView
+    private lateinit var callerAvatar: ContactAvatarView
     private lateinit var caller: TextView
     private lateinit var state: TextView
     private lateinit var timer: TextView
@@ -54,6 +50,7 @@ class CallActivity : Activity(), SensorEventListener {
     private lateinit var transcript: TextView
     private lateinit var analysis: TextView
     private lateinit var responseCoach: TextView
+    private lateinit var responseCoachCards: ResponseCoachCardsView
     private lateinit var groqUsage: TextView
     private lateinit var acousticBar: ProgressBar
     private lateinit var linguisticBar: ProgressBar
@@ -250,13 +247,8 @@ class CallActivity : Activity(), SensorEventListener {
             )
             setPadding(10.dp(), 7.dp(), 10.dp(), 7.dp())
         }
-        callerAvatar = TextView(this).apply {
-            text = "?"
-            textSize = 16f
-            setTextColor(cyan)
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            gravity = Gravity.CENTER
-            background = RealityVisuals.circle(this@CallActivity)
+        callerAvatar = ContactAvatarView(this).apply {
+            bind(-1L, "?", cyan)
         }
         identity.addView(callerAvatar, LinearLayout.LayoutParams(42.dp(), 42.dp()))
 
@@ -371,7 +363,7 @@ class CallActivity : Activity(), SensorEventListener {
             RealityVisuals.styleMicroLabel(this, magenta)
         }, LinearLayout.LayoutParams(0, 20.dp(), 1f))
         coachHeader.addView(TextView(this).apply {
-            text = "DECISION LAYER"
+            text = "BEST + RANKED OPTIONS"
             RealityVisuals.styleMicroLabel(this, muted)
             gravity = Gravity.END
         })
@@ -388,9 +380,15 @@ class CallActivity : Activity(), SensorEventListener {
             setLineSpacing(2f, 1.06f)
         }
         coachPanel.addView(responseCoach, LinearLayout.LayoutParams(-1, 0, 1f).apply {
-            setMargins(0, 4.dp(), 0, 0)
+            setMargins(0, 4.dp(), 0, 2.dp())
         })
-        workspace.addView(coachPanel, LinearLayout.LayoutParams(-1, 164.dp()).apply {
+
+        responseCoachCards = ResponseCoachCardsView(this).apply {
+            visibility = View.GONE
+        }
+        coachPanel.addView(responseCoachCards, LinearLayout.LayoutParams(-1, 70.dp()))
+
+        workspace.addView(coachPanel, LinearLayout.LayoutParams(-1, 184.dp()).apply {
             setMargins(0, 0, 0, 5.dp())
         })
 
@@ -598,6 +596,7 @@ class CallActivity : Activity(), SensorEventListener {
         val best = snapshot.best
 
         if (best == null) {
+            responseCoachCards.render(emptyList())
             val chosen = snapshot.chosen
             responseCoach.text = when (snapshot.phase) {
                 ResponseCoachState.Phase.ANALYZING ->
@@ -624,15 +623,16 @@ class CallActivity : Activity(), SensorEventListener {
 
         responseCoach.scrollTo(0, 0)
         responseCoach.text = buildString {
-            append("BEST // ${best.mode} · TONE ${best.tone}\n${best.text}")
-            snapshot.alternatives.take(4).forEach { alt ->
-                append("\n\n${alt.mode} · TONE ${alt.tone}\n${alt.text}")
-            }
+            append("BEST // ${best.mode} · TONE ${best.tone}\n")
+            append(best.text)
+            if (best.reason.isNotBlank()) append("\nWHY // ${best.reason}")
         }
+        responseCoachCards.render(snapshot.alternatives)
         analysis.text = "NEXT ACTION  // ${best.mode} · ${best.tone}"
         if (lastBestSuggestion != best.text) {
             lastBestSuggestion = best.text
             RealityVisuals.reveal(responseCoach)
+            RealityVisuals.reveal(responseCoachCards)
             RealityVisuals.reveal(analysis)
         }
     }
@@ -764,9 +764,10 @@ class CallActivity : Activity(), SensorEventListener {
         val number = current.details?.handle?.schemeSpecificPart ?: "UNKNOWN CALLER"
         if (number != lastNumber) {
             lastNumber = number
-            val label = resolveCallerLabel(number)
+            val match = ContactMediaStore.findByNumber(this, number)
+            val label = match?.name?.takeIf { it.isNotBlank() } ?: number
             caller.text = label
-            callerAvatar.text = initials(label)
+            callerAvatar.bind(match?.contactId ?: -1L, label, cyan)
             RealityVisuals.reveal(callerAvatar)
         }
 
@@ -861,41 +862,6 @@ class CallActivity : Activity(), SensorEventListener {
         val delay = maxOf(2500L - age, 1200L)
         handler.removeCallbacks(finishRunnable)
         handler.postDelayed(finishRunnable, delay)
-    }
-
-    private fun resolveCallerLabel(number: String): String {
-        if (
-            number == "UNKNOWN CALLER" ||
-            checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED
-        ) return number
-
-        return try {
-            val lookup = Uri.withAppendedPath(
-                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                Uri.encode(number),
-            )
-            contentResolver.query(
-                lookup,
-                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
-                null,
-                null,
-                null,
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    cursor.getString(0)?.takeIf { it.isNotBlank() }?.let { return it }
-                }
-            }
-            number
-        } catch (_: Throwable) {
-            number
-        }
-    }
-
-    private fun initials(label: String): String {
-        if (label == "UNKNOWN CALLER") return "?"
-        val pieces = label.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (pieces.isEmpty()) return "?"
-        return pieces.take(2).joinToString("") { it.first().uppercaseChar().toString() }
     }
 
     private fun updateTimer() {
