@@ -106,6 +106,13 @@ class SettingsDashboardScreen(
                 else -> amber
             },
         ) { editSupabase() })
+        val transcriptCount = CallTranscriptStore.savedAll(activity).size
+        root.addView(row(
+            "Saved transcripts",
+            "Private completed-call transcripts stored on this device",
+            transcriptCount.toString(),
+            cyan,
+        ) { activity.startActivity(Intent(activity, TranscriptLibraryActivity::class.java)) })
 
         root.addView(section("LIVE BEHAVIOR"))
         root.addView(toggleRow("Response coach", "Generate ranked response suggestions during calls", store.responseCoachEnabled) {
@@ -146,6 +153,13 @@ class SettingsDashboardScreen(
             "${store.analysisFrequencyTurns}×",
             cyan,
         ) { chooseAnalysisFrequency() })
+        val soundCount = SoundboardStore(activity).count()
+        root.addView(row(
+            "Call soundboard",
+            "Import audio from Downloads, preview it, rename sounds, and manage the in-call library",
+            if (soundCount == 0) "SETUP" else "$soundCount",
+            if (soundCount == 0) amber else green,
+        ) { activity.startActivity(Intent(activity, SoundboardSettingsActivity::class.java)) })
 
         root.addView(section("SYSTEM"))
         root.addView(row("Button geometry", "Visual shape used by primary controls", buttonShapeLabel.uppercase(), cyan, onCycleButtonShape))
