@@ -262,7 +262,13 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             connection.setRequestProperty("Authorization", "Bearer ${settings.groqApiKey}")
             connection.setRequestProperty("Content-Type", "application/json")
 
-            val system = """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Return exactly five strategic choices total: one BEST choice plus four alternatives. Across those five choices, use each strategy exactly once: BONDING, CLARIFY, MIRROR, PIVOT, COGNITIVE_PROBE. Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, or slow/deliberate. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 18 words and each reason under 6 words. No commentary outside the JSON."""
+            val strategyGuide = ResponseStrategyCatalog.promptGuide()
+            val system = """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Choose exactly five DISTINCT strategies from the catalog below that best fit the current moment. Rank them: one BEST choice plus four alternatives. Do not force a strategy when it does not fit. Keep suggestions non-coercive: do not manipulate, threaten, shame, pressure, or fabricate. COGNITIVE_PROBE must remain a neutral question, never a trap.
+
+STRATEGY CATALOG:
+$strategyGuide
+
+Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, slow/deliberate, or steady/direct. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 18 words and each reason under 6 words. No commentary outside the JSON."""
             val body = JSONObject().apply {
                 put("model", model)
                 put("temperature", .25)
@@ -286,7 +292,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             val parsed = JSONObject(content)
 
             fun suggestion(item: JSONObject) = Suggestion(
-                item.optString("mode", "CLARIFY").uppercase(Locale.US).take(32),
+                ResponseStrategyCatalog.normalizeMode(item.optString("mode", "CLARIFY")),
                 item.optString("tone", "calm/curious").take(48),
                 item.optString("text").trim().take(180),
                 item.optString("reason").trim().take(100)
@@ -295,10 +301,12 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             val best = suggestion(parsed.getJSONObject("best"))
             if (best.text.isBlank()) throw IllegalStateException("GROQ RESPONSE INVALID // EMPTY REPLY")
             val array = parsed.optJSONArray("alternatives") ?: JSONArray()
+            val seenModes = linkedSetOf(best.mode)
             val alternatives = buildList {
-                for (i in 0 until minOf(array.length(), 4)) {
+                for (i in 0 until array.length()) {
+                    if (size >= 4) break
                     val candidate = suggestion(array.getJSONObject(i))
-                    if (candidate.text.isNotBlank()) add(candidate)
+                    if (candidate.text.isNotBlank() && seenModes.add(candidate.mode)) add(candidate)
                 }
             }
             val usage = root.optJSONObject("usage")
