@@ -14,7 +14,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** Modern contact Index UI with live search, persistent favorites and recent-contact filtering. */
+/** Modern contact Index UI with live search, persistent favorites, native photos and recent-contact filtering. */
 class ContactsScreen(
     private val activity: Activity,
     private val index: ContactIndex,
@@ -256,16 +256,11 @@ class ContactsScreen(
         }
         management.bindContactActions(row, contact) { renderList() }
 
-        val avatar = TextView(activity).apply {
-            text = initials(contact.name)
-            gravity = Gravity.CENTER
-            setTextColor(if (favorite) green else cyan)
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            textSize = 14f
-            background = RealityVisuals.circle(
-                activity,
-                fill = RealityVisuals.Colors.PanelStrong,
-                stroke = if (favorite) green else cyan,
+        val avatar = ContactAvatarView(activity).apply {
+            bind(
+                contactId = contact.contactId,
+                name = contact.name,
+                accent = if (favorite) green else cyan,
             )
         }
         row.addView(avatar, LinearLayout.LayoutParams(44.dp(), 44.dp()))
@@ -368,13 +363,6 @@ class ContactsScreen(
     private fun sectionLabel(contact: ContactResolver.Contact): String {
         val first = contact.name.trim().firstOrNull()?.uppercaseChar()
         return if (first != null && first.isLetter()) first.toString() else "#"
-    }
-
-    private fun initials(name: String): String {
-        val parts = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
-        return if (parts.isEmpty()) "?" else parts.take(2).joinToString("") {
-            it.first().uppercaseChar().toString()
-        }
     }
 
     private fun normalize(value: String): String {
