@@ -32,6 +32,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
     private val main = Handler(Looper.getMainLooper())
     private val profileSession = appContext?.let { CallerProfileSession(it.applicationContext) }
     private val gemini = GeminiCoachClient(settings)
+    private val compatible = OpenAiCompatibleCoachClient(settings)
 
     @Volatile private var inFlight = false
     @Volatile private var pendingAnalysis = false
@@ -221,30 +222,34 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
     private fun requestSuggestions(quickModeId: String?): Result {
         val snapshot = context.snapshot()
         return when (settings.coachProvider) {
-            SettingsStore.COACH_PROVIDER_GEMINI -> gemini.request(snapshot, quickModeId)
             SettingsStore.COACH_PROVIDER_GROQ -> requestGroq(snapshot, quickModeId)
+            SettingsStore.COACH_PROVIDER_GEMINI -> gemini.request(snapshot, quickModeId)
+            SettingsStore.COACH_PROVIDER_CEREBRAS -> compatible.request(OpenAiCompatibleCoachClient.cerebras(settings), snapshot, quickModeId)
+            SettingsStore.COACH_PROVIDER_MISTRAL -> compatible.request(OpenAiCompatibleCoachClient.mistral(settings), snapshot, quickModeId)
+            SettingsStore.COACH_PROVIDER_OPENROUTER -> compatible.request(OpenAiCompatibleCoachClient.openRouter(settings), snapshot, quickModeId)
             else -> requestAuto(snapshot, quickModeId)
         }
     }
 
     private fun requestAuto(snapshot: ConversationContext.Snapshot, quickModeId: String?): Result {
-        var groqFailure: Throwable? = null
-        if (settings.groqConfigured()) {
+        val failures = mutableListOf<String>()
+        for (provider in SettingsStore.COACH_FALLBACK_ORDER) {
+            if (!settings.providerConfigured(provider)) continue
             try {
-                return requestGroq(snapshot, quickModeId)
+                return when (provider) {
+                    SettingsStore.COACH_PROVIDER_GROQ -> requestGroq(snapshot, quickModeId)
+                    SettingsStore.COACH_PROVIDER_GEMINI -> gemini.request(snapshot, quickModeId)
+                    SettingsStore.COACH_PROVIDER_CEREBRAS -> compatible.request(OpenAiCompatibleCoachClient.cerebras(settings), snapshot, quickModeId)
+                    SettingsStore.COACH_PROVIDER_MISTRAL -> compatible.request(OpenAiCompatibleCoachClient.mistral(settings), snapshot, quickModeId)
+                    SettingsStore.COACH_PROVIDER_OPENROUTER -> compatible.request(OpenAiCompatibleCoachClient.openRouter(settings), snapshot, quickModeId)
+                    else -> continue
+                }
             } catch (t: Throwable) {
-                groqFailure = t
+                failures += "${provider.lowercase().replaceFirstChar { it.uppercase() }}: ${t.message.orEmpty().take(65)}"
             }
         }
-        if (settings.geminiConfigured()) {
-            try {
-                return gemini.request(snapshot, quickModeId)
-            } catch (geminiFailure: Throwable) {
-                val first = groqFailure?.message?.take(70)?.let { "Groq: $it · " }.orEmpty()
-                throw IllegalStateException("AUTO FAILOVER FAILED // ${first}Gemini: ${geminiFailure.message.orEmpty().take(90)}")
-            }
-        }
-        throw groqFailure ?: IllegalStateException("NO RESPONSE COACH PROVIDER CONFIGURED")
+        if (failures.isEmpty()) throw IllegalStateException("NO RESPONSE COACH PROVIDER CONFIGURED")
+        throw IllegalStateException("AUTO FAILOVER FAILED // ${failures.joinToString(" · ").take(170)}")
     }
 
     private fun requestGroq(snapshot: ConversationContext.Snapshot, quickModeId: String?): Result {
@@ -352,7 +357,10 @@ Every choice must include a short delivery tone such as warm/relaxed, calm/curio
     private fun missingProviderMessage(): String = when (settings.coachProvider) {
         SettingsStore.COACH_PROVIDER_GROQ -> "Groq API key required"
         SettingsStore.COACH_PROVIDER_GEMINI -> "Gemini API key required"
-        else -> "Add a Groq or Gemini API key"
+        SettingsStore.COACH_PROVIDER_CEREBRAS -> "Cerebras API key required"
+        SettingsStore.COACH_PROVIDER_MISTRAL -> "Mistral API key required"
+        SettingsStore.COACH_PROVIDER_OPENROUTER -> "OpenRouter API key required"
+        else -> "Add at least one response-coach API key"
     }
 
     private fun matchSuggestion(spoken: String, suggestions: List<Suggestion>): ChosenResponse {
