@@ -28,7 +28,7 @@ class WalkthroughScreen(
     private val magenta = RealityVisuals.Colors.Magenta
     private val green = RealityVisuals.Colors.Green
     private val amber = RealityVisuals.Colors.Amber
-    private val text = RealityVisuals.Colors.Text
+    private val primaryText = RealityVisuals.Colors.Text
     private val muted = RealityVisuals.Colors.TextDim
 
     fun show() {
@@ -61,7 +61,7 @@ class WalkthroughScreen(
         })
         body.addView(TextView(activity).apply {
             text = step.title
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 28f)
             setLineSpacing(0f, 1.04f)
             setPadding(0, 0, 0, dp(12))
@@ -191,7 +191,7 @@ class WalkthroughScreen(
             })
             stack.addView(TextView(activity).apply {
                 text = setup.message
-                setTextColor(text)
+                setTextColor(primaryText)
                 setPadding(0, dp(3), 0, 0)
                 RealityTypography.display(this, 12.5f)
             })
