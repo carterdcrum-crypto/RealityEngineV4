@@ -272,8 +272,8 @@ class CallerMemoryActivity : Activity() {
         status.text = "SYNCING CALLER MEMORY…"
         cloud.syncAsync(phone) { result ->
             runOnUiThread {
-                status.text = "${result.status.name} · ${result.detail}"
                 build()
+                status.text = "${result.status.name} · ${result.detail}"
             }
         }
     }
