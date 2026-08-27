@@ -49,7 +49,7 @@ class SettingsDashboardScreen(
     private val magenta = RealityVisuals.Colors.Magenta
     private val green = RealityVisuals.Colors.Green
     private val amber = RealityVisuals.Colors.Amber
-    private val text = RealityVisuals.Colors.Text
+    private val primaryText = RealityVisuals.Colors.Text
     private val muted = RealityVisuals.Colors.TextDim
     private val panel = RealityVisuals.Colors.Panel
     private val raised = RealityVisuals.Colors.BackgroundRaised
@@ -203,7 +203,7 @@ class SettingsDashboardScreen(
             gravity = Gravity.CENTER_VERTICAL
             addView(TextView(activity).apply {
                 text = "SETTINGS"
-                setTextColor(text)
+                setTextColor(primaryText)
                 RealityTypography.displayMedium(this, 24f)
             }, LinearLayout.LayoutParams(0, dp(50), 1f))
             addView(TextView(activity).apply {
@@ -266,7 +266,7 @@ class SettingsDashboardScreen(
         }, LinearLayout.LayoutParams(dp(22), dp(30)))
         addView(TextView(activity).apply {
             text = item.label
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 12.5f)
         }, LinearLayout.LayoutParams(0, dp(30), 1f))
         addView(TextView(activity).apply {
@@ -315,7 +315,7 @@ class SettingsDashboardScreen(
         }
         textStack.addView(TextView(activity).apply {
             text = title
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 14.5f)
         })
         textStack.addView(TextView(activity).apply {
