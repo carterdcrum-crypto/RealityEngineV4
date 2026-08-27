@@ -1,12 +1,10 @@
 package com.realityengine.v4
 
 import android.app.Activity
-import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
-import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -24,7 +22,7 @@ class SupabaseSetupActivity : Activity() {
     private val magenta = RealityVisuals.Colors.Magenta
     private val green = RealityVisuals.Colors.Green
     private val amber = RealityVisuals.Colors.Amber
-    private val text = RealityVisuals.Colors.Text
+    private val primaryText = RealityVisuals.Colors.Text
     private val muted = RealityVisuals.Colors.TextDim
     private val panel = RealityVisuals.Colors.Panel
 
@@ -43,7 +41,7 @@ class SupabaseSetupActivity : Activity() {
 
         body.addView(TextView(this).apply {
             text = "SUPABASE CALLER MEMORY"
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 24f)
         })
         body.addView(TextView(this).apply {
@@ -158,7 +156,7 @@ class SupabaseSetupActivity : Activity() {
 
     private fun field(value: String, secret: Boolean): EditText = EditText(this).apply {
         setText(value)
-        setTextColor(text)
+        setTextColor(primaryText)
         setHintTextColor(muted)
         textSize = 13f
         singleLine = true
