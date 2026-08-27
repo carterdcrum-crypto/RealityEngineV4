@@ -94,6 +94,24 @@ class SettingsDashboardScreen(
         ) { editSecret("Gemini API key", store.geminiApiKey) { store.geminiApiKey = it } })
         root.addView(row("Gemini coach model", geminiModelSummary(), "MODEL", cyan) { chooseGeminiModel() })
         root.addView(row(
+            "Cerebras API",
+            if (store.cerebrasConfigured()) "Configured · GPT-OSS 120B high-speed fallback" else "Optional fast fallback · free access is trial/limited",
+            if (store.cerebrasConfigured()) "READY" else "KEY",
+            if (store.cerebrasConfigured()) green else muted,
+        ) { editSecret("Cerebras API key", store.cerebrasApiKey) { store.cerebrasApiKey = it } })
+        root.addView(row(
+            "Mistral API",
+            if (store.mistralConfigured()) "Configured · Mistral Small 4 fallback" else "Optional free-mode fallback provider",
+            if (store.mistralConfigured()) "READY" else "KEY",
+            if (store.mistralConfigured()) green else muted,
+        ) { editSecret("Mistral API key", store.mistralApiKey) { store.mistralApiKey = it } })
+        root.addView(row(
+            "OpenRouter API",
+            if (store.openRouterConfigured()) "Configured · free-model router is last in Auto chain" else "Optional last-resort free-model router",
+            if (store.openRouterConfigured()) "READY" else "KEY",
+            if (store.openRouterConfigured()) green else muted,
+        ) { editSecret("OpenRouter API key", store.openRouterApiKey) { store.openRouterApiKey = it } })
+        root.addView(row(
             "Deepgram API",
             if (store.deepgramConfigured()) "Live transcription configured" else "Required for live transcription",
             if (store.deepgramConfigured()) "READY" else "KEY",
@@ -345,7 +363,10 @@ class SettingsDashboardScreen(
     private fun coachProviderSummary() = when (store.coachProvider) {
         SettingsStore.COACH_PROVIDER_GROQ -> "Force Groq for every response-coach request"
         SettingsStore.COACH_PROVIDER_GEMINI -> "Force Gemini for every response-coach request"
-        else -> "Groq first, then Gemini automatically if Groq fails"
+        SettingsStore.COACH_PROVIDER_CEREBRAS -> "Force Cerebras GPT-OSS 120B"
+        SettingsStore.COACH_PROVIDER_MISTRAL -> "Force Mistral Small 4"
+        SettingsStore.COACH_PROVIDER_OPENROUTER -> "Force OpenRouter free-model router"
+        else -> "Groq → Gemini → Cerebras → Mistral → OpenRouter; skips missing keys"
     }
 
     private fun groqModelSummary() = "GPT-OSS 20B · low-latency default"
@@ -361,9 +382,12 @@ class SettingsDashboardScreen(
     private fun chooseCoachProvider() {
         val providers = SettingsStore.COACH_PROVIDERS
         val labels = arrayOf(
-            "Auto — Groq first, Gemini fallback",
+            "Auto — Groq → Gemini → Cerebras → Mistral → OpenRouter",
             "Groq — Force GPT-OSS 20B",
             "Gemini — Force selected Gemini model",
+            "Cerebras — Force GPT-OSS 120B",
+            "Mistral — Force Mistral Small 4",
+            "OpenRouter — Force free-model router",
         )
         AlertDialog.Builder(activity)
             .setTitle("Response coach provider")
