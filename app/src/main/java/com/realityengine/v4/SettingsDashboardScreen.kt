@@ -95,11 +95,24 @@ class SettingsDashboardScreen(
             if (store.deepgramConfigured()) green else amber,
         ) { editSecret("Deepgram API key", store.deepgramApiKey) { store.deepgramApiKey = it } })
         root.addView(row("Deepgram model", deepgramModelSummary(), "MODEL", cyan) { chooseDeepgramModel() })
+        val supabaseVerified = store.supabaseConfigured() && store.supabaseVerifiedAtMs > 0L
         root.addView(row(
             "Supabase caller memory",
-            if (store.supabaseConfigured()) "URL + publishable key saved · tap to test or edit" else "Set URL, publishable key and test caller-memory sync",
-            if (store.supabaseConfigured()) "CONFIG" else "SETUP",
-            if (store.supabaseConfigured()) cyan else amber,
+            when {
+                supabaseVerified -> "Caller-memory cloud sync verified · tap to view or retest"
+                store.supabaseConfigured() -> "URL + publishable key saved · connection not verified"
+                else -> "Set URL, publishable key and test caller-memory sync"
+            },
+            when {
+                supabaseVerified -> "READY"
+                store.supabaseConfigured() -> "CONFIG"
+                else -> "SETUP"
+            },
+            when {
+                supabaseVerified -> green
+                store.supabaseConfigured() -> cyan
+                else -> amber
+            },
         ) { editSupabase() })
 
         root.addView(section("LIVE BEHAVIOR"))
