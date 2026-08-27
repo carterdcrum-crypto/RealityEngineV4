@@ -6,13 +6,17 @@ package com.realityengine.v4
  * never bleed into the next call screen.
  */
 object ResponseCoachState {
+    enum class Phase { STANDBY, LISTENING, ANALYZING, READY, DISABLED, KEY_REQUIRED, ERROR }
+
     data class Snapshot(
         val best: LiveResponseEngine.Suggestion? = null,
         val alternatives: List<LiveResponseEngine.Suggestion> = emptyList(),
         val chosen: LiveResponseEngine.ChosenResponse? = null,
         val inputTokens: Int = 0,
         val outputTokens: Int = 0,
-        val updatedAt: Long = 0L
+        val updatedAt: Long = 0L,
+        val phase: Phase = Phase.STANDBY,
+        val message: String? = null
     )
 
     private val listeners = LinkedHashSet<(Snapshot) -> Unit>()
@@ -24,18 +28,52 @@ object ResponseCoachState {
             alternatives = result.alternatives,
             inputTokens = result.inputTokens,
             outputTokens = result.outputTokens,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            phase = Phase.READY,
+            message = null
+        )
+        notifyListeners()
+    }
+
+    @Synchronized fun publishStatus(phase: Phase, message: String? = null, clearSuggestions: Boolean = false) {
+        snapshot = snapshot.copy(
+            best = if (clearSuggestions) null else snapshot.best,
+            alternatives = if (clearSuggestions) emptyList() else snapshot.alternatives,
+            updatedAt = System.currentTimeMillis(),
+            phase = phase,
+            message = message?.take(180)
+        )
+        notifyListeners()
+    }
+
+    @Synchronized fun publishError(message: String) {
+        snapshot = snapshot.copy(
+            best = null,
+            alternatives = emptyList(),
+            updatedAt = System.currentTimeMillis(),
+            phase = Phase.ERROR,
+            message = message.take(180)
         )
         notifyListeners()
     }
 
     @Synchronized fun publishChosen(chosen: LiveResponseEngine.ChosenResponse) {
-        snapshot = snapshot.copy(chosen = chosen, updatedAt = System.currentTimeMillis())
+        snapshot = snapshot.copy(
+            chosen = chosen,
+            updatedAt = System.currentTimeMillis(),
+            phase = Phase.STANDBY,
+            message = null
+        )
         notifyListeners()
     }
 
     @Synchronized fun clearSuggestions() {
-        snapshot = snapshot.copy(best = null, alternatives = emptyList())
+        snapshot = snapshot.copy(
+            best = null,
+            alternatives = emptyList(),
+            phase = Phase.STANDBY,
+            message = null
+        )
         notifyListeners()
     }
 
