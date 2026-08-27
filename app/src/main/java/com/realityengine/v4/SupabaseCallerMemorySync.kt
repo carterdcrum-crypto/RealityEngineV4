@@ -43,6 +43,34 @@ class SupabaseCallerMemorySync(context: Context) {
         }
     }
 
+    fun testConnectionAsync(callback: (Result) -> Unit) {
+        EXECUTOR.execute {
+            val result = runCatching { testConnection() }
+                .getOrElse { Result(Status.ERROR, it.message.orEmpty().take(180)) }
+            callback(result)
+        }
+    }
+
+    internal fun testConnection(): Result {
+        if (!settings.supabaseConfigured()) return Result(Status.DISABLED, "Project URL and publishable key are required")
+        val auth = session.authenticatedSession()
+            ?: return Result(Status.AUTH_REQUIRED, "Enable Anonymous Sign-Ins and verify the publishable key")
+        val base = SupabaseSyncPolicy.normalizeBaseUrl(settings.supabaseUrl)
+        val request = Request.Builder()
+            .url("$base/rest/v1/caller_profiles?select=phone_key&limit=1")
+            .get()
+            .authHeaders(auth)
+            .build()
+        client.newCall(request).execute().use { response ->
+            return when {
+                response.isSuccessful -> Result(Status.SYNCED, "auth + caller_profiles table ready")
+                response.code == 401 || response.code == 403 -> Result(Status.AUTH_REQUIRED, "Check publishable key, Anonymous Sign-Ins and RLS")
+                response.code == 404 -> Result(Status.ERROR, "caller_profiles table missing — run the bundled Supabase SQL")
+                else -> Result(Status.ERROR, "Supabase table test HTTP ${response.code}")
+            }
+        }
+    }
+
     internal fun sync(phoneNumber: String): Result {
         if (!settings.supabaseConfigured()) return Result(Status.DISABLED, "Supabase not configured")
         val clean = phoneNumber.trim()
