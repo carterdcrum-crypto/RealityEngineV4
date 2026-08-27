@@ -1,0 +1,97 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.11.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateDebugBuildConfig
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:mergeDebugResources
+> Task :app:processDebugMainManifest
+> Task :app:packageDebugResources
+> Task :app:parseDebugLocalResources
+> Task :app:processDebugManifest
+> Task :app:processDebugManifestForPackage
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:processDebugResources
+> Task :app:downloadVerifiedScrcpy
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets
+> Task :app:desugarDebugFileDependencies
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeExtDexDebug
+> Task :app:mergeLibDexDebug
+> Task :app:mergeDebugJniLibFolders
+> Task :app:mergeDebugNativeLibs
+
+> Task :app:stripDebugDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so.
+
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:compileDebugKotlin
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/AudioRouteState.kt:21:150 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:46:118 'val callAudioState: CallAudioState!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:46:217 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:63:160 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:63:255 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:96:101 'val callAudioState: CallAudioState!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:96:294 'fun setAudioRoute(p0: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:97:103 'val callAudioState: CallAudioState!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:97:424 'fun setAudioRoute(p0: Int): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:98:68 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:400 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:630 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:750 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:926 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:960 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:1203 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:1278 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:1321 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:99:1355 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:100:80 'val callAudioState: CallAudioState!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:100:288 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallActivity.kt:100:320 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallAudioBridge.kt:29:32 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallAudioDiagnostics.kt:26:53 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallSessionRegistry.kt:21:18 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallSessionRegistry.kt:28:38 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallSessionRegistry.kt:29:38 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallSessionRegistry.kt:30:38 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallSessionRegistry.kt:31:38 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallSessionRegistry.kt:31:72 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/CallSessionRegistry.kt:32:38 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/MainActivity.kt:30:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/MainActivity.kt:30:75 'fun onBackPressed(): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:24:15 This declaration overrides a deprecated member but is not marked as deprecated itself. Please add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:24:73 'fun onCallAudioStateChanged(p0: CallAudioState!): Unit' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:25:27 'val callAudioState: CallAudioState!' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:29:148 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:30:154 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:32:150 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/RealityInCallService.kt:32:234 'val state: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/SplashActivity.kt:23:97 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///home/runner/work/RealityEngineV4/RealityEngineV4/app/src/main/java/com/realityengine/v4/SplashActivity.kt:23:131 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugJavaWithJavac
+> Task :app:dexBuilderDebug
+> Task :app:mergeDebugGlobalSynthetics
+> Task :app:processDebugJavaRes
+> Task :app:mergeProjectDexDebug
+> Task :app:mergeDebugJavaResource
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build_apk-1787815957660.json
+
+BUILD SUCCESSFUL in 1m 26s
+38 actionable tasks: 38 executed
