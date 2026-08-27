@@ -45,7 +45,7 @@ object CallTranscriptStore {
 
     fun savedAll(context: Context): List<SavedTranscript> {
         val root = File(context.filesDir, "call_transcripts")
-        return root.listFiles()?.filter(File::isDirectory)?.flatMap { dir ->
+        return root.listFiles()?.filter { it.isDirectory }?.flatMap { dir ->
             dir.listFiles()?.filter { it.isFile && it.name.startsWith("transcript_") && it.name.endsWith(".txt") }?.mapNotNull { file ->
                 runCatching {
                     val text = file.readText(Charsets.UTF_8)
@@ -67,5 +67,5 @@ object CallTranscriptStore {
         "$speaker: ${entry.text.trim()}"
     }
 
-    internal fun storageKey(phoneNumber: String): String = PhoneNumberKey.normalize(phoneNumber).ifBlank { "unknown" }
+    internal fun storageKey(phoneNumber: String): String = PhoneNumberKey.normalize(phoneNumber)?.ifBlank { "unknown" } ?: "unknown"
 }
