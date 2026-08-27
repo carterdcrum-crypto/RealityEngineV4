@@ -156,7 +156,9 @@ class SettingsStore(context: Context) {
 
     companion object {
         const val DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
-        val GROQ_MODELS = listOf(DEFAULT_GROQ_MODEL, "llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+        // Free/developer Groq retired the previous Llama coach models on 2026-08-16.
+        // Pin the live coach to the supported low-latency replacement until model probing is added.
+        val GROQ_MODELS = listOf(DEFAULT_GROQ_MODEL)
 
         const val DEFAULT_DEEPGRAM_MODEL = "nova-3"
         val DEEPGRAM_MODELS = listOf(DEFAULT_DEEPGRAM_MODEL, "nova-2-phonecall")
