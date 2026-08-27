@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -43,7 +44,7 @@ class CallerMemoryActivity : Activity() {
     private val cyan = RealityVisuals.Colors.Cyan
     private val green = RealityVisuals.Colors.Green
     private val magenta = RealityVisuals.Colors.Magenta
-    private val text = RealityVisuals.Colors.Text
+    private val primaryText = RealityVisuals.Colors.Text
     private val muted = RealityVisuals.Colors.TextDim
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,7 +66,7 @@ class CallerMemoryActivity : Activity() {
         }
         setContentView(ScrollView(this).apply {
             setBackgroundColor(bg)
-            addView(root, ScrollView.LayoutParams(-1, -2))
+            addView(root, ViewGroup.LayoutParams(-1, -2))
         })
         build()
     }
@@ -85,7 +86,7 @@ class CallerMemoryActivity : Activity() {
         root.addView(TextView(this).apply {
             text = name
             gravity = Gravity.CENTER
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 23f)
         })
         root.addView(TextView(this).apply {
@@ -154,7 +155,7 @@ class CallerMemoryActivity : Activity() {
                 root.addView(Button(this).apply {
                     text = value
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                    setTextColor(text)
+                    setTextColor(primaryText)
                     background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = RealityVisuals.Colors.Border, radiusDp = 10f)
                     isAllCaps = false
                     setPadding(dp(12), 0, dp(12), 0)
