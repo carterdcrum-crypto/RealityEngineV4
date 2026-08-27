@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.telecom.Call
 import android.telecom.TelecomManager
 import android.text.InputType
 import android.view.Gravity
@@ -77,8 +78,7 @@ class SettingsDashboardScreen(
             audio.detail,
             if (audio.ready) "READY" else if (audio.attention) "BLOCKED" else "CHECK",
             if (audio.ready) green else if (audio.attention) magenta else amber,
-            onCallAudio,
-        ))
+        ) { runCallAudioCheck() })
 
         root.addView(section("INTELLIGENCE"))
         root.addView(row(
@@ -327,11 +327,73 @@ class SettingsDashboardScreen(
     private fun coachReady() = store.groqConfigured() && store.responseCoachEnabled
 
     private fun callAudioReadiness(): Readiness = when (CallAudioBridge.state(activity)) {
-        CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE -> Readiness("Call audio", true, "Supported voice-call audio source available")
+        CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE -> Readiness("Call audio", true, "Active call detected · tap to inspect live PCM route")
         CallAudioBridge.State.MICROPHONE_PERMISSION_REQUIRED -> Readiness("Call audio", false, "Microphone permission required")
         CallAudioBridge.State.UNAVAILABLE -> Readiness("Call audio", false, "Connect Shizuku first")
-        CallAudioBridge.State.SHIZUKU_READY -> Readiness("Call audio", false, "Run the call-audio check")
+        CallAudioBridge.State.SHIZUKU_READY -> Readiness("Call audio", false, "Shizuku ready · test during an active call")
         CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED -> Readiness("Call audio", false, "This phone is blocking the voice-call source", attention = true)
+    }
+
+    private fun runCallAudioCheck() {
+        if (!microphoneReady()) {
+            onCallAudio()
+            return
+        }
+        if (!ShizukuAudioStatus.binderAvailable()) {
+            AlertDialog.Builder(activity)
+                .setTitle("Call audio unavailable")
+                .setMessage("Shizuku is offline. Start Shizuku, then come back and run the call-audio check again.")
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Shizuku setup") { _, _ -> onShizuku() }
+                .show()
+            return
+        }
+        if (!ShizukuAudioStatus.permissionGranted()) {
+            AlertDialog.Builder(activity)
+                .setTitle("Shizuku authorization required")
+                .setMessage("Reality Engine has not been authorized to use the Shizuku call-audio bridge yet.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Authorize") { _, _ -> onShizuku() }
+                .show()
+            return
+        }
+
+        val activeCall = CallSessionRegistry.primary()?.state == Call.STATE_ACTIVE
+        if (!activeCall) {
+            AlertDialog.Builder(activity)
+                .setTitle("Call-audio check ready")
+                .setMessage(
+                    "Microphone permission and Shizuku are ready. Android's protected cellular PCM source can only be verified while a cellular call is active.\n\nStart or answer a call, then return to Settings and tap Call audio source again."
+                )
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        AudioRouteState.diagnose(activity)
+        val snapshot = AudioRouteState.snapshot()
+        val serviceRunning = RealityInCallService.instance != null
+        val routeSelected = snapshot.route == AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL && snapshot.canTranscribe
+        val pipelineFailed = snapshot.route == AudioCaptureRouter.Route.UNAVAILABLE &&
+            snapshot.reason.startsWith("Live transcription stopped", ignoreCase = true)
+
+        val title = when {
+            pipelineFailed -> "Call-audio check failed"
+            routeSelected && serviceRunning -> "Live call-audio route active"
+            !serviceRunning -> "Call service not active"
+            else -> "Call-audio route not ready"
+        }
+        val detail = when {
+            pipelineFailed -> snapshot.reason
+            routeSelected && serviceRunning -> "Shizuku privileged PCM is the selected live route.\n\n${snapshot.detail}"
+            !serviceRunning -> "Reality Engine can see an active call, but its InCallService is not active. Make sure Reality Engine is still the default phone app."
+            else -> "${snapshot.reason}\n\n${snapshot.detail}"
+        }
+        AlertDialog.Builder(activity)
+            .setTitle(title)
+            .setMessage(detail)
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun groqModelSummary() = when (store.groqModel) {
