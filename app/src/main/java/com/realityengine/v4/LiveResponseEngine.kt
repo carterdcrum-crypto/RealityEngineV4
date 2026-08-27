@@ -25,7 +25,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         val model: String = SettingsStore.DEFAULT_GROQ_MODEL
     )
     data class ChosenResponse(val suggestion: Suggestion?, val confidence: Float, val classification: String)
-    private data class RequestTicket(val generation: Long, val phoneNumber: String)
+    private data class RequestTicket(val generation: Long, val phoneNumber: String, val quickModeId: String? = null)
     private class GroqHttpException(val code: Int, message: String) : IllegalStateException(message)
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -34,6 +34,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
 
     @Volatile private var inFlight = false
     @Volatile private var pendingAnalysis = false
+    @Volatile private var pendingQuickModeId: String? = null
     @Volatile private var sessionGeneration = 0L
     @Volatile private var lastCallerTurn = ""
     @Volatile private var callerTurnsSinceAnalysis = 0
@@ -51,6 +52,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         lastCallerTurn = ""
         callerTurnsSinceAnalysis = 0
         pendingAnalysis = false
+        pendingQuickModeId = null
         activeSuggestions = emptyList()
         lastChosenResponse = null
         profileSession?.bind(clean, context)
@@ -63,6 +65,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         lastCallerTurn = ""
         callerTurnsSinceAnalysis = 0
         pendingAnalysis = false
+        pendingQuickModeId = null
         activeSuggestions = emptyList()
         lastChosenResponse = null
         profileSession?.clear()
@@ -90,8 +93,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
                     status = ResponseCoachState.Phase.KEY_REQUIRED to "Groq API key required"
                 }
                 callerTurnsSinceAnalysis < settings.analysisFrequencyTurns -> {
-                    status = ResponseCoachState.Phase.LISTENING to
-                        "Caller turn $callerTurnsSinceAnalysis/${settings.analysisFrequencyTurns}"
+                    status = ResponseCoachState.Phase.LISTENING to "Caller turn $callerTurnsSinceAnalysis/${settings.analysisFrequencyTurns}"
                 }
                 inFlight -> {
                     callerTurnsSinceAnalysis = 0
@@ -112,6 +114,30 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         if (shouldLaunch) launchAnalysis(callback)
     }
 
+    /** Force a one-shot coach refresh using the current transcript/context and a temporary delivery mode. */
+    fun requestQuickMode(modeId: String, callback: (Result?) -> Unit = {}) {
+        val mode = CoachQuickModeCatalog.byId(modeId) ?: return
+        var status: Pair<ResponseCoachState.Phase, String>? = null
+        var shouldLaunch = false
+        synchronized(this) {
+            when {
+                !settings.responseCoachEnabled -> status = ResponseCoachState.Phase.DISABLED to "Enable Response Coach in Settings"
+                !settings.groqConfigured() -> status = ResponseCoachState.Phase.KEY_REQUIRED to "Groq API key required"
+                inFlight -> {
+                    pendingAnalysis = true
+                    pendingQuickModeId = mode.id
+                    status = ResponseCoachState.Phase.ANALYZING to "${mode.label} refresh queued"
+                }
+                else -> shouldLaunch = true
+            }
+        }
+        status?.let { (phase, message) ->
+            ResponseCoachState.publishStatus(phase, message, clearSuggestions = phase != ResponseCoachState.Phase.ANALYZING)
+            if (phase != ResponseCoachState.Phase.ANALYZING) main.post { callback(null) }
+        }
+        if (shouldLaunch) launchAnalysis(callback, mode.id)
+    }
+
     fun onUserTurn(text: String): ChosenResponse {
         val clean = normalizeWhitespace(text)
         context.addTurn(ConversationContext.Speaker.USER, clean)
@@ -126,19 +152,21 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         return match
     }
 
-    private fun launchAnalysis(callback: (Result?) -> Unit) {
+    private fun launchAnalysis(callback: (Result?) -> Unit, quickModeId: String? = null) {
         val ticket = synchronized(this) {
             if (inFlight) {
                 pendingAnalysis = true
+                if (quickModeId != null) pendingQuickModeId = quickModeId
                 return
             }
             inFlight = true
-            RequestTicket(sessionGeneration, activePhoneNumber)
+            RequestTicket(sessionGeneration, activePhoneNumber, quickModeId)
         }
+        val quick = CoachQuickModeCatalog.byId(ticket.quickModeId)
         ResponseCoachState.publishGroqRateLimit(settings.groqModel, null, null, null)
         ResponseCoachState.publishStatus(
             ResponseCoachState.Phase.ANALYZING,
-            "Generating strategy replies…",
+            quick?.let { "Generating ${it.label.lowercase()} replies…" } ?: "Generating strategy replies…",
             clearSuggestions = true
         )
         executor.execute { executeAnalysis(ticket, callback) }
@@ -151,7 +179,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         if (currentAtStart) {
             try {
                 if (ticket.phoneNumber.isNotBlank()) profileSession?.refresh(ticket.phoneNumber, context)
-                result = requestSuggestions()
+                result = requestSuggestions(ticket.quickModeId)
             } catch (t: Throwable) {
                 failure = coachFailure(t)
             }
@@ -171,18 +199,22 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         val nextTicket = synchronized(this) {
             if (pendingAnalysis && settings.responseCoachEnabled && settings.groqConfigured()) {
                 pendingAnalysis = false
-                RequestTicket(sessionGeneration, activePhoneNumber)
+                val quick = pendingQuickModeId
+                pendingQuickModeId = null
+                RequestTicket(sessionGeneration, activePhoneNumber, quick)
             } else {
                 pendingAnalysis = false
+                pendingQuickModeId = null
                 inFlight = false
                 null
             }
         }
 
         if (nextTicket != null) {
+            val quick = CoachQuickModeCatalog.byId(nextTicket.quickModeId)
             ResponseCoachState.publishStatus(
                 ResponseCoachState.Phase.ANALYZING,
-                "Refreshing for latest caller turn…",
+                quick?.let { "Refreshing ${it.label.lowercase()} replies…" } ?: "Refreshing for latest caller turn…",
                 clearSuggestions = true
             )
             executor.execute { executeAnalysis(nextTicket, {}) }
@@ -233,26 +265,23 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
 
     private fun normalizeWhitespace(value: String) = value.trim().replace(Regex("\\s+"), " ")
 
-    /**
-     * Use the saved model first. If Groq says that model cannot be found, verify the key's
-     * active model catalog and repair stale model settings before retrying the request.
-     */
-    private fun requestSuggestions(): Result {
+    /** Use the saved model first and repair stale model settings if needed. */
+    private fun requestSuggestions(quickModeId: String? = null): Result {
         val snapshot = context.snapshot()
         val preferred = settings.groqModel
         return try {
-            requestSuggestions(snapshot, preferred)
+            requestSuggestions(snapshot, preferred, quickModeId)
         } catch (first: GroqHttpException) {
             if (first.code != 404) throw first
             val available = fetchAvailableModels()
             val fallback = SettingsStore.GROQ_MODELS.firstOrNull { it in available }
                 ?: throw IllegalStateException("GROQ MODEL UNAVAILABLE // CHECK GROQ PROJECT ACCESS")
             settings.groqModel = fallback
-            requestSuggestions(snapshot, fallback)
+            requestSuggestions(snapshot, fallback, quickModeId)
         }
     }
 
-    private fun requestSuggestions(snapshot: ConversationContext.Snapshot, model: String): Result {
+    private fun requestSuggestions(snapshot: ConversationContext.Snapshot, model: String, quickModeId: String?): Result {
         val connection = URL("https://api.groq.com/openai/v1/chat/completions").openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
@@ -263,15 +292,17 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             connection.setRequestProperty("Content-Type", "application/json")
 
             val strategyGuide = ResponseStrategyCatalog.promptGuide()
+            val quickMode = CoachQuickModeCatalog.byId(quickModeId)
+            val quickInstruction = quickMode?.let { "\n\nONE-SHOT QUICK MODE — ${it.label.uppercase()}: ${it.promptInstruction}" }.orEmpty()
             val system = """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Choose exactly five DISTINCT strategies from the catalog below that best fit the current moment. Rank them: one BEST choice plus four alternatives. Do not force a strategy when it does not fit. Keep suggestions non-coercive: do not manipulate, threaten, shame, pressure, or fabricate. COGNITIVE_PROBE must remain a neutral question, never a trap.
 
 STRATEGY CATALOG:
 $strategyGuide
 
-Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, slow/deliberate, or steady/direct. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 18 words and each reason under 6 words. No commentary outside the JSON."""
+Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, slow/deliberate, or steady/direct. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 18 words and each reason under 6 words. No commentary outside the JSON.$quickInstruction"""
             val body = JSONObject().apply {
                 put("model", model)
-                put("temperature", .25)
+                put("temperature", quickMode?.temperature ?: .25)
                 put("max_completion_tokens", 360)
                 put("response_format", JSONObject().put("type", "json_object"))
                 if (model.startsWith("openai/gpt-oss-")) put("reasoning_effort", "low")
