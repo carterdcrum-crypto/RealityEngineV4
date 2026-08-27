@@ -5,6 +5,7 @@ import android.content.Context
 /** Persistent configuration backing the reference-style settings UI. */
 class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("reality_engine_settings", Context.MODE_PRIVATE)
+    private val secrets = SecureSecretStore(context.applicationContext)
 
     var groqApiKey: String
         get() = prefs.getString("groq_api_key", "").orEmpty()
@@ -39,8 +40,8 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit().putString("twilio_access_token_endpoint", value.trim()).apply()
 
     var githubUpdaterToken: String
-        get() = prefs.getString("github_updater_token", "").orEmpty()
-        set(value) = prefs.edit().putString("github_updater_token", value.trim()).apply()
+        get() = secrets.get("github_updater_token")
+        set(value) = secrets.put("github_updater_token", value)
 
     var responseCoachEnabled: Boolean
         get() = prefs.getBoolean("response_coach_enabled", true)
