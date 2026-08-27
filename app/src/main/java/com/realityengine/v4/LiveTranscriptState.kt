@@ -17,7 +17,8 @@ object LiveTranscriptState {
         val isCaller: Boolean? = null
     )
 
-    private const val MAX_FINAL_ENTRIES = 40
+    // Keep enough finalized turns for long calls so the end-of-call transcript can be saved intact.
+    private const val MAX_FINAL_ENTRIES = 500
     @Volatile private var current = State()
     private val listeners = LinkedHashSet<(State) -> Unit>()
 
