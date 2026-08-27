@@ -38,6 +38,10 @@ class SettingsStore(context: Context) {
         get() = prefs.getString("twilio_access_token_endpoint", "").orEmpty()
         set(value) = prefs.edit().putString("twilio_access_token_endpoint", value.trim()).apply()
 
+    var githubUpdaterToken: String
+        get() = prefs.getString("github_updater_token", "").orEmpty()
+        set(value) = prefs.edit().putString("github_updater_token", value.trim()).apply()
+
     var responseCoachEnabled: Boolean
         get() = prefs.getBoolean("response_coach_enabled", true)
         set(value) = prefs.edit().putBoolean("response_coach_enabled", value).apply()
@@ -58,4 +62,5 @@ class SettingsStore(context: Context) {
     fun deepgramConfigured() = deepgramApiKey.isNotBlank()
     fun supabaseConfigured() = supabaseUrl.isNotBlank() && supabaseAnonKey.isNotBlank()
     fun twilioMediaConfigured() = twilioMediaWebSocketUrl.startsWith("wss://") && twilioAccessTokenEndpoint.startsWith("https://")
+    fun privateUpdaterConfigured() = githubUpdaterToken.isNotBlank()
 }
