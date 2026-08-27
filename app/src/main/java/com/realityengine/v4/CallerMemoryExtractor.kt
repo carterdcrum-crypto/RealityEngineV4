@@ -3,7 +3,7 @@ package com.realityengine.v4
 import android.content.Context
 import java.util.Locale
 
-/** Token-free extraction of explicit caller preferences/facts into the persistent profile. */
+/** Fast token-free capture of obvious explicit preferences during a live call; richer memory is learned post-call. */
 class CallerMemoryExtractor(context: Context) {
     private val profiles = CallerProfileStore(context.applicationContext)
 
@@ -16,10 +16,9 @@ class CallerMemoryExtractor(context: Context) {
             extractAfter(lower, clean, listOf("i don't like ", "i dislike ", "i hate "))?.let { add(p.dislikes, it) }
             extractAfter(lower, clean, listOf("i prefer ", "i'd rather "))?.let { add(p.importantFacts, "Preference: $it") }
             extractAfter(lower, clean, listOf("my favorite "))?.let { add(p.importantFacts, "Favorite: $it") }
-            extractAfter(lower, clean, listOf("i work at ", "i work for ", "i live in ", "i live at ", "my job is "))?.let { add(p.importantFacts, it) }
+            extractAfter(lower, clean, listOf("i work at ", "i work for ", "i live in ", "my job is "))?.let { add(p.importantFacts, it) }
             inferStyle(lower)?.let { p.preferredConversationStyle = it }
             starter(clean, lower)?.let { add(p.conversationStarters, it) }
-            if (clean.length in 12..140) add(p.topics, topic(clean))
         }
     }
 
@@ -51,6 +50,5 @@ class CallerMemoryExtractor(context: Context) {
         return null
     }
 
-    private fun topic(value: String): String = value.take(120)
     private fun add(list: MutableList<String>, value: String) { if (list.none { it.equals(value, true) }) list.add(value) }
 }
