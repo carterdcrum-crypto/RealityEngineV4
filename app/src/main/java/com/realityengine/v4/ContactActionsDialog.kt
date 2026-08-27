@@ -3,13 +3,14 @@ package com.realityengine.v4
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
 
-/** UI bridge for contact CRUD, native ringtones, and saved/unsaved number blocking. */
+/** UI bridge for contact CRUD, caller memory, native ringtones, and saved/unsaved number blocking. */
 class ContactActionsDialog(
     private val activity: Activity,
     private val manager: ContactManager
@@ -26,6 +27,7 @@ class ContactActionsDialog(
         val options = arrayOf(
             "Edit contact",
             "Change ringtone",
+            "Reality memory",
             "Delete contact",
             if (blocked) "Unblock number" else "Block number",
         )
@@ -33,19 +35,30 @@ class ContactActionsDialog(
             when (which) {
                 0 -> edit(contact, onDone)
                 1 -> chooseRingtone(contact, onDone)
-                2 -> confirmDelete(contact, onDone)
-                3 -> report(if (blocked) manager.unblock(contact.number) else manager.block(contact.number), onDone)
+                2 -> openMemory(contact.number, contact.name)
+                3 -> confirmDelete(contact, onDone)
+                4 -> report(if (blocked) manager.unblock(contact.number) else manager.block(contact.number), onDone)
             }
         }.show()
     }
 
     fun manageUnsaved(phone: String, onDone: () -> Unit) {
         val blocked = manager.isBlocked(phone)
-        val options = arrayOf("Add contact", if (blocked) "Unblock number" else "Block number")
+        val options = arrayOf("Add contact", "Reality memory", if (blocked) "Unblock number" else "Block number")
         AlertDialog.Builder(activity).setTitle(phone).setItems(options) { _, which ->
-            if (which == 0) add(phone, onDone)
-            else report(if (blocked) manager.unblock(phone) else manager.block(phone), onDone)
+            when (which) {
+                0 -> add(phone, onDone)
+                1 -> openMemory(phone, phone)
+                else -> report(if (blocked) manager.unblock(phone) else manager.block(phone), onDone)
+            }
         }.show()
+    }
+
+    private fun openMemory(phone: String, name: String) {
+        activity.startActivity(Intent(activity, CallerMemoryActivity::class.java).apply {
+            putExtra(CallerMemoryActivity.EXTRA_PHONE, phone)
+            putExtra(CallerMemoryActivity.EXTRA_NAME, name)
+        })
     }
 
     private fun edit(contact: ContactResolver.Contact, onDone: () -> Unit) {
