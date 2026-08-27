@@ -183,7 +183,6 @@ class LiveTranscriptionPipeline(context: Context) {
         acoustic.reset()
         callerSpeaker = null
         clearPending()
-        LiveTranscriptState.clear()
         interimCallback = onInterim
         stoppedCallback = onStopped
         conversation.bindActiveCaller()
@@ -421,7 +420,6 @@ class LiveTranscriptionPipeline(context: Context) {
         flushTurns()
         clearPending()
         resetSpeechState()
-        conversation.clear()
         acoustic.reset()
         acousticScore = 0
         callerSpeaker = null
@@ -443,6 +441,7 @@ class LiveTranscriptionPipeline(context: Context) {
     fun status(): Status = Status(running.get(), deepgram.connectionState(), deepgram.failureReason())
     fun stop() { beginShutdown(null, true) }
     fun isRunning(): Boolean = running.get()
+    fun clearConversation() { conversation.clear() }
 
     companion object {
         private const val MAX_PENDING_PCM = 128_000
