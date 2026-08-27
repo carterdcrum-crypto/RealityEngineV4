@@ -22,6 +22,7 @@ class LiveConversationSession(context: Context) {
         if (number != activeNumber) {
             activeNumber = number
             pendingChosenResponse = null
+            ResponseCoachState.clearCall()
             responseEngine.bindCaller(number)
         }
         return number
@@ -48,7 +49,7 @@ class LiveConversationSession(context: Context) {
         pendingChosenResponse = null
         responseEngine.clearCaller()
         conversation.clear()
-        ResponseCoachState.clearSuggestions()
+        ResponseCoachState.clearCall()
     }
 
     fun snapshot(): ConversationContext.Snapshot = conversation.snapshot()
