@@ -25,7 +25,9 @@ class RealityInCallService : InCallService() {
     private lateinit var transcription: LiveTranscriptionPipeline
     private lateinit var audioRouter: AudioCaptureRouter
     private lateinit var summaryBuilder: CallSummaryBuilder
+    private lateinit var settings: SettingsStore
     private val finalizedCalls = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
+    private val finalizedRecordings = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
     @Volatile private var failedCall: Call? = null
     private var ringtone: Ringtone? = null
     private var ringingCall: Call? = null
@@ -37,6 +39,7 @@ class RealityInCallService : InCallService() {
         transcription = LiveTranscriptionPipeline(applicationContext)
         audioRouter = AudioCaptureRouter(applicationContext)
         summaryBuilder = CallSummaryBuilder(applicationContext)
+        settings = SettingsStore(applicationContext)
         createCallChannel()
         ShizukuAudioStatus.requestPermission()
     }
@@ -45,6 +48,7 @@ class RealityInCallService : InCallService() {
         stopRingtone()
         cancelCallNotification()
         transcription.stop()
+        transcription.discardRecording()
         clearLiveSession()
         if (instance === this) instance = null
         super.onDestroy()
@@ -58,6 +62,7 @@ class RealityInCallService : InCallService() {
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         finalizedCalls.remove(call)
+        finalizedRecordings.remove(call)
         failedCall = null
         if (CallSessionRegistry.primary() == null) clearLiveSession()
         CallSessionRegistry.add(call)
@@ -71,10 +76,11 @@ class RealityInCallService : InCallService() {
     override fun onCallRemoved(call: Call) {
         val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
         call.unregisterCallback(callback)
-        CallSessionRegistry.remove(call)
         if (failedCall === call) failedCall = null
         if (ringingCall === call) stopRingtone()
+        finalizeRecordingOnce(call, endedNumber)
         finalizeOnce(call, endedNumber)
+        CallSessionRegistry.remove(call)
         if (CallSessionRegistry.primary() != null) {
             syncRinging()
             syncTranscription()
@@ -99,11 +105,45 @@ class RealityInCallService : InCallService() {
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
+    fun recordingActive(): Boolean = transcription.isRecording()
+
+    /** Starts a visible user-requested recording on the already-authorized call-audio stream. */
+    fun startRecording(): Boolean {
+        val call = CallSessionRegistry.primary() ?: return false
+        if (call.state != Call.STATE_ACTIVE) return false
+        val number = CallSessionRegistry.numberFor(call).orEmpty().ifBlank { "Unknown" }
+        val match = ContactMediaStore.findByNumber(this, number)
+        val name = match?.name?.takeIf { it.isNotBlank() } ?: number
+        val started = transcription.startRecording(number, name)
+        if (started) {
+            showCallNotification()
+            launchCallUi()
+        }
+        return started
+    }
 
     @Synchronized
     private fun finalizeOnce(call: Call, phoneNumber: String) {
         if (phoneNumber.isBlank() || !finalizedCalls.add(call)) return
         summaryBuilder.finalize(phoneNumber)
+    }
+
+    @Synchronized
+    private fun finalizeRecordingOnce(call: Call, phoneNumber: String) {
+        if (!finalizedRecordings.add(call)) return
+        val recording = transcription.finishRecording() ?: return
+        CallRecordingState.publish(recording)
+        startActivity(Intent(this, PostCallReviewActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        })
+    }
+
+    private fun maybeStartAutoRecording(call: Call) {
+        if (!settings.autoRecordCalls || transcription.isRecording() || call.state != Call.STATE_ACTIVE) return
+        val number = CallSessionRegistry.numberFor(call).orEmpty().ifBlank { "Unknown" }
+        val match = ContactMediaStore.findByNumber(this, number)
+        val name = match?.name?.takeIf { it.isNotBlank() } ?: number
+        transcription.startRecording(number, name)
     }
 
     private fun clearLiveSession() {
@@ -133,7 +173,7 @@ class RealityInCallService : InCallService() {
                 if (CallSessionRegistry.primary() === call && call.state == Call.STATE_ACTIVE) publishFailure(call, reason)
             }
         })) {
-            LiveTranscriptionPipeline.StartResult.Started -> Unit
+            LiveTranscriptionPipeline.StartResult.Started -> maybeStartAutoRecording(call)
             is LiveTranscriptionPipeline.StartResult.Unavailable -> publishFailure(call, result.reason)
         }
     }
@@ -144,7 +184,7 @@ class RealityInCallService : InCallService() {
                 if (CallSessionRegistry.primary() === call && call.state == Call.STATE_ACTIVE) publishFailure(call, reason)
             }
         })) {
-            LiveTranscriptionPipeline.StartResult.Started -> Unit
+            LiveTranscriptionPipeline.StartResult.Started -> maybeStartAutoRecording(call)
             is LiveTranscriptionPipeline.StartResult.Unavailable -> publishFailure(call, result.reason)
         }
     }
@@ -179,10 +219,7 @@ class RealityInCallService : InCallService() {
     }
 
     private fun stopRingtone() {
-        try {
-            ringtone?.stop()
-        } catch (_: Throwable) {
-        }
+        try { ringtone?.stop() } catch (_: Throwable) {}
         ringtone = null
         ringingCall = null
     }
@@ -212,6 +249,7 @@ class RealityInCallService : InCallService() {
             AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> if (!transcription.isRunning()) startTwilio(call)
             else -> if (transcription.isRunning()) transcription.stop()
         }
+        if (transcription.isRunning()) maybeStartAutoRecording(call)
     }
 
     private fun createCallChannel() {
@@ -241,9 +279,10 @@ class RealityInCallService : InCallService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val number = CallSessionRegistry.numberFor(call).orEmpty().ifBlank { "Active call" }
+        val rec = if (recordingActive()) " · REC" else ""
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle("Reality Engine · Active call")
+            .setContentTitle("Reality Engine · Active call$rec")
             .setContentText(number)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -271,9 +310,10 @@ class RealityInCallService : InCallService() {
             syncRinging()
             if (state == Call.STATE_DISCONNECTED) {
                 val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
+                finalizeRecordingOnce(call, endedNumber)
+                finalizeOnce(call, endedNumber)
                 CallSessionRegistry.removeIfDisconnected(call)
                 if (failedCall === call) failedCall = null
-                finalizeOnce(call, endedNumber)
                 if (CallSessionRegistry.primary() == null) {
                     stopRingtone()
                     cancelCallNotification()
