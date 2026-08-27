@@ -48,6 +48,7 @@ class CallerProfileStore(context: Context) {
     }
 
     private val prefs = context.getSharedPreferences("caller_profiles", Context.MODE_PRIVATE)
+    private val tombstones = context.getSharedPreferences("caller_profile_tombstones", Context.MODE_PRIVATE)
 
     @Synchronized
     fun load(phoneNumber: String): CallerProfile {
@@ -58,10 +59,8 @@ class CallerProfileStore(context: Context) {
 
     @Synchronized
     fun save(profile: CallerProfile) {
-        val key = normalize(profile.phoneNumber)
-        profile.updatedAtMs = System.currentTimeMillis()
-        profile.coachPersonaId = normalizeContactPersona(profile.coachPersonaId)
-        prefs.edit().putString(key, toJson(profile).toString()).apply()
+        write(profile, touch = true)
+        tombstones.edit().remove(normalize(profile.phoneNumber)).apply()
     }
 
     @Synchronized
@@ -94,11 +93,45 @@ class CallerProfileStore(context: Context) {
     }
 
     @Synchronized
-    fun deleteProfile(phoneNumber: String): Boolean =
-        prefs.edit().remove(normalize(phoneNumber)).commit()
+    fun deleteProfile(phoneNumber: String): Boolean {
+        val key = normalize(phoneNumber)
+        tombstones.edit().putLong(key, System.currentTimeMillis()).apply()
+        return prefs.edit().remove(key).commit()
+    }
+
+    /** Raw profile snapshot for encrypted/RLS-protected cloud sync. */
+    @Synchronized
+    fun exportJson(phoneNumber: String): String = toJson(load(phoneNumber)).toString()
+
+    /** Import a newer cloud profile without rewriting its cloud timestamp as a local edit. */
+    @Synchronized
+    fun importCloudJson(phoneNumber: String, rawJson: String, remoteUpdatedAtMs: Long): CallerProfile? {
+        val key = normalize(phoneNumber)
+        if (tombstoneAt(phoneNumber) > 0L) return null
+        return runCatching {
+            val profile = fromJson(JSONObject(rawJson), key)
+            profile.updatedAtMs = maxOf(profile.updatedAtMs, remoteUpdatedAtMs)
+            trim(profile)
+            write(profile, touch = false)
+            profile
+        }.getOrNull()
+    }
+
+    fun tombstoneAt(phoneNumber: String): Long = tombstones.getLong(normalize(phoneNumber), 0L)
+
+    fun clearTombstone(phoneNumber: String) {
+        tombstones.edit().remove(normalize(phoneNumber)).apply()
+    }
 
     fun injectInto(context: ConversationContext, phoneNumber: String) {
         load(phoneNumber).compactContext().take(12).forEach(context::rememberFact)
+    }
+
+    private fun write(profile: CallerProfile, touch: Boolean) {
+        val key = normalize(profile.phoneNumber)
+        if (touch) profile.updatedAtMs = System.currentTimeMillis()
+        profile.coachPersonaId = normalizeContactPersona(profile.coachPersonaId)
+        prefs.edit().putString(key, toJson(profile).toString()).apply()
     }
 
     private fun normalize(value: String): String {
