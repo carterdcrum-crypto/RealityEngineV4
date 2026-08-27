@@ -6,13 +6,13 @@ import android.content.pm.PackageManager
 import android.provider.CallLog
 
 data class CallHistoryEntry(
-    val id: Long,
     val number: String,
     val displayName: String,
     val direction: String,
     val durationSeconds: Long,
     val timestampMs: Long,
-    val realitySummary: String = ""
+    val realitySummary: String = "",
+    val id: Long = -1L,
 )
 
 /** Reads and, when authorized, removes Android call-log rows. */
@@ -55,13 +55,13 @@ class CallHistoryIndex(
                     val display = cached ?: contacts.resolveName(number) ?: number
                     val summary = profiles.load(number).lastCallSummary
                     result += CallHistoryEntry(
-                        id = cursor.getLong(idIndex),
                         number = number,
                         displayName = display,
                         direction = CallHistoryPolicy.direction(cursor.getInt(typeIndex)),
                         durationSeconds = cursor.getLong(durationIndex),
                         timestampMs = cursor.getLong(dateIndex),
                         realitySummary = summary,
+                        id = cursor.getLong(idIndex),
                     )
                 }
             }
