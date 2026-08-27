@@ -75,6 +75,16 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("response_coach_enabled", true)
         set(value) = prefs.edit().putBoolean("response_coach_enabled", value).apply()
 
+    /** Global delivery style. Individual callers can override this with their own persona. */
+    var coachPersonaId: String
+        get() {
+            val saved = prefs.getString("coach_persona_id", DEFAULT_COACH_PERSONA).orEmpty()
+            val normalized = CoachPersonaCatalog.normalize(saved, DEFAULT_COACH_PERSONA)
+            if (saved != normalized) prefs.edit().putString("coach_persona_id", normalized).apply()
+            return normalized
+        }
+        set(value) = prefs.edit().putString("coach_persona_id", CoachPersonaCatalog.normalize(value, DEFAULT_COACH_PERSONA)).apply()
+
     var hapticsEnabled: Boolean
         get() = prefs.getBoolean("haptics_enabled", true)
         set(value) = prefs.edit().putBoolean("haptics_enabled", value).apply()
@@ -104,6 +114,8 @@ class SettingsStore(context: Context) {
 
         const val DEFAULT_DEEPGRAM_MODEL = "nova-3"
         val DEEPGRAM_MODELS = listOf(DEFAULT_DEEPGRAM_MODEL, "nova-2-phonecall")
+
+        const val DEFAULT_COACH_PERSONA = "ADAPTIVE"
 
         private const val KEY_GROQ_BALANCED_MIGRATED = "groq_balanced_20b_migrated"
         private const val KEY_NOVA3_MIGRATED = "deepgram_nova3_migrated"
