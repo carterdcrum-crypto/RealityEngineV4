@@ -124,8 +124,10 @@ class RealityInCallService : InCallService() {
 
     @Synchronized
     private fun finalizeOnce(call: Call, phoneNumber: String) {
-        if (phoneNumber.isBlank() || !finalizedCalls.add(call)) return
-        summaryBuilder.finalize(phoneNumber)
+        if (!finalizedCalls.add(call)) return
+        val transcriptKey = phoneNumber.ifBlank { "Unknown" }
+        CallTranscriptStore.save(applicationContext, transcriptKey, LiveTranscriptState.transcript())
+        if (phoneNumber.isNotBlank()) summaryBuilder.finalize(phoneNumber)
     }
 
     @Synchronized
@@ -234,7 +236,6 @@ class RealityInCallService : InCallService() {
         if (call.state != Call.STATE_ACTIVE) {
             if (transcription.isRunning()) transcription.stop()
             if (call.state == Call.STATE_DISCONNECTED) failedCall = null
-            LiveTranscriptState.clear()
             AudioRouteState.clear()
             showCallNotification()
             launchCallUi()
