@@ -21,6 +21,7 @@ class CallerProfileStore(context: Context) {
         val likes: MutableList<String> = mutableListOf(),
         val dislikes: MutableList<String> = mutableListOf(),
         var preferredConversationStyle: String = "",
+        var coachPersonaId: String = "AUTO",
         val topics: MutableList<String> = mutableListOf(),
         val conversationStarters: MutableList<String> = mutableListOf(),
         val importantFacts: MutableList<String> = mutableListOf(),
@@ -34,6 +35,7 @@ class CallerProfileStore(context: Context) {
             if (likes.isNotEmpty()) add("Likes: ${likes.takeLast(5).joinToString(", ")}")
             if (dislikes.isNotEmpty()) add("Dislikes: ${dislikes.takeLast(5).joinToString(", ")}")
             if (preferredConversationStyle.isNotBlank()) add("Preferred style: $preferredConversationStyle")
+            if (coachPersonaId != "AUTO") add("Caller coach persona override: ${CoachPersonaCatalog.byId(coachPersonaId).label}")
             if (topics.isNotEmpty()) add("Recent topics: ${topics.takeLast(5).joinToString(", ")}")
             if (conversationStarters.isNotEmpty()) add("Good starters: ${conversationStarters.takeLast(3).joinToString(" | ")}")
             importantFacts.takeLast(5).forEach { add(it) }
@@ -58,6 +60,7 @@ class CallerProfileStore(context: Context) {
     fun save(profile: CallerProfile) {
         val key = normalize(profile.phoneNumber)
         profile.updatedAtMs = System.currentTimeMillis()
+        profile.coachPersonaId = normalizeContactPersona(profile.coachPersonaId)
         prefs.edit().putString(key, toJson(profile).toString()).apply()
     }
 
@@ -72,6 +75,10 @@ class CallerProfileStore(context: Context) {
 
     fun recordEvidence(phoneNumber: String, event: EvidenceEvent): CallerProfile = update(phoneNumber) {
         it.evidenceEvents.add(event.copy(context = event.context.trim().replace(Regex("\\s+"), " ").take(220)))
+    }
+
+    fun setCoachPersona(phoneNumber: String, personaId: String): CallerProfile = update(phoneNumber) {
+        it.coachPersonaId = normalizeContactPersona(personaId)
     }
 
     fun clearRecentTopics(phoneNumber: String): CallerProfile = update(phoneNumber) {
@@ -101,11 +108,18 @@ class CallerProfileStore(context: Context) {
         return if (plus) "+$digits" else digits.ifBlank { trimmed }
     }
 
+    private fun normalizeContactPersona(value: String?): String {
+        val clean = value.orEmpty().trim().uppercase()
+        if (clean == "AUTO" || clean.isBlank()) return "AUTO"
+        return CoachPersonaCatalog.normalize(clean)
+    }
+
     private fun trim(p: CallerProfile) {
         trimList(p.likes, 12); trimList(p.dislikes, 12); trimList(p.topics, 16)
         trimList(p.conversationStarters, 8); trimList(p.importantFacts, 20); trimList(p.unresolvedTopics, 8)
         while (p.evidenceEvents.size > 40) p.evidenceEvents.removeAt(0)
         p.preferredConversationStyle = p.preferredConversationStyle.take(160)
+        p.coachPersonaId = normalizeContactPersona(p.coachPersonaId)
         p.lastCallSummary = p.lastCallSummary.take(700)
     }
 
@@ -116,13 +130,13 @@ class CallerProfileStore(context: Context) {
 
     private fun toJson(p: CallerProfile) = JSONObject().apply {
         put("phone", p.phoneNumber); put("name", p.displayName); put("likes", JSONArray(p.likes)); put("dislikes", JSONArray(p.dislikes))
-        put("style", p.preferredConversationStyle); put("topics", JSONArray(p.topics)); put("starters", JSONArray(p.conversationStarters))
+        put("style", p.preferredConversationStyle); put("coachPersona", p.coachPersonaId); put("topics", JSONArray(p.topics)); put("starters", JSONArray(p.conversationStarters))
         put("facts", JSONArray(p.importantFacts)); put("open", JSONArray(p.unresolvedTopics)); put("events", JSONArray().apply { p.evidenceEvents.forEach { e -> put(JSONObject().apply { put("ts", e.timestampMs); put("a", e.acoustic.toDouble()); put("l", e.linguistic.toDouble()); put("f", e.factual.toDouble()); put("c", e.combined.toDouble()); put("ctx", e.context) }) } }); put("summary", p.lastCallSummary); put("updated", p.updatedAtMs)
     }
 
     private fun fromJson(o: JSONObject, fallback: String) = CallerProfile(
         phoneNumber = o.optString("phone", fallback), displayName = o.optString("name"), likes = strings(o.optJSONArray("likes")),
-        dislikes = strings(o.optJSONArray("dislikes")), preferredConversationStyle = o.optString("style"), topics = strings(o.optJSONArray("topics")),
+        dislikes = strings(o.optJSONArray("dislikes")), preferredConversationStyle = o.optString("style"), coachPersonaId = normalizeContactPersona(o.optString("coachPersona", "AUTO")), topics = strings(o.optJSONArray("topics")),
         conversationStarters = strings(o.optJSONArray("starters")), importantFacts = strings(o.optJSONArray("facts")),
         unresolvedTopics = strings(o.optJSONArray("open")), evidenceEvents = events(o.optJSONArray("events")), lastCallSummary = o.optString("summary"), updatedAtMs = o.optLong("updated", System.currentTimeMillis())
     )
