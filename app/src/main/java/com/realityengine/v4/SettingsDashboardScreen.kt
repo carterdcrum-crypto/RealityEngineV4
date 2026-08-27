@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -136,7 +137,7 @@ class SettingsDashboardScreen(
         val persona = CoachPersonaCatalog.byId(store.coachPersonaId)
         root.addView(row(
             title = "Coach persona",
-            subtitle = persona.description,
+            subtitle = "${persona.description} Tap to choose; caller overrides are available inside the picker.",
             status = persona.label.uppercase(),
             statusColor = magenta,
         ) { chooseCoachPersona() })
@@ -433,6 +434,9 @@ class SettingsDashboardScreen(
                 store.coachPersonaId = personas[which].id
                 dialog.dismiss()
                 onRefresh()
+            }
+            .setNeutralButton("Caller overrides") { _, _ ->
+                activity.startActivity(Intent(activity, CoachPersonaManagerActivity::class.java))
             }
             .setNegativeButton("Cancel", null)
             .show()
