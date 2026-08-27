@@ -21,9 +21,11 @@ class ConversationContext(
         val recentTurns: List<Turn>,
         val facts: List<String>,
         val unresolved: List<String>,
-        val estimatedTokens: Int
+        val estimatedTokens: Int,
+        val coachDirective: String = ""
     ) {
         fun asPromptContext(): String = buildString {
+            if (coachDirective.isNotBlank()) append("COACH DELIVERY: ").append(coachDirective).append('\n')
             if (summary.isNotBlank()) append("STATE: ").append(summary).append('\n')
             if (facts.isNotEmpty()) append("FACTS: ").append(facts.joinToString(" | ")).append('\n')
             if (unresolved.isNotEmpty()) append("OPEN: ").append(unresolved.joinToString(" | ")).append('\n')
@@ -39,6 +41,7 @@ class ConversationContext(
     private val facts = LinkedHashSet<String>()
     private val unresolved = LinkedHashSet<String>()
     private var runningSummary = ""
+    private var coachDirective = ""
 
     @Synchronized
     fun addTurn(speaker: Speaker, text: String) {
@@ -55,6 +58,11 @@ class ConversationContext(
             facts.add(clean.take(150))
             while (facts.size > 6) facts.remove(facts.first())
         }
+    }
+
+    @Synchronized
+    fun setCoachDirective(value: String) {
+        coachDirective = value.trim().replace(Regex("\\s+"), " ").take(360)
     }
 
     @Synchronized
@@ -89,7 +97,7 @@ class ConversationContext(
 
     @Synchronized
     fun clear() {
-        turns.clear(); facts.clear(); unresolved.clear(); runningSummary = ""
+        turns.clear(); facts.clear(); unresolved.clear(); runningSummary = ""; coachDirective = ""
     }
 
     private fun compactIfNeeded() {
@@ -106,8 +114,8 @@ class ConversationContext(
         openList: List<String> = unresolved.toList(),
         summary: String = compactText(runningSummary, 520)
     ): Snapshot {
-        val chars = summary.length + selected.sumOf { it.text.length + 10 } + factList.sumOf { it.length } + openList.sumOf { it.length }
-        return Snapshot(summary, selected, factList, openList, estimateTokens(chars))
+        val chars = summary.length + coachDirective.length + selected.sumOf { it.text.length + 10 } + factList.sumOf { it.length } + openList.sumOf { it.length }
+        return Snapshot(summary, selected, factList, openList, estimateTokens(chars), coachDirective)
     }
 
     // Conservative local approximation; actual API usage is learned from provider usage metadata.
