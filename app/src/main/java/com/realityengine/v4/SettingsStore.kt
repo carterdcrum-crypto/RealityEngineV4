@@ -13,21 +13,32 @@ class SettingsStore(context: Context) {
 
     var groqModel: String
         get() {
+            // One-time upgrade for installs that still carry the older 8B/70B coach default.
+            if (!prefs.getBoolean(KEY_GROQ_BALANCED_MIGRATED, false)) {
+                prefs.edit()
+                    .putString("groq_model", DEFAULT_GROQ_MODEL)
+                    .putBoolean(KEY_GROQ_BALANCED_MIGRATED, true)
+                    .apply()
+                return DEFAULT_GROQ_MODEL
+            }
             val saved = prefs.getString("groq_model", DEFAULT_GROQ_MODEL).orEmpty().trim()
-            val normalized = saved.takeIf { it in SUPPORTED_GROQ_MODELS } ?: DEFAULT_GROQ_MODEL
+            val normalized = saved.takeIf { it in GROQ_MODELS } ?: DEFAULT_GROQ_MODEL
             if (saved != normalized) prefs.edit().putString("groq_model", normalized).apply()
             return normalized
         }
         set(value) {
             val clean = value.trim()
-            prefs.edit().putString(
-                "groq_model",
-                clean.takeIf { it in SUPPORTED_GROQ_MODELS } ?: DEFAULT_GROQ_MODEL
-            ).apply()
+            prefs.edit()
+                .putString("groq_model", clean.takeIf { it in GROQ_MODELS } ?: DEFAULT_GROQ_MODEL)
+                .putBoolean(KEY_GROQ_BALANCED_MIGRATED, true)
+                .apply()
         }
 
     fun resetGroqModel() {
-        prefs.edit().putString("groq_model", DEFAULT_GROQ_MODEL).apply()
+        prefs.edit()
+            .putString("groq_model", DEFAULT_GROQ_MODEL)
+            .putBoolean(KEY_GROQ_BALANCED_MIGRATED, true)
+            .apply()
     }
 
     var deepgramApiKey: String
@@ -35,8 +46,27 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit().putString("deepgram_api_key", value.trim()).apply()
 
     var deepgramModel: String
-        get() = prefs.getString("deepgram_model", "nova-2-phonecall").orEmpty()
-        set(value) = prefs.edit().putString("deepgram_model", value).apply()
+        get() {
+            // Existing installs automatically move from Nova-2 Phonecall to Nova-3 once.
+            if (!prefs.getBoolean(KEY_NOVA3_MIGRATED, false)) {
+                prefs.edit()
+                    .putString("deepgram_model", DEFAULT_DEEPGRAM_MODEL)
+                    .putBoolean(KEY_NOVA3_MIGRATED, true)
+                    .apply()
+                return DEFAULT_DEEPGRAM_MODEL
+            }
+            val saved = prefs.getString("deepgram_model", DEFAULT_DEEPGRAM_MODEL).orEmpty().trim()
+            val normalized = saved.takeIf { it in DEEPGRAM_MODELS } ?: DEFAULT_DEEPGRAM_MODEL
+            if (saved != normalized) prefs.edit().putString("deepgram_model", normalized).apply()
+            return normalized
+        }
+        set(value) {
+            val clean = value.trim()
+            prefs.edit()
+                .putString("deepgram_model", clean.takeIf { it in DEEPGRAM_MODELS } ?: DEFAULT_DEEPGRAM_MODEL)
+                .putBoolean(KEY_NOVA3_MIGRATED, true)
+                .apply()
+        }
 
     var supabaseUrl: String
         get() = prefs.getString("supabase_url", "").orEmpty()
@@ -81,10 +111,21 @@ class SettingsStore(context: Context) {
     fun privateUpdaterConfigured() = githubUpdaterToken.isNotBlank()
 
     companion object {
-        const val DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
-        private val SUPPORTED_GROQ_MODELS = setOf(
+        /** Balanced live-call default: much stronger than 8B while still very fast and inexpensive. */
+        const val DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+        val GROQ_MODELS = listOf(
             DEFAULT_GROQ_MODEL,
-            "llama-3.3-70b-versatile"
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
         )
+
+        const val DEFAULT_DEEPGRAM_MODEL = "nova-3"
+        val DEEPGRAM_MODELS = listOf(
+            DEFAULT_DEEPGRAM_MODEL,
+            "nova-2-phonecall"
+        )
+
+        private const val KEY_GROQ_BALANCED_MIGRATED = "groq_balanced_20b_migrated"
+        private const val KEY_NOVA3_MIGRATED = "deepgram_nova3_migrated"
     }
 }
