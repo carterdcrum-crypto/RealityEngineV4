@@ -1,6 +1,7 @@
 package com.realityengine.v4
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -27,6 +28,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 
 class CallActivity : Activity(), SensorEventListener {
     private var call: Call? = null
@@ -35,6 +37,7 @@ class CallActivity : Activity(), SensorEventListener {
     private var proximityRegistered = false
 
     private lateinit var callerAvatar: ContactAvatarView
+    private lateinit var incomingHeroAvatar: ContactAvatarView
     private lateinit var caller: TextView
     private lateinit var state: TextView
     private lateinit var timer: TextView
@@ -44,6 +47,7 @@ class CallActivity : Activity(), SensorEventListener {
     private lateinit var speakerButton: Button
     private lateinit var bluetoothButton: Button
     private lateinit var holdButton: Button
+    private lateinit var recordButton: Button
     private lateinit var keypadButton: Button
     private lateinit var endButton: Button
     private lateinit var keypadContainer: LinearLayout
@@ -74,16 +78,13 @@ class CallActivity : Activity(), SensorEventListener {
     private val muted = RealityVisuals.Colors.TextDim
 
     private val registryListener: () -> Unit = { runOnUiThread { refresh() } }
-    private val coachListener: (ResponseCoachState.Snapshot) -> Unit = { snapshot ->
-        runOnUiThread { renderCoach(snapshot) }
-    }
-    private val transcriptListener: (LiveTranscriptState.State) -> Unit = { snapshot ->
-        runOnUiThread { renderTranscript(snapshot) }
-    }
+    private val coachListener: (ResponseCoachState.Snapshot) -> Unit = { snapshot -> runOnUiThread { renderCoach(snapshot) } }
+    private val transcriptListener: (LiveTranscriptState.State) -> Unit = { snapshot -> runOnUiThread { renderTranscript(snapshot) } }
     private val timerTick = object : Runnable {
         override fun run() {
             updateTimer()
             renderLiveSignals()
+            refreshRecordingUi()
             handler.postDelayed(this, 500L)
         }
     }
@@ -104,10 +105,7 @@ class CallActivity : Activity(), SensorEventListener {
 
     override fun onSaveInstanceState(outState: Bundle) {
         connectedStartedAt?.let { outState.putLong(KEY_CONNECTED_AT, it) }
-        outState.putBoolean(
-            KEY_KEYPAD_OPEN,
-            ::keypadContainer.isInitialized && keypadContainer.visibility == View.VISIBLE,
-        )
+        outState.putBoolean(KEY_KEYPAD_OPEN, ::keypadContainer.isInitialized && keypadContainer.visibility == View.VISIBLE)
         super.onSaveInstanceState(outState)
     }
 
@@ -180,9 +178,7 @@ class CallActivity : Activity(), SensorEventListener {
 
     private fun restoreScreen() = setScreenDimmed(false)
 
-    private fun shapeRadius() = when (
-        getSharedPreferences("MainActivity", MODE_PRIVATE).getInt("buttonShape", 1)
-    ) {
+    private fun shapeRadius() = when (getSharedPreferences("MainActivity", MODE_PRIVATE).getInt("buttonShape", 1)) {
         0 -> 3f
         2 -> 30f
         else -> 14f
@@ -191,36 +187,18 @@ class CallActivity : Activity(), SensorEventListener {
     private fun neon(fill: Int = panel, stroke: Int = cyan, r: Float = shapeRadius()) =
         RealityVisuals.panel(this, fill = fill, stroke = stroke, radiusDp = r)
 
-    private fun control(
-        label: String,
-        iconRes: Int,
-        stroke: Int = RealityVisuals.Colors.Border,
-        destructive: Boolean = false,
-        action: () -> Unit,
-    ) = Button(this).apply {
+    private fun control(label: String, iconRes: Int, stroke: Int = RealityVisuals.Colors.Border, destructive: Boolean = false, action: () -> Unit) = Button(this).apply {
         text = label
-        RealityVisuals.styleControl(
-            button = this,
-            iconRes = iconRes,
-            accent = stroke,
-            destructive = destructive,
-            radiusDp = shapeRadius(),
-        )
+        RealityVisuals.styleControl(this, iconRes, accent = stroke, destructive = destructive, radiusDp = shapeRadius())
         setOnClickListener { action() }
     }
 
     private fun signalRow(label: String, accent: Int): Pair<LinearLayout, ProgressBar> {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        row.addView(
-            TextView(this).apply {
-                text = "●  $label"
-                RealityVisuals.styleMicroLabel(this, accent)
-            },
-            LinearLayout.LayoutParams(94.dp(), 24.dp()),
-        )
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        row.addView(TextView(this).apply {
+            text = "●  $label"
+            RealityVisuals.styleMicroLabel(this, accent)
+        }, LinearLayout.LayoutParams(94.dp(), 24.dp()))
         val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             progress = 0
             RealityVisuals.styleSignal(this, accent)
@@ -240,16 +218,10 @@ class CallActivity : Activity(), SensorEventListener {
         val identity = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = neon(
-                fill = RealityVisuals.Colors.BackgroundRaised,
-                stroke = RealityVisuals.Colors.Border,
-                r = 14f,
-            )
+            background = neon(fill = RealityVisuals.Colors.BackgroundRaised, stroke = RealityVisuals.Colors.Border, r = 14f)
             setPadding(10.dp(), 7.dp(), 10.dp(), 7.dp())
         }
-        callerAvatar = ContactAvatarView(this).apply {
-            bind(-1L, "?", cyan)
-        }
+        callerAvatar = ContactAvatarView(this).apply { bind(-1L, "?", cyan) }
         identity.addView(callerAvatar, LinearLayout.LayoutParams(42.dp(), 42.dp()))
 
         val callerStack = LinearLayout(this).apply {
@@ -270,22 +242,14 @@ class CallActivity : Activity(), SensorEventListener {
         callerStack.addView(caller)
         identity.addView(callerStack, LinearLayout.LayoutParams(0, 52.dp(), 1f))
 
-        val telemetry = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END or Gravity.CENTER_VERTICAL
-        }
+        val telemetry = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END or Gravity.CENTER_VERTICAL }
         state = TextView(this).apply {
             textSize = 8.5f
             letterSpacing = .09f
             setTextColor(green)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             gravity = Gravity.CENTER
-            background = RealityVisuals.panel(
-                this@CallActivity,
-                fill = Color.rgb(6, 28, 22),
-                stroke = green,
-                radiusDp = 20f,
-            )
+            background = RealityVisuals.panel(this@CallActivity, fill = Color.rgb(6, 28, 22), stroke = green, radiusDp = 20f)
             setPadding(8.dp(), 3.dp(), 8.dp(), 3.dp())
         }
         timer = TextView(this).apply {
@@ -299,18 +263,16 @@ class CallActivity : Activity(), SensorEventListener {
         telemetry.addView(state)
         telemetry.addView(timer)
         identity.addView(telemetry, LinearLayout.LayoutParams(118.dp(), 52.dp()))
-        root.addView(identity, LinearLayout.LayoutParams(-1, 66.dp()).apply {
-            setMargins(0, 0, 0, 8.dp())
-        })
+        root.addView(identity, LinearLayout.LayoutParams(-1, 66.dp()).apply { setMargins(0, 0, 0, 8.dp()) })
 
-        val workspace = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        incomingHeroAvatar = ContactAvatarView(this).apply {
+            bind(-1L, "?", cyan)
+            visibility = View.GONE
         }
+        root.addView(incomingHeroAvatar, LinearLayout.LayoutParams(118.dp(), 118.dp()).apply { setMargins(0, 3.dp(), 0, 8.dp()) })
 
-        val transcriptHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        val workspace = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val transcriptHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         transcriptHeader.addView(TextView(this).apply {
             text = "LIVE TRANSCRIPT"
             RealityVisuals.styleMicroLabel(this, magenta)
@@ -323,11 +285,7 @@ class CallActivity : Activity(), SensorEventListener {
         workspace.addView(transcriptHeader)
 
         val transcriptScroll = ScrollView(this).apply {
-            background = neon(
-                RealityVisuals.Colors.BackgroundRaised,
-                Color.rgb(15, 65, 80),
-                10f,
-            )
+            background = neon(RealityVisuals.Colors.BackgroundRaised, Color.rgb(15, 65, 80), 10f)
             setPadding(11.dp(), 9.dp(), 11.dp(), 9.dp())
         }
         transcript = TextView(this).apply {
@@ -338,26 +296,14 @@ class CallActivity : Activity(), SensorEventListener {
             setLineSpacing(2f, 1.08f)
         }
         transcriptScroll.addView(transcript)
-        workspace.addView(
-            transcriptScroll,
-            LinearLayout.LayoutParams(-1, 0, 1f).apply {
-                setMargins(0, 3.dp(), 0, 7.dp())
-            },
-        )
+        workspace.addView(transcriptScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(0, 3.dp(), 0, 7.dp()) })
 
         val coachPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = neon(
-                fill = Color.rgb(7, 15, 24),
-                stroke = magenta,
-                r = 10f,
-            )
+            background = neon(fill = Color.rgb(7, 15, 24), stroke = magenta, r = 10f)
             setPadding(10.dp(), 7.dp(), 10.dp(), 7.dp())
         }
-        val coachHeader = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
+        val coachHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         coachHeader.addView(TextView(this).apply {
             text = "RESPONSE COACH"
             RealityVisuals.styleMicroLabel(this, magenta)
@@ -379,18 +325,10 @@ class CallActivity : Activity(), SensorEventListener {
             isVerticalScrollBarEnabled = true
             setLineSpacing(2f, 1.06f)
         }
-        coachPanel.addView(responseCoach, LinearLayout.LayoutParams(-1, 0, 1f).apply {
-            setMargins(0, 4.dp(), 0, 2.dp())
-        })
-
-        responseCoachCards = ResponseCoachCardsView(this).apply {
-            visibility = View.GONE
-        }
+        coachPanel.addView(responseCoach, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(0, 4.dp(), 0, 2.dp()) })
+        responseCoachCards = ResponseCoachCardsView(this).apply { visibility = View.GONE }
         coachPanel.addView(responseCoachCards, LinearLayout.LayoutParams(-1, 70.dp()))
-
-        workspace.addView(coachPanel, LinearLayout.LayoutParams(-1, 184.dp()).apply {
-            setMargins(0, 0, 0, 5.dp())
-        })
+        workspace.addView(coachPanel, LinearLayout.LayoutParams(-1, 184.dp()).apply { setMargins(0, 0, 0, 5.dp()) })
 
         groqUsage = TextView(this).apply {
             text = "GROQ // WAITING FOR FIRST COACH REQUEST"
@@ -399,42 +337,24 @@ class CallActivity : Activity(), SensorEventListener {
             setTextColor(Color.rgb(151, 218, 232))
             typeface = Typeface.MONOSPACE
             gravity = Gravity.CENTER_VERTICAL
-            background = neon(
-                RealityVisuals.Colors.BackgroundRaised,
-                Color.rgb(15, 65, 80),
-                8f,
-            )
+            background = neon(RealityVisuals.Colors.BackgroundRaised, Color.rgb(15, 65, 80), 8f)
             setPadding(10.dp(), 0, 10.dp(), 0)
         }
-        workspace.addView(groqUsage, LinearLayout.LayoutParams(-1, 30.dp()).apply {
-            setMargins(0, 0, 0, 6.dp())
-        })
+        workspace.addView(groqUsage, LinearLayout.LayoutParams(-1, 30.dp()).apply { setMargins(0, 0, 0, 6.dp()) })
 
         val signals = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = neon(
-                RealityVisuals.Colors.Panel,
-                RealityVisuals.Colors.Border,
-                10f,
-            )
+            background = neon(RealityVisuals.Colors.Panel, RealityVisuals.Colors.Border, 10f)
             setPadding(10.dp(), 6.dp(), 10.dp(), 5.dp())
         }
         signals.addView(TextView(this).apply {
             text = "LIVE SIGNALS"
             RealityVisuals.styleMicroLabel(this, cyan)
         }, LinearLayout.LayoutParams(-1, 18.dp()))
-        val acoustic = signalRow("ACOUSTIC", cyan)
-        acousticBar = acoustic.second
-        signals.addView(acoustic.first)
-        val linguistic = signalRow("LINGUISTIC", magenta)
-        linguisticBar = linguistic.second
-        signals.addView(linguistic.first)
-        val factual = signalRow("FACTUAL", green)
-        factualBar = factual.second
-        signals.addView(factual.first)
-        workspace.addView(signals, LinearLayout.LayoutParams(-1, 96.dp()).apply {
-            setMargins(0, 0, 0, 5.dp())
-        })
+        val acoustic = signalRow("ACOUSTIC", cyan); acousticBar = acoustic.second; signals.addView(acoustic.first)
+        val linguistic = signalRow("LINGUISTIC", magenta); linguisticBar = linguistic.second; signals.addView(linguistic.first)
+        val factual = signalRow("FACTUAL", green); factualBar = factual.second; signals.addView(factual.first)
+        workspace.addView(signals, LinearLayout.LayoutParams(-1, 96.dp()).apply { setMargins(0, 0, 0, 5.dp()) })
 
         analysis = TextView(this).apply {
             text = "NEXT ACTION  // STANDBY"
@@ -443,124 +363,60 @@ class CallActivity : Activity(), SensorEventListener {
             setTextColor(cyan)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             gravity = Gravity.CENTER_VERTICAL
-            background = neon(
-                RealityVisuals.Colors.PanelStrong,
-                cyan,
-                10f,
-            )
+            background = neon(RealityVisuals.Colors.PanelStrong, cyan, 10f)
             setPadding(10.dp(), 8.dp(), 10.dp(), 8.dp())
         }
         workspace.addView(analysis, LinearLayout.LayoutParams(-1, 40.dp()))
         root.addView(workspace, LinearLayout.LayoutParams(-1, 0, 1f))
 
-        val incoming = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        answerButton = control("Accept", R.drawable.ic_re_call, green) {
-            call?.takeIf { it.state == Call.STATE_RINGING }?.answer(0)
-        }
-        rejectButton = control(
-            "Decline",
-            R.drawable.ic_re_call_end,
-            magenta,
-            destructive = true,
-        ) {
-            call?.takeIf { it.state == Call.STATE_RINGING }?.reject(false, null)
-        }
-        incoming.addView(answerButton, buttonLayout(50))
-        incoming.addView(rejectButton, buttonLayout(50))
-        root.addView(incoming)
+        val incoming = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        answerButton = control("Accept", R.drawable.ic_re_call, green) { call?.takeIf { it.state == Call.STATE_RINGING }?.answer(0) }
+        rejectButton = control("Decline", R.drawable.ic_re_call_end, magenta, destructive = true) { call?.takeIf { it.state == Call.STATE_RINGING }?.reject(false, null) }
+        incoming.addView(answerButton, buttonLayout(50)); incoming.addView(rejectButton, buttonLayout(50)); root.addView(incoming)
 
-        val controls = GridLayout(this).apply {
-            columnCount = 4
-            alignmentMode = GridLayout.ALIGN_BOUNDS
-            useDefaultMargins = false
-        }
+        val controls = GridLayout(this).apply { columnCount = 4; alignmentMode = GridLayout.ALIGN_BOUNDS; useDefaultMargins = false }
         muteButton = control("Mute", R.drawable.ic_re_mic) { toggleMute() }
         speakerButton = control("Speaker", R.drawable.ic_re_speaker) { toggleSpeaker() }
         bluetoothButton = control("Bluetooth", R.drawable.ic_re_bluetooth) { toggleBluetooth() }
         holdButton = control("Hold", R.drawable.ic_re_hold) { toggleHold() }
         arrayOf(muteButton, speakerButton, bluetoothButton, holdButton).forEach {
-            controls.addView(
-                it,
-                GridLayout.LayoutParams().apply {
-                    width = 0
-                    height = 48.dp()
-                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                    setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp())
-                },
-            )
+            controls.addView(it, GridLayout.LayoutParams().apply {
+                width = 0; height = 48.dp(); columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f); setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp())
+            })
         }
         root.addView(controls, LinearLayout.LayoutParams(-1, ViewGroup.LayoutParams.WRAP_CONTENT))
 
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        recordButton = control("Record", R.drawable.ic_re_record, magenta) { requestRecording() }
         keypadButton = control("Keypad", R.drawable.ic_re_dialpad) {
-            keypadContainer.visibility =
-                if (keypadContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            keypadContainer.visibility = if (keypadContainer.visibility == View.VISIBLE) View.GONE else View.VISIBLE
             RealityVisuals.reveal(keypadContainer)
         }
-        endButton = control(
-            "End call",
-            R.drawable.ic_re_call_end,
-            magenta,
-            destructive = true,
-        ) { call?.disconnect() }
-        bottom.addView(keypadButton, buttonLayout(50))
-        bottom.addView(endButton, buttonLayout(50))
-        root.addView(bottom)
+        endButton = control("End call", R.drawable.ic_re_call_end, magenta, destructive = true) { call?.disconnect() }
+        bottom.addView(recordButton, buttonLayout(50)); bottom.addView(keypadButton, buttonLayout(50)); bottom.addView(endButton, buttonLayout(50)); root.addView(bottom)
 
         keypadContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = if (restoreKeypadOpen) View.VISIBLE else View.GONE
-            background = neon(
-                RealityVisuals.Colors.BackgroundRaised,
-                RealityVisuals.Colors.Border,
-                10f,
-            )
+            background = neon(RealityVisuals.Colors.BackgroundRaised, RealityVisuals.Colors.Border, 10f)
             setPadding(5.dp(), 5.dp(), 5.dp(), 5.dp())
         }
         val digits = arrayOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#")
-        val grid = GridLayout(this).apply {
-            columnCount = 3
-            useDefaultMargins = false
-        }
+        val grid = GridLayout(this).apply { columnCount = 3; useDefaultMargins = false }
         digits.forEach { digit ->
-            grid.addView(
-                Button(this).apply {
-                    text = digit
-                    textSize = 17f
-                    setTextColor(cyan)
-                    typeface = Typeface.MONOSPACE
-                    background = neon(panel, RealityVisuals.Colors.Border)
-                    stateListAnimator = null
-                    minWidth = 0
-                    minHeight = 0
-                    setOnTouchListener { _, event ->
-                        when (event.actionMasked) {
-                            MotionEvent.ACTION_DOWN -> {
-                                call?.playDtmfTone(digit[0])
-                                true
-                            }
-                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                                call?.stopDtmfTone()
-                                performClick()
-                                true
-                            }
-                            else -> false
-                        }
+            grid.addView(Button(this).apply {
+                text = digit; textSize = 17f; setTextColor(cyan); typeface = Typeface.MONOSPACE
+                background = neon(panel, RealityVisuals.Colors.Border); stateListAnimator = null; minWidth = 0; minHeight = 0
+                setOnTouchListener { _, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> { call?.playDtmfTone(digit[0]); true }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> { call?.stopDtmfTone(); performClick(); true }
+                        else -> false
                     }
-                },
-                GridLayout.LayoutParams().apply {
-                    width = 0
-                    height = 44.dp()
-                    columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                    setMargins(2.dp(), 2.dp(), 2.dp(), 2.dp())
-                },
-            )
+                }
+            }, GridLayout.LayoutParams().apply {
+                width = 0; height = 44.dp(); columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f); setMargins(2.dp(), 2.dp(), 2.dp(), 2.dp())
+            })
         }
         keypadContainer.addView(grid)
         root.addView(keypadContainer)
@@ -571,21 +427,12 @@ class CallActivity : Activity(), SensorEventListener {
         renderTranscript(LiveTranscriptState.snapshot())
     }
 
-    private fun buttonLayout(heightDp: Int) =
-        LinearLayout.LayoutParams(0, heightDp.dp(), 1f).apply {
-            setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp())
-        }
+    private fun buttonLayout(heightDp: Int) = LinearLayout.LayoutParams(0, heightDp.dp(), 1f).apply { setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp()) }
 
     private fun renderTranscript(snapshot: LiveTranscriptState.State) {
         if (!::transcript.isInitialized) return
         transcript.text = TranscriptPresenter.render(snapshot, AudioRouteState.snapshot())
-        transcript.setTextColor(
-            if (snapshot.text.isNotBlank() && !snapshot.isFinal) {
-                Color.rgb(128, 185, 198)
-            } else {
-                Color.rgb(214, 244, 248)
-            },
-        )
+        transcript.setTextColor(if (snapshot.text.isNotBlank() && !snapshot.isFinal) Color.rgb(128, 185, 198) else Color.rgb(214, 244, 248))
         if (snapshot.text.isNotBlank() && snapshot.isFinal) RealityVisuals.reveal(transcript)
     }
 
@@ -594,63 +441,39 @@ class CallActivity : Activity(), SensorEventListener {
         val phaseChanged = lastCoachPhase != snapshot.phase
         lastCoachPhase = snapshot.phase
         val best = snapshot.best
-
         if (best == null) {
             responseCoachCards.render(emptyList())
             val chosen = snapshot.chosen
             responseCoach.text = when (snapshot.phase) {
-                ResponseCoachState.Phase.ANALYZING ->
-                    "ANALYZING\n${snapshot.message ?: "Generating replies…"}"
-                ResponseCoachState.Phase.LISTENING ->
-                    "LISTENING\n${snapshot.message ?: "Waiting for the next caller turn"}"
-                ResponseCoachState.Phase.KEY_REQUIRED ->
-                    "GROQ KEY REQUIRED\nOpen Settings → Groq"
-                ResponseCoachState.Phase.DISABLED ->
-                    "COACH DISABLED\nEnable Response Coach in Settings"
-                ResponseCoachState.Phase.ERROR ->
-                    "COACH ERROR\n${snapshot.message ?: "Suggestion request failed"}"
-                else -> if (chosen?.suggestion != null) {
-                    "LAST // ${chosen.classification} · ${chosen.suggestion.mode}\n${chosen.suggestion.text}"
-                } else {
-                    "STANDBY\nListening for the next caller turn."
-                }
+                ResponseCoachState.Phase.ANALYZING -> "ANALYZING\n${snapshot.message ?: "Generating replies…"}"
+                ResponseCoachState.Phase.LISTENING -> "LISTENING\n${snapshot.message ?: "Waiting for the next caller turn"}"
+                ResponseCoachState.Phase.KEY_REQUIRED -> "GROQ KEY REQUIRED\nOpen Settings → Groq"
+                ResponseCoachState.Phase.DISABLED -> "COACH DISABLED\nEnable Response Coach in Settings"
+                ResponseCoachState.Phase.ERROR -> "COACH ERROR\n${snapshot.message ?: "Suggestion request failed"}"
+                else -> if (chosen?.suggestion != null) "LAST // ${chosen.classification} · ${chosen.suggestion.mode}\n${chosen.suggestion.text}" else "STANDBY\nListening for the next caller turn."
             }
-            if (phaseChanged && snapshot.phase == ResponseCoachState.Phase.ANALYZING) {
-                RealityVisuals.pulseOnce(responseCoach)
-            }
+            if (phaseChanged && snapshot.phase == ResponseCoachState.Phase.ANALYZING) RealityVisuals.pulseOnce(responseCoach)
             return
         }
-
         responseCoach.scrollTo(0, 0)
         responseCoach.text = buildString {
-            append("BEST // ${best.mode} · TONE ${best.tone}\n")
-            append(best.text)
+            append("BEST // ${best.mode} · TONE ${best.tone}\n"); append(best.text)
             if (best.reason.isNotBlank()) append("\nWHY // ${best.reason}")
         }
         responseCoachCards.render(snapshot.alternatives)
         analysis.text = "NEXT ACTION  // ${best.mode} · ${best.tone}"
         if (lastBestSuggestion != best.text) {
             lastBestSuggestion = best.text
-            RealityVisuals.reveal(responseCoach)
-            RealityVisuals.reveal(responseCoachCards)
-            RealityVisuals.reveal(analysis)
+            RealityVisuals.reveal(responseCoach); RealityVisuals.reveal(responseCoachCards); RealityVisuals.reveal(analysis)
         }
     }
 
     private fun renderGroqUsage(snapshot: ResponseCoachState.Snapshot) {
         if (!::groqUsage.isInitialized) return
         val model = shortGroqModel(snapshot.groqModel)
-        val rate = if (snapshot.groqRemainingTokens != null && snapshot.groqLimitTokens != null) {
-            "TPM LEFT ${compactTokens(snapshot.groqRemainingTokens)}/${compactTokens(snapshot.groqLimitTokens)}"
-        } else {
-            "TPM LEFT —"
-        }
-        val reset = snapshot.groqResetTokens
-            ?.takeIf { it.isNotBlank() }
-            ?.let { " · RESET $it" }
-            .orEmpty()
-        groqUsage.text =
-            "GROQ // $model · $rate$reset · CALL ${compactTokens(snapshot.callTotalTokens)}"
+        val rate = if (snapshot.groqRemainingTokens != null && snapshot.groqLimitTokens != null) "TPM LEFT ${compactTokens(snapshot.groqRemainingTokens)}/${compactTokens(snapshot.groqLimitTokens)}" else "TPM LEFT —"
+        val reset = snapshot.groqResetTokens?.takeIf { it.isNotBlank() }?.let { " · RESET $it" }.orEmpty()
+        groqUsage.text = "GROQ // $model · $rate$reset · CALL ${compactTokens(snapshot.callTotalTokens)}"
     }
 
     private fun shortGroqModel(model: String) = when (model) {
@@ -669,98 +492,76 @@ class CallActivity : Activity(), SensorEventListener {
 
     private fun renderLiveSignals() {
         val signal = LiveSignalState.snapshot()
-        RealityVisuals.animateSignal(acousticBar, signal.acoustic)
-        RealityVisuals.animateSignal(linguisticBar, signal.linguistic)
-        RealityVisuals.animateSignal(factualBar, signal.factual)
-        val coach = ResponseCoachState.current()
-        val best = coach.best
+        RealityVisuals.animateSignal(acousticBar, signal.acoustic); RealityVisuals.animateSignal(linguisticBar, signal.linguistic); RealityVisuals.animateSignal(factualBar, signal.factual)
+        val coach = ResponseCoachState.current(); val best = coach.best
         analysis.text = when {
-            best != null ->
-                "NEXT ACTION  // ${best.mode} · ${best.tone}  |  FUSED ${signal.combined}%"
-            coach.phase == ResponseCoachState.Phase.ANALYZING ->
-                "NEXT ACTION  // ANALYZING  |  FUSED ${signal.combined}%"
-            coach.phase == ResponseCoachState.Phase.ERROR ->
-                "NEXT ACTION  // COACH ERROR  |  FUSED ${signal.combined}%"
-            coach.phase == ResponseCoachState.Phase.KEY_REQUIRED ->
-                "NEXT ACTION  // GROQ KEY REQUIRED"
-            coach.phase == ResponseCoachState.Phase.DISABLED ->
-                "NEXT ACTION  // COACH DISABLED"
-            else ->
-                "NEXT ACTION  // FUSED ${signal.combined}% · ${signal.elevatedStreams}/3 ELEVATED"
+            best != null -> "NEXT ACTION  // ${best.mode} · ${best.tone}  |  FUSED ${signal.combined}%"
+            coach.phase == ResponseCoachState.Phase.ANALYZING -> "NEXT ACTION  // ANALYZING  |  FUSED ${signal.combined}%"
+            coach.phase == ResponseCoachState.Phase.ERROR -> "NEXT ACTION  // COACH ERROR  |  FUSED ${signal.combined}%"
+            coach.phase == ResponseCoachState.Phase.KEY_REQUIRED -> "NEXT ACTION  // GROQ KEY REQUIRED"
+            coach.phase == ResponseCoachState.Phase.DISABLED -> "NEXT ACTION  // COACH DISABLED"
+            else -> "NEXT ACTION  // FUSED ${signal.combined}% · ${signal.elevatedStreams}/3 ELEVATED"
         }
     }
 
-    fun updateLiveSignals(
-        acoustic: Int,
-        linguistic: Int,
-        factual: Int,
-        nextAction: String? = null,
-    ) {
+    fun updateLiveSignals(acoustic: Int, linguistic: Int, factual: Int, nextAction: String? = null) {
         runOnUiThread {
-            RealityVisuals.animateSignal(acousticBar, acoustic)
-            RealityVisuals.animateSignal(linguisticBar, linguistic)
-            RealityVisuals.animateSignal(factualBar, factual)
+            RealityVisuals.animateSignal(acousticBar, acoustic); RealityVisuals.animateSignal(linguisticBar, linguistic); RealityVisuals.animateSignal(factualBar, factual)
             analysis.text = "NEXT ACTION  // ${nextAction?.takeIf { it.isNotBlank() } ?: "STANDBY"}"
         }
     }
 
+    private fun requestRecording() {
+        val service = RealityInCallService.instance ?: return
+        if (service.recordingActive()) {
+            Toast.makeText(this, "REC is active. Save or delete it after the call.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Record this call?")
+            .setMessage("Reality Engine will visibly record the call-audio stream until hangup, then ask you to Save or Permanently Delete it. Only record where recording is permitted.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Start recording") { _, _ ->
+                if (!service.startRecording()) Toast.makeText(this, "Call audio recording is not available right now", Toast.LENGTH_SHORT).show()
+                refreshRecordingUi()
+            }
+            .show()
+    }
+
     private fun toggleMute() {
         val service = RealityInCallService.instance ?: return
-        val isNowMuted = !service.isMutedNow()
-        service.setMuted(isNowMuted)
-        muteButton.text = if (isNowMuted) "Unmute" else "Mute"
-        setControlActive(muteButton, isNowMuted)
+        val isNowMuted = !service.isMutedNow(); service.setMuted(isNowMuted); muteButton.text = if (isNowMuted) "Unmute" else "Mute"; setControlActive(muteButton, isNowMuted)
     }
 
     private fun toggleSpeaker() {
         val service = RealityInCallService.instance ?: return
         val audio = service.callAudioState ?: return
-        val target = if (audio.route == CallAudioState.ROUTE_SPEAKER) {
-            CallAudioState.ROUTE_EARPIECE
-        } else {
-            CallAudioState.ROUTE_SPEAKER
-        }
+        val target = if (audio.route == CallAudioState.ROUTE_SPEAKER) CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER
         if (audio.supportedRouteMask and target != 0) service.setAudioRoute(target)
-        refreshAudioButtons()
-        updateProximityRegistration()
+        refreshAudioButtons(); updateProximityRegistration()
     }
 
     private fun toggleBluetooth() {
         val service = RealityInCallService.instance ?: return
         val audio = service.callAudioState ?: return
         val bluetooth = CallAudioState.ROUTE_BLUETOOTH
-        val fallback = if (audio.supportedRouteMask and CallAudioState.ROUTE_EARPIECE != 0) {
-            CallAudioState.ROUTE_EARPIECE
-        } else {
-            CallAudioState.ROUTE_SPEAKER
-        }
+        val fallback = if (audio.supportedRouteMask and CallAudioState.ROUTE_EARPIECE != 0) CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER
         val target = if (audio.route == bluetooth) fallback else bluetooth
         if (audio.supportedRouteMask and target != 0) service.setAudioRoute(target)
-        refreshAudioButtons()
-        updateProximityRegistration()
+        refreshAudioButtons(); updateProximityRegistration()
     }
 
     private fun toggleHold() {
         val current = call ?: return
-        when (current.state) {
-            Call.STATE_ACTIVE -> current.hold()
-            Call.STATE_HOLDING -> current.unhold()
-        }
+        when (current.state) { Call.STATE_ACTIVE -> current.hold(); Call.STATE_HOLDING -> current.unhold() }
         updateProximityRegistration()
     }
 
     private fun refresh() {
         call = CallSessionRegistry.primary()
         val current = call
-        if (current == null) {
-            unregisterProximity()
-            restoreScreen()
-            scheduleFinish()
-            return
-        }
-
-        handler.removeCallbacks(finishRunnable)
-        finishScheduled = false
+        if (current == null) { unregisterProximity(); restoreScreen(); scheduleFinish(); return }
+        handler.removeCallbacks(finishRunnable); finishScheduled = false
         val number = current.details?.handle?.schemeSpecificPart ?: "UNKNOWN CALLER"
         if (number != lastNumber) {
             lastNumber = number
@@ -768,10 +569,45 @@ class CallActivity : Activity(), SensorEventListener {
             val label = match?.name?.takeIf { it.isNotBlank() } ?: number
             caller.text = label
             callerAvatar.bind(match?.contactId ?: -1L, label, cyan)
+            incomingHeroAvatar.bind(match?.contactId ?: -1L, label, cyan)
             RealityVisuals.reveal(callerAvatar)
         }
 
-        val stateText = when (current.state) {
+        if (lastRenderedCallState != current.state) { lastRenderedCallState = current.state; RealityVisuals.pulseOnce(state) }
+        if (current.state == Call.STATE_DISCONNECTED) { connectedStartedAt = null; scheduleFinish() } else finishScheduled = false
+
+        val ringing = current.state == Call.STATE_RINGING
+        incomingHeroAvatar.visibility = if (ringing) View.VISIBLE else View.GONE
+        answerButton.visibility = if (ringing) View.VISIBLE else View.GONE
+        rejectButton.visibility = if (ringing) View.VISIBLE else View.GONE
+        if (ringing) RealityVisuals.reveal(incomingHeroAvatar)
+
+        val interactive = current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING
+        muteButton.isEnabled = interactive; speakerButton.isEnabled = interactive; keypadButton.isEnabled = interactive; holdButton.isEnabled = interactive
+        recordButton.isEnabled = current.state == Call.STATE_ACTIVE || RealityInCallService.instance?.recordingActive() == true
+        if (!interactive) keypadContainer.visibility = View.GONE
+        holdButton.text = if (current.state == Call.STATE_HOLDING) "Resume" else "Hold"; setControlActive(holdButton, current.state == Call.STATE_HOLDING)
+        endButton.isEnabled = current.state != Call.STATE_DISCONNECTED
+
+        if ((current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING) && connectedStartedAt == null) connectedStartedAt = SystemClock.elapsedRealtime()
+        updateTimer(); renderLiveSignals(); renderTranscript(LiveTranscriptState.snapshot()); renderGroqUsage(ResponseCoachState.current())
+        val service = RealityInCallService.instance
+        val mutedNow = service?.isMutedNow() == true
+        muteButton.text = if (mutedNow) "Unmute" else "Mute"; setControlActive(muteButton, mutedNow)
+        refreshAudioButtons(); refreshRecordingUi(); updateProximityRegistration()
+    }
+
+    private fun refreshRecordingUi() {
+        if (!::recordButton.isInitialized || !::state.isInitialized) return
+        val active = RealityInCallService.instance?.recordingActive() == true
+        recordButton.text = if (active) "● REC" else "Record"
+        val accent = if (active) magenta else cyan
+        recordButton.setTextColor(accent)
+        recordButton.compoundDrawableTintList = ColorStateList.valueOf(accent)
+        recordButton.background = RealityVisuals.panel(this, fill = if (active) Color.rgb(36, 8, 25) else panel, stroke = if (active) magenta else RealityVisuals.Colors.Border, radiusDp = shapeRadius())
+        recordButton.alpha = if (recordButton.isEnabled) 1f else .42f
+        val current = call
+        val base = when (current?.state) {
             Call.STATE_RINGING -> "● INCOMING"
             Call.STATE_DIALING -> "● DIALING"
             Call.STATE_CONNECTING -> "● CONNECTING"
@@ -780,105 +616,42 @@ class CallActivity : Activity(), SensorEventListener {
             Call.STATE_DISCONNECTED -> "● CLOSED"
             else -> "● CALL"
         }
-        state.text = stateText
-        if (lastRenderedCallState != current.state) {
-            lastRenderedCallState = current.state
-            RealityVisuals.pulseOnce(state)
-        }
-
-        if (current.state == Call.STATE_DISCONNECTED) {
-            connectedStartedAt = null
-            scheduleFinish()
-        } else {
-            finishScheduled = false
-        }
-
-        val ringing = current.state == Call.STATE_RINGING
-        answerButton.visibility = if (ringing) View.VISIBLE else View.GONE
-        rejectButton.visibility = if (ringing) View.VISIBLE else View.GONE
-
-        val interactive = current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING
-        muteButton.isEnabled = interactive
-        speakerButton.isEnabled = interactive
-        keypadButton.isEnabled = interactive
-        holdButton.isEnabled = interactive
-        if (!interactive) keypadContainer.visibility = View.GONE
-        holdButton.text = if (current.state == Call.STATE_HOLDING) "Resume" else "Hold"
-        setControlActive(holdButton, current.state == Call.STATE_HOLDING)
-        endButton.isEnabled = current.state != Call.STATE_DISCONNECTED
-
-        if ((current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING) && connectedStartedAt == null) {
-            connectedStartedAt = SystemClock.elapsedRealtime()
-        }
-
-        updateTimer()
-        renderLiveSignals()
-        renderTranscript(LiveTranscriptState.snapshot())
-        renderGroqUsage(ResponseCoachState.current())
-
-        val service = RealityInCallService.instance
-        val mutedNow = service?.isMutedNow() == true
-        muteButton.text = if (mutedNow) "Unmute" else "Mute"
-        setControlActive(muteButton, mutedNow)
-        refreshAudioButtons()
-        updateProximityRegistration()
+        state.text = if (active) "$base · REC" else base
+        state.setTextColor(if (active) magenta else green)
+        state.background = RealityVisuals.panel(this, fill = if (active) Color.rgb(36, 8, 25) else Color.rgb(6, 28, 22), stroke = if (active) magenta else green, radiusDp = 20f)
     }
 
     private fun refreshAudioButtons() {
         val audio = RealityInCallService.instance?.callAudioState
-        val speakerOn = audio?.route == CallAudioState.ROUTE_SPEAKER
-        val bluetoothOn = audio?.route == CallAudioState.ROUTE_BLUETOOTH
-        speakerButton.text = if (speakerOn) "Earpiece" else "Speaker"
-        bluetoothButton.text = if (bluetoothOn) "BT off" else "Bluetooth"
-        setControlActive(speakerButton, speakerOn)
-        setControlActive(bluetoothButton, bluetoothOn)
+        val speakerOn = audio?.route == CallAudioState.ROUTE_SPEAKER; val bluetoothOn = audio?.route == CallAudioState.ROUTE_BLUETOOTH
+        speakerButton.text = if (speakerOn) "Earpiece" else "Speaker"; bluetoothButton.text = if (bluetoothOn) "BT off" else "Bluetooth"
+        setControlActive(speakerButton, speakerOn); setControlActive(bluetoothButton, bluetoothOn)
         val interactive = call?.state == Call.STATE_ACTIVE || call?.state == Call.STATE_HOLDING
-        bluetoothButton.isEnabled = interactive &&
-            ((audio?.supportedRouteMask ?: 0) and CallAudioState.ROUTE_BLUETOOTH != 0)
+        bluetoothButton.isEnabled = interactive && ((audio?.supportedRouteMask ?: 0) and CallAudioState.ROUTE_BLUETOOTH != 0)
     }
 
     private fun setControlActive(button: Button, active: Boolean) {
         val accent = if (active) green else cyan
-        button.setTextColor(accent)
-        button.compoundDrawableTintList = ColorStateList.valueOf(accent)
-        button.background = RealityVisuals.panel(
-            this,
-            fill = if (active) Color.rgb(7, 28, 24) else panel,
-            stroke = if (active) green else RealityVisuals.Colors.Border,
-            radiusDp = shapeRadius(),
-        )
+        button.setTextColor(accent); button.compoundDrawableTintList = ColorStateList.valueOf(accent)
+        button.background = RealityVisuals.panel(this, fill = if (active) Color.rgb(7, 28, 24) else panel, stroke = if (active) green else RealityVisuals.Colors.Border, radiusDp = shapeRadius())
         button.alpha = if (button.isEnabled) 1f else .42f
     }
 
-    private val finishRunnable = Runnable {
-        finishScheduled = false
-        if (CallSessionRegistry.primary() == null && !isFinishing) finish()
-    }
-
+    private val finishRunnable = Runnable { finishScheduled = false; if (CallSessionRegistry.primary() == null && !isFinishing) finish() }
     private fun scheduleFinish() {
         if (finishScheduled) return
         finishScheduled = true
         val age = SystemClock.elapsedRealtime() - createdAtElapsed
         val delay = maxOf(2500L - age, 1200L)
-        handler.removeCallbacks(finishRunnable)
-        handler.postDelayed(finishRunnable, delay)
+        handler.removeCallbacks(finishRunnable); handler.postDelayed(finishRunnable, delay)
     }
 
     private fun updateTimer() {
         val started = connectedStartedAt
-        if (started == null) {
-            timer.text = "00:00"
-            return
-        }
+        if (started == null) { timer.text = "00:00"; return }
         val total = (SystemClock.elapsedRealtime() - started) / 1000L
-        val hours = total / 3600L
-        val minutes = (total % 3600L) / 60L
-        val seconds = total % 60L
-        timer.text = if (hours > 0) {
-            String.format("%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format("%02d:%02d", minutes, seconds)
-        }
+        val hours = total / 3600L; val minutes = (total % 3600L) / 60L; val seconds = total % 60L
+        timer.text = if (hours > 0) String.format("%d:%02d:%02d", hours, minutes, seconds) else String.format("%02d:%02d", minutes, seconds)
     }
 
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
