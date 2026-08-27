@@ -133,6 +133,13 @@ class SettingsDashboardScreen(
             store.responseCoachEnabled = !store.responseCoachEnabled
             onRefresh()
         })
+        val persona = CoachPersonaCatalog.byId(store.coachPersonaId)
+        root.addView(row(
+            title = "Coach persona",
+            subtitle = persona.description,
+            status = persona.label.uppercase(),
+            statusColor = magenta,
+        ) { chooseCoachPersona() })
         root.addView(toggleRow(
             title = "Haptic alerts",
             subtitle = "Quiet vibration when multiple signals are elevated",
@@ -414,6 +421,21 @@ class SettingsDashboardScreen(
     private fun deepgramModelSummary(): String = when (store.deepgramModel) {
         "nova-3" -> "Nova-3 · recommended live transcription"
         else -> "Nova-2 Phonecall · compatibility fallback"
+    }
+
+    private fun chooseCoachPersona() {
+        val personas = CoachPersonaCatalog.all
+        val labels = personas.map { "${it.label} — ${it.description}" }.toTypedArray()
+        val selected = personas.indexOfFirst { it.id == store.coachPersonaId }.coerceAtLeast(0)
+        AlertDialog.Builder(activity)
+            .setTitle("Default coach persona")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                store.coachPersonaId = personas[which].id
+                dialog.dismiss()
+                onRefresh()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun chooseGroqModel() {
