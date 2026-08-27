@@ -5,13 +5,16 @@ import kotlin.math.roundToInt
 
 /** Builds a compact, token-free end-of-call summary from persistent caller memory and evidence. */
 class CallSummaryBuilder(context: Context) {
-    private val profiles = CallerProfileStore(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val profiles = CallerProfileStore(appContext)
+    private val cloud = SupabaseCallerMemorySync(appContext)
 
     fun finalize(phoneNumber: String): String {
         if (phoneNumber.isBlank()) return ""
         val profile = profiles.load(phoneNumber)
         val summary = buildSummary(profile)
         if (summary.isNotBlank()) profiles.update(phoneNumber) { it.lastCallSummary = summary }
+        cloud.pushAsync(phoneNumber)
         return summary
     }
 
