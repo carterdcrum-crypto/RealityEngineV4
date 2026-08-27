@@ -31,6 +31,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
     private val executor = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val profileSession = appContext?.let { CallerProfileSession(it.applicationContext) }
+    private val providerPerformance = appContext?.applicationContext?.let(::CoachProviderPerformanceStore)
     private val gemini = GeminiCoachClient(settings)
     private val compatible = OpenAiCompatibleCoachClient(settings)
 
@@ -221,36 +222,59 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
 
     private fun requestSuggestions(quickModeId: String?): Result {
         val snapshot = context.snapshot()
-        return when (settings.coachProvider) {
-            SettingsStore.COACH_PROVIDER_GROQ -> requestGroq(snapshot, quickModeId)
-            SettingsStore.COACH_PROVIDER_GEMINI -> gemini.request(snapshot, quickModeId)
-            SettingsStore.COACH_PROVIDER_CEREBRAS -> compatible.request(OpenAiCompatibleCoachClient.cerebras(settings), snapshot, quickModeId)
-            SettingsStore.COACH_PROVIDER_MISTRAL -> compatible.request(OpenAiCompatibleCoachClient.mistral(settings), snapshot, quickModeId)
-            SettingsStore.COACH_PROVIDER_OPENROUTER -> compatible.request(OpenAiCompatibleCoachClient.openRouter(settings), snapshot, quickModeId)
-            else -> requestAuto(snapshot, quickModeId)
+        return if (settings.coachProvider == SettingsStore.COACH_PROVIDER_AUTO) {
+            requestAuto(snapshot, quickModeId)
+        } else {
+            requestMeasuredProvider(settings.coachProvider, snapshot, quickModeId)
         }
     }
 
     private fun requestAuto(snapshot: ConversationContext.Snapshot, quickModeId: String?): Result {
+        val configured = SettingsStore.COACH_FALLBACK_ORDER.filter(settings::providerConfigured)
+        if (configured.isEmpty()) throw IllegalStateException("NO RESPONSE COACH PROVIDER CONFIGURED")
+        val ordered = providerPerformance?.rankedProviders(configured) ?: configured
         val failures = mutableListOf<String>()
-        for (provider in SettingsStore.COACH_FALLBACK_ORDER) {
-            if (!settings.providerConfigured(provider)) continue
+        for (provider in ordered) {
             try {
-                return when (provider) {
-                    SettingsStore.COACH_PROVIDER_GROQ -> requestGroq(snapshot, quickModeId)
-                    SettingsStore.COACH_PROVIDER_GEMINI -> gemini.request(snapshot, quickModeId)
-                    SettingsStore.COACH_PROVIDER_CEREBRAS -> compatible.request(OpenAiCompatibleCoachClient.cerebras(settings), snapshot, quickModeId)
-                    SettingsStore.COACH_PROVIDER_MISTRAL -> compatible.request(OpenAiCompatibleCoachClient.mistral(settings), snapshot, quickModeId)
-                    SettingsStore.COACH_PROVIDER_OPENROUTER -> compatible.request(OpenAiCompatibleCoachClient.openRouter(settings), snapshot, quickModeId)
-                    else -> continue
-                }
+                return requestMeasuredProvider(provider, snapshot, quickModeId)
             } catch (t: Throwable) {
                 failures += "${provider.lowercase().replaceFirstChar { it.uppercase() }}: ${t.message.orEmpty().take(65)}"
             }
         }
-        if (failures.isEmpty()) throw IllegalStateException("NO RESPONSE COACH PROVIDER CONFIGURED")
         throw IllegalStateException("AUTO FAILOVER FAILED // ${failures.joinToString(" · ").take(170)}")
     }
+
+    private fun requestMeasuredProvider(
+        provider: String,
+        snapshot: ConversationContext.Snapshot,
+        quickModeId: String?,
+    ): Result {
+        val started = System.nanoTime()
+        return try {
+            val result = requestProvider(provider, snapshot, quickModeId)
+            providerPerformance?.recordSuccess(provider, elapsedMs(started))
+            result
+        } catch (t: Throwable) {
+            providerPerformance?.recordFailure(provider, t, elapsedMs(started))
+            throw t
+        }
+    }
+
+    private fun requestProvider(
+        provider: String,
+        snapshot: ConversationContext.Snapshot,
+        quickModeId: String?,
+    ): Result = when (provider) {
+        SettingsStore.COACH_PROVIDER_GROQ -> requestGroq(snapshot, quickModeId)
+        SettingsStore.COACH_PROVIDER_GEMINI -> gemini.request(snapshot, quickModeId)
+        SettingsStore.COACH_PROVIDER_CEREBRAS -> compatible.request(OpenAiCompatibleCoachClient.cerebras(settings), snapshot, quickModeId)
+        SettingsStore.COACH_PROVIDER_MISTRAL -> compatible.request(OpenAiCompatibleCoachClient.mistral(settings), snapshot, quickModeId)
+        SettingsStore.COACH_PROVIDER_OPENROUTER -> compatible.request(OpenAiCompatibleCoachClient.openRouter(settings), snapshot, quickModeId)
+        else -> throw IllegalStateException("UNKNOWN RESPONSE COACH PROVIDER // $provider")
+    }
+
+    private fun elapsedMs(startedNanos: Long): Long =
+        ((System.nanoTime() - startedNanos) / 1_000_000L).coerceAtLeast(1L)
 
     private fun requestGroq(snapshot: ConversationContext.Snapshot, quickModeId: String?): Result {
         if (!settings.groqConfigured()) throw IllegalStateException("GROQ API KEY REQUIRED")
