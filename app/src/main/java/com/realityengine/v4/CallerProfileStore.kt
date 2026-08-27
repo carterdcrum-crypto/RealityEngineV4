@@ -74,6 +74,22 @@ class CallerProfileStore(context: Context) {
         it.evidenceEvents.add(event.copy(context = event.context.trim().replace(Regex("\\s+"), " ").take(220)))
     }
 
+    fun clearRecentTopics(phoneNumber: String): CallerProfile = update(phoneNumber) {
+        it.topics.clear()
+    }
+
+    fun clearLastCall(phoneNumber: String): CallerProfile = update(phoneNumber) {
+        it.lastCallSummary = ""
+    }
+
+    fun clearCallEvidence(phoneNumber: String): CallerProfile = update(phoneNumber) {
+        it.evidenceEvents.clear()
+    }
+
+    @Synchronized
+    fun deleteProfile(phoneNumber: String): Boolean =
+        prefs.edit().remove(normalize(phoneNumber)).commit()
+
     fun injectInto(context: ConversationContext, phoneNumber: String) {
         load(phoneNumber).compactContext().take(12).forEach(context::rememberFact)
     }
