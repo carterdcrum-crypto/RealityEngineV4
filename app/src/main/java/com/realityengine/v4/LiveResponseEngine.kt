@@ -22,7 +22,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         val alternatives: List<Suggestion>,
         val inputTokens: Int,
         val outputTokens: Int,
-        val model: String
+        val model: String = SettingsStore.DEFAULT_GROQ_MODEL
     )
     data class ChosenResponse(val suggestion: Suggestion?, val confidence: Float, val classification: String)
     private data class RequestTicket(val generation: Long, val phoneNumber: String)
