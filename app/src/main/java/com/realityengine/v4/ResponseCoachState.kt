@@ -14,10 +14,18 @@ object ResponseCoachState {
         val chosen: LiveResponseEngine.ChosenResponse? = null,
         val inputTokens: Int = 0,
         val outputTokens: Int = 0,
+        val callInputTokens: Int = 0,
+        val callOutputTokens: Int = 0,
+        val groqModel: String = "",
+        val groqRemainingTokens: Int? = null,
+        val groqLimitTokens: Int? = null,
+        val groqResetTokens: String? = null,
         val updatedAt: Long = 0L,
         val phase: Phase = Phase.STANDBY,
         val message: String? = null
-    )
+    ) {
+        val callTotalTokens: Int get() = callInputTokens + callOutputTokens
+    }
 
     private val listeners = LinkedHashSet<(Snapshot) -> Unit>()
     @Volatile private var snapshot = Snapshot()
@@ -28,9 +36,24 @@ object ResponseCoachState {
             alternatives = result.alternatives,
             inputTokens = result.inputTokens,
             outputTokens = result.outputTokens,
+            callInputTokens = snapshot.callInputTokens + result.inputTokens,
+            callOutputTokens = snapshot.callOutputTokens + result.outputTokens,
+            groqModel = result.model,
             updatedAt = System.currentTimeMillis(),
             phase = Phase.READY,
             message = null
+        )
+        notifyListeners()
+    }
+
+    /** Groq's headers report the current tokens-per-minute window, not account credits. */
+    @Synchronized fun publishGroqRateLimit(model: String, remainingTokens: Int?, limitTokens: Int?, resetTokens: String?) {
+        snapshot = snapshot.copy(
+            groqModel = model.takeIf { it.isNotBlank() } ?: snapshot.groqModel,
+            groqRemainingTokens = remainingTokens ?: snapshot.groqRemainingTokens,
+            groqLimitTokens = limitTokens ?: snapshot.groqLimitTokens,
+            groqResetTokens = resetTokens?.takeIf { it.isNotBlank() } ?: snapshot.groqResetTokens,
+            updatedAt = System.currentTimeMillis()
         )
         notifyListeners()
     }
