@@ -2,6 +2,9 @@ package com.realityengine.v4
 
 import android.content.Context
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Live transcription pipeline supporting Shizuku/scrcpy PCM, recording, and Twilio fallback PCM. */
@@ -46,6 +49,11 @@ class LiveTranscriptionPipeline(context: Context) {
     private val turnLock = Any()
     private val callerTurn = StringBuilder()
     private val userTurn = StringBuilder()
+    private val turnScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "reality-turn-finalizer").apply { isDaemon = true }
+    }
+    private var callerFlushFuture: ScheduledFuture<*>? = null
+    private var userFlushFuture: ScheduledFuture<*>? = null
 
     private val recordingLock = Any()
     @Volatile private var recordingRequest: RecordingRequest? = null
@@ -197,9 +205,21 @@ class LiveTranscriptionPipeline(context: Context) {
                 }
                 LiveTranscriptState.publish(result.text, result.isFinal, isCaller)
                 interimCallback?.invoke(result.text)
-                if (result.isFinal && result.text.isNotBlank()) appendFinalTurn(result.text, isCaller != false)
+                if (result.isFinal && result.text.isNotBlank()) {
+                    val callerSide = isCaller != false
+                    appendFinalTurn(result.text, callerSide)
+                    if (result.speechFinal) {
+                        cancelTurnFlush(callerSide)
+                        flushTurn(callerSide)
+                    } else {
+                        scheduleTurnFlush(callerSide)
+                    }
+                } else if (result.speechFinal) {
+                    val callerSide = isCaller != false
+                    cancelTurnFlush(callerSide)
+                    flushTurn(callerSide)
+                }
                 if (result.speechFinal) {
-                    flushTurn(isCaller != false)
                     if (isCaller == true) callerSpeaking = false else if (isCaller == false) userSpeaking = false
                 }
             },
@@ -216,8 +236,33 @@ class LiveTranscriptionPipeline(context: Context) {
         }
     }
 
+    private fun scheduleTurnFlush(isCaller: Boolean) {
+        synchronized(turnLock) {
+            if (isCaller) {
+                callerFlushFuture?.cancel(false)
+                callerFlushFuture = turnScheduler.schedule({ flushTurn(true) }, TURN_FINALIZE_DELAY_MS, TimeUnit.MILLISECONDS)
+            } else {
+                userFlushFuture?.cancel(false)
+                userFlushFuture = turnScheduler.schedule({ flushTurn(false) }, TURN_FINALIZE_DELAY_MS, TimeUnit.MILLISECONDS)
+            }
+        }
+    }
+
+    private fun cancelTurnFlush(isCaller: Boolean) {
+        synchronized(turnLock) {
+            if (isCaller) {
+                callerFlushFuture?.cancel(false)
+                callerFlushFuture = null
+            } else {
+                userFlushFuture?.cancel(false)
+                userFlushFuture = null
+            }
+        }
+    }
+
     private fun flushTurn(isCaller: Boolean) {
         val text = synchronized(turnLock) {
+            if (isCaller) callerFlushFuture = null else userFlushFuture = null
             val target = if (isCaller) callerTurn else userTurn
             val value = target.toString().trim()
             target.setLength(0)
@@ -241,11 +286,15 @@ class LiveTranscriptionPipeline(context: Context) {
     }
 
     private fun flushTurns() {
+        cancelTurnFlush(true)
+        cancelTurnFlush(false)
         flushTurn(true)
         flushTurn(false)
     }
 
     private fun clearTurns() {
+        cancelTurnFlush(true)
+        cancelTurnFlush(false)
         synchronized(turnLock) {
             callerTurn.setLength(0)
             userTurn.setLength(0)
@@ -262,10 +311,12 @@ class LiveTranscriptionPipeline(context: Context) {
             is DeepgramStreamingClient.SpeechEvent.Ended -> when (event.channel) {
                 0 -> if (callerSpeechStartedAt < 0.0 || event.lastWordEndSeconds >= callerSpeechStartedAt) {
                     callerSpeaking = false
+                    cancelTurnFlush(true)
                     flushTurn(true)
                 }
                 1 -> if (userSpeechStartedAt < 0.0 || event.lastWordEndSeconds >= userSpeechStartedAt) {
                     userSpeaking = false
+                    cancelTurnFlush(false)
                     flushTurn(false)
                 }
             }
@@ -379,7 +430,6 @@ class LiveTranscriptionPipeline(context: Context) {
         val callback = stoppedCallback
         interimCallback = null
         stoppedCallback = null
-        LiveTranscriptState.clear()
         callback?.invoke(reason)
     }
 
@@ -398,5 +448,6 @@ class LiveTranscriptionPipeline(context: Context) {
         private const val MAX_PENDING_PCM = 128_000
         private const val STEREO_FRAME_MONO_BYTES = 3_200
         private const val FIRST_AUDIO_DEADLINE_MS = 5_000L
+        private const val TURN_FINALIZE_DELAY_MS = 850L
     }
 }
