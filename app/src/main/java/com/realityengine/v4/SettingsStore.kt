@@ -52,12 +52,58 @@ class SettingsStore(context: Context) {
         }
 
     var supabaseUrl: String
-        get() = prefs.getString("supabase_url", "").orEmpty()
-        set(value) = prefs.edit().putString("supabase_url", value.trim()).apply()
+        get() = prefs.getString(KEY_SUPABASE_URL, "").orEmpty()
+        set(value) {
+            val clean = value.trim()
+            val changed = clean != supabaseUrl
+            val editor = prefs.edit().putString(KEY_SUPABASE_URL, clean)
+            if (changed) editor.remove(KEY_SUPABASE_VERIFIED_AT_MS)
+            editor.apply()
+        }
 
     var supabaseAnonKey: String
-        get() = prefs.getString("supabase_anon_key", "").orEmpty()
-        set(value) = prefs.edit().putString("supabase_anon_key", value.trim()).apply()
+        get() = prefs.getString(KEY_SUPABASE_ANON_KEY, "").orEmpty()
+        set(value) {
+            val clean = value.trim()
+            val changed = clean != supabaseAnonKey
+            val editor = prefs.edit().putString(KEY_SUPABASE_ANON_KEY, clean)
+            if (changed) editor.remove(KEY_SUPABASE_VERIFIED_AT_MS)
+            editor.apply()
+        }
+
+    /**
+     * Saves the Supabase credential pair in one synchronous transaction so the setup screen can
+     * immediately verify that the values survived before starting auth/network work.
+     */
+    fun saveSupabaseCredentials(url: String, anonKey: String): Boolean {
+        val cleanUrl = url.trim().trimEnd('/')
+        val cleanKey = anonKey.trim()
+        val changed = cleanUrl != supabaseUrl || cleanKey != supabaseAnonKey
+        val editor = prefs.edit()
+            .putString(KEY_SUPABASE_URL, cleanUrl)
+            .putString(KEY_SUPABASE_ANON_KEY, cleanKey)
+        if (changed) editor.remove(KEY_SUPABASE_VERIFIED_AT_MS)
+        return editor.commit()
+    }
+
+    fun clearSupabaseCredentials(): Boolean = prefs.edit()
+        .remove(KEY_SUPABASE_URL)
+        .remove(KEY_SUPABASE_ANON_KEY)
+        .remove(KEY_SUPABASE_VERIFIED_AT_MS)
+        .commit()
+
+    val supabaseVerifiedAtMs: Long
+        get() = prefs.getLong(KEY_SUPABASE_VERIFIED_AT_MS, 0L)
+
+    fun markSupabaseVerified() {
+        prefs.edit().putLong(KEY_SUPABASE_VERIFIED_AT_MS, System.currentTimeMillis()).apply()
+    }
+
+    fun clearSupabaseVerification() {
+        prefs.edit().remove(KEY_SUPABASE_VERIFIED_AT_MS).apply()
+    }
+
+    fun supabaseVerified(): Boolean = supabaseConfigured() && supabaseVerifiedAtMs > 0L
 
     var twilioMediaWebSocketUrl: String
         get() = prefs.getString("twilio_media_websocket_url", "").orEmpty()
@@ -117,6 +163,9 @@ class SettingsStore(context: Context) {
 
         const val DEFAULT_COACH_PERSONA = "ADAPTIVE"
 
+        private const val KEY_SUPABASE_URL = "supabase_url"
+        private const val KEY_SUPABASE_ANON_KEY = "supabase_anon_key"
+        private const val KEY_SUPABASE_VERIFIED_AT_MS = "supabase_verified_at_ms"
         private const val KEY_GROQ_BALANCED_MIGRATED = "groq_balanced_20b_migrated"
         private const val KEY_NOVA3_MIGRATED = "deepgram_nova3_migrated"
     }
