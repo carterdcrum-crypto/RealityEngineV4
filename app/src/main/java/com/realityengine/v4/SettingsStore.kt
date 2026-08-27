@@ -12,8 +12,23 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit().putString("groq_api_key", value.trim()).apply()
 
     var groqModel: String
-        get() = prefs.getString("groq_model", "llama-3.1-8b-instant").orEmpty()
-        set(value) = prefs.edit().putString("groq_model", value).apply()
+        get() {
+            val saved = prefs.getString("groq_model", DEFAULT_GROQ_MODEL).orEmpty().trim()
+            val normalized = saved.takeIf { it in SUPPORTED_GROQ_MODELS } ?: DEFAULT_GROQ_MODEL
+            if (saved != normalized) prefs.edit().putString("groq_model", normalized).apply()
+            return normalized
+        }
+        set(value) {
+            val clean = value.trim()
+            prefs.edit().putString(
+                "groq_model",
+                clean.takeIf { it in SUPPORTED_GROQ_MODELS } ?: DEFAULT_GROQ_MODEL
+            ).apply()
+        }
+
+    fun resetGroqModel() {
+        prefs.edit().putString("groq_model", DEFAULT_GROQ_MODEL).apply()
+    }
 
     var deepgramApiKey: String
         get() = prefs.getString("deepgram_api_key", "").orEmpty()
@@ -64,4 +79,12 @@ class SettingsStore(context: Context) {
     fun supabaseConfigured() = supabaseUrl.isNotBlank() && supabaseAnonKey.isNotBlank()
     fun twilioMediaConfigured() = twilioMediaWebSocketUrl.startsWith("wss://") && twilioAccessTokenEndpoint.startsWith("https://")
     fun privateUpdaterConfigured() = githubUpdaterToken.isNotBlank()
+
+    companion object {
+        const val DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+        private val SUPPORTED_GROQ_MODELS = setOf(
+            DEFAULT_GROQ_MODEL,
+            "llama-3.3-70b-versatile"
+        )
+    }
 }
