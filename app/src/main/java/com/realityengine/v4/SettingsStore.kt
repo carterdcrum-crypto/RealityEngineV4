@@ -13,12 +13,8 @@ class SettingsStore(context: Context) {
 
     var groqModel: String
         get() {
-            // One-time upgrade for installs that still carry the older 8B/70B coach default.
             if (!prefs.getBoolean(KEY_GROQ_BALANCED_MIGRATED, false)) {
-                prefs.edit()
-                    .putString("groq_model", DEFAULT_GROQ_MODEL)
-                    .putBoolean(KEY_GROQ_BALANCED_MIGRATED, true)
-                    .apply()
+                prefs.edit().putString("groq_model", DEFAULT_GROQ_MODEL).putBoolean(KEY_GROQ_BALANCED_MIGRATED, true).apply()
                 return DEFAULT_GROQ_MODEL
             }
             val saved = prefs.getString("groq_model", DEFAULT_GROQ_MODEL).orEmpty().trim()
@@ -28,17 +24,11 @@ class SettingsStore(context: Context) {
         }
         set(value) {
             val clean = value.trim()
-            prefs.edit()
-                .putString("groq_model", clean.takeIf { it in GROQ_MODELS } ?: DEFAULT_GROQ_MODEL)
-                .putBoolean(KEY_GROQ_BALANCED_MIGRATED, true)
-                .apply()
+            prefs.edit().putString("groq_model", clean.takeIf { it in GROQ_MODELS } ?: DEFAULT_GROQ_MODEL).putBoolean(KEY_GROQ_BALANCED_MIGRATED, true).apply()
         }
 
     fun resetGroqModel() {
-        prefs.edit()
-            .putString("groq_model", DEFAULT_GROQ_MODEL)
-            .putBoolean(KEY_GROQ_BALANCED_MIGRATED, true)
-            .apply()
+        prefs.edit().putString("groq_model", DEFAULT_GROQ_MODEL).putBoolean(KEY_GROQ_BALANCED_MIGRATED, true).apply()
     }
 
     var deepgramApiKey: String
@@ -47,12 +37,8 @@ class SettingsStore(context: Context) {
 
     var deepgramModel: String
         get() {
-            // Existing installs automatically move from Nova-2 Phonecall to Nova-3 once.
             if (!prefs.getBoolean(KEY_NOVA3_MIGRATED, false)) {
-                prefs.edit()
-                    .putString("deepgram_model", DEFAULT_DEEPGRAM_MODEL)
-                    .putBoolean(KEY_NOVA3_MIGRATED, true)
-                    .apply()
+                prefs.edit().putString("deepgram_model", DEFAULT_DEEPGRAM_MODEL).putBoolean(KEY_NOVA3_MIGRATED, true).apply()
                 return DEFAULT_DEEPGRAM_MODEL
             }
             val saved = prefs.getString("deepgram_model", DEFAULT_DEEPGRAM_MODEL).orEmpty().trim()
@@ -62,10 +48,7 @@ class SettingsStore(context: Context) {
         }
         set(value) {
             val clean = value.trim()
-            prefs.edit()
-                .putString("deepgram_model", clean.takeIf { it in DEEPGRAM_MODELS } ?: DEFAULT_DEEPGRAM_MODEL)
-                .putBoolean(KEY_NOVA3_MIGRATED, true)
-                .apply()
+            prefs.edit().putString("deepgram_model", clean.takeIf { it in DEEPGRAM_MODELS } ?: DEFAULT_DEEPGRAM_MODEL).putBoolean(KEY_NOVA3_MIGRATED, true).apply()
         }
 
     var supabaseUrl: String
@@ -96,6 +79,11 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean("haptics_enabled", true)
         set(value) = prefs.edit().putBoolean("haptics_enabled", value).apply()
 
+    /** Off by default. When enabled, active call audio is visibly recorded and reviewed after every call. */
+    var autoRecordCalls: Boolean
+        get() = prefs.getBoolean("auto_record_calls", false)
+        set(value) = prefs.edit().putBoolean("auto_record_calls", value).apply()
+
     var analysisFrequencyTurns: Int
         get() {
             if (prefs.contains("analysis_frequency_turns")) return prefs.getInt("analysis_frequency_turns", 1).coerceIn(1, 10)
@@ -111,19 +99,11 @@ class SettingsStore(context: Context) {
     fun privateUpdaterConfigured() = githubUpdaterToken.isNotBlank()
 
     companion object {
-        /** Balanced live-call default: much stronger than 8B while still very fast and inexpensive. */
         const val DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
-        val GROQ_MODELS = listOf(
-            DEFAULT_GROQ_MODEL,
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant"
-        )
+        val GROQ_MODELS = listOf(DEFAULT_GROQ_MODEL, "llama-3.3-70b-versatile", "llama-3.1-8b-instant")
 
         const val DEFAULT_DEEPGRAM_MODEL = "nova-3"
-        val DEEPGRAM_MODELS = listOf(
-            DEFAULT_DEEPGRAM_MODEL,
-            "nova-2-phonecall"
-        )
+        val DEEPGRAM_MODELS = listOf(DEFAULT_DEEPGRAM_MODEL, "nova-2-phonecall")
 
         private const val KEY_GROQ_BALANCED_MIGRATED = "groq_balanced_20b_migrated"
         private const val KEY_NOVA3_MIGRATED = "deepgram_nova3_migrated"
