@@ -6,25 +6,6 @@ import org.junit.Test
 
 class CallerMemoryAiExtractorTest {
     @Test
-    fun parsesStructuredMemoryAndDeduplicatesArrays() {
-        val learned = CallerMemoryAiExtractor.parse(
-            """{
-              "likes":["coffee","Coffee"],
-              "dislikes":["long meetings"],
-              "facts":["Works at Acme"],
-              "topics":["weekend trip"],
-              "starters":["Ask how the trip went"],
-              "unresolved":["Deciding where to stay"],
-              "style":"Direct and casual",
-              "summary":"Talked about a weekend trip and work."
-            }"""
-        )
-        assertEquals(listOf("coffee"), learned.likes)
-        assertEquals("Direct and casual", learned.preferredStyle)
-        assertEquals("Talked about a weekend trip and work.", learned.summary)
-    }
-
-    @Test
     fun mergePreservesExistingAndAvoidsCaseInsensitiveDuplicates() {
         val profile = CallerProfileStore.CallerProfile(
             phoneNumber = "5551234",
@@ -46,5 +27,34 @@ class CallerMemoryAiExtractorTest {
         assertEquals(listOf("Picking a restaurant"), profile.unresolvedTopics)
         assertEquals("Warm and concise", profile.preferredConversationStyle)
         assertEquals("Discussed dinner plans.", profile.lastCallSummary)
+    }
+
+    @Test
+    fun mergeAddsAllMemoryCategoriesAndKeepsExistingWhenNewFieldsAreBlank() {
+        val profile = CallerProfileStore.CallerProfile(
+            phoneNumber = "5559999",
+            dislikes = mutableListOf("Spam calls"),
+            preferredConversationStyle = "Direct",
+            lastCallSummary = "Existing summary",
+        )
+        CallSummaryBuilder.merge(
+            profile,
+            CallerMemoryAiExtractor.Learned(
+                likes = listOf("Live music"),
+                dislikes = listOf("spam calls", "Early meetings"),
+                facts = listOf("Works nights"),
+                topics = listOf("Weekend plans"),
+                starters = listOf("Ask how the concert went"),
+                unresolved = listOf("Choosing a restaurant"),
+            )
+        )
+        assertEquals(listOf("Live music"), profile.likes)
+        assertEquals(listOf("Spam calls", "Early meetings"), profile.dislikes)
+        assertEquals(listOf("Works nights"), profile.importantFacts)
+        assertEquals(listOf("Weekend plans"), profile.topics)
+        assertEquals(listOf("Ask how the concert went"), profile.conversationStarters)
+        assertEquals(listOf("Choosing a restaurant"), profile.unresolvedTopics)
+        assertEquals("Direct", profile.preferredConversationStyle)
+        assertEquals("Existing summary", profile.lastCallSummary)
     }
 }
