@@ -7,6 +7,7 @@ class CallerProfileSession(context: Context) {
     private val appContext = context.applicationContext
     private val profiles = CallerProfileStore(appContext)
     private val settings = SettingsStore(appContext)
+    private val cloud = SupabaseCallerMemorySync(appContext)
     private var activeNumber = ""
 
     @Synchronized
@@ -19,6 +20,7 @@ class CallerProfileSession(context: Context) {
         if (clean == activeNumber) return profiles.load(clean).also { applyPersona(it, conversation) }
         activeNumber = clean
         profiles.injectInto(conversation, clean)
+        cloud.syncAsync(clean)
         return profiles.load(clean).also { applyPersona(it, conversation) }
     }
 
