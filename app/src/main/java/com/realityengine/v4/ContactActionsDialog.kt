@@ -9,7 +9,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
 
-/** UI bridge for contact CRUD and saved/unsaved number blocking. */
+/** UI bridge for contact CRUD, native ringtones, and saved/unsaved number blocking. */
 class ContactActionsDialog(
     private val activity: Activity,
     private val manager: ContactManager
@@ -23,12 +23,18 @@ class ContactActionsDialog(
 
     fun manage(contact: ContactResolver.Contact, onDone: () -> Unit) {
         val blocked = manager.isBlocked(contact.number)
-        val options = arrayOf("Edit contact", "Delete contact", if (blocked) "Unblock number" else "Block number")
+        val options = arrayOf(
+            "Edit contact",
+            "Change ringtone",
+            "Delete contact",
+            if (blocked) "Unblock number" else "Block number",
+        )
         AlertDialog.Builder(activity).setTitle(contact.name).setItems(options) { _, which ->
             when (which) {
                 0 -> edit(contact, onDone)
-                1 -> confirmDelete(contact, onDone)
-                2 -> report(if (blocked) manager.unblock(contact.number) else manager.block(contact.number), onDone)
+                1 -> chooseRingtone(contact, onDone)
+                2 -> confirmDelete(contact, onDone)
+                3 -> report(if (blocked) manager.unblock(contact.number) else manager.block(contact.number), onDone)
             }
         }.show()
     }
@@ -47,6 +53,33 @@ class ContactActionsDialog(
         editFields("Edit contact", contact.name, contact.number) { name, phone ->
             report(manager.update(contact.contactId, name, phone), onDone)
         }
+    }
+
+    private fun chooseRingtone(contact: ContactResolver.Contact, onDone: () -> Unit) {
+        if (!canWrite() || contact.contactId < 0L) return
+        val choices = ContactMediaStore.ringtoneChoices(activity)
+        if (choices.isEmpty()) {
+            Toast.makeText(activity, "No ringtones available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val current = ContactMediaStore.customRingtoneUri(activity, contact.contactId)?.toString()
+        val selected = choices.indexOfFirst { it.uri?.toString() == current }.coerceAtLeast(0)
+        val labels = choices.map { it.title }.toTypedArray()
+        AlertDialog.Builder(activity)
+            .setTitle("Ringtone for ${contact.name}")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                val choice = choices[which]
+                val success = ContactMediaStore.setCustomRingtone(activity, contact.contactId, choice.uri)
+                Toast.makeText(
+                    activity,
+                    if (success) "Ringtone set to ${choice.title}" else "Could not change ringtone",
+                    Toast.LENGTH_SHORT,
+                ).show()
+                if (success) onDone()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun confirmDelete(contact: ContactResolver.Contact, onDone: () -> Unit) {
