@@ -16,6 +16,10 @@ class LiveConversationSession(context: Context) {
     private var activeNumber = ""
     private var pendingChosenResponse: LiveResponseEngine.ChosenResponse? = null
 
+    init {
+        LiveCoachQuickActions.attach { modeId -> requestQuickMode(modeId) }
+    }
+
     @Synchronized
     fun bindActiveCaller(): String? {
         val number = CallSessionRegistry.primaryNumber() ?: return null
@@ -41,6 +45,13 @@ class LiveConversationSession(context: Context) {
     fun onUserTurn(text: String): LiveResponseEngine.ChosenResponse {
         bindActiveCaller()
         return responseEngine.onUserTurn(text).also { pendingChosenResponse = it }
+    }
+
+    fun requestQuickMode(modeId: String): Boolean {
+        if (bindActiveCaller().isNullOrBlank()) return false
+        if (CoachQuickModeCatalog.byId(modeId) == null) return false
+        responseEngine.requestQuickMode(modeId)
+        return true
     }
 
     @Synchronized
