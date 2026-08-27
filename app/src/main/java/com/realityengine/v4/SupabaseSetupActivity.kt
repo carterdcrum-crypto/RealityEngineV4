@@ -159,7 +159,7 @@ class SupabaseSetupActivity : Activity() {
         setTextColor(primaryText)
         setHintTextColor(muted)
         textSize = 13f
-        singleLine = true
+        setSingleLine(true)
         typeface = Typeface.MONOSPACE
         setPadding(dp(12), 0, dp(12), 0)
         background = RealityVisuals.panel(this@SupabaseSetupActivity, fill = RealityVisuals.Colors.BackgroundRaised, stroke = RealityVisuals.Colors.Border, radiusDp = 10f)
