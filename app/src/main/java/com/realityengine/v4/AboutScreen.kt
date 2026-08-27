@@ -17,7 +17,7 @@ class AboutScreen(private val activity: Activity, private val onBack: () -> Unit
     private val cyan = RealityVisuals.Colors.Cyan
     private val magenta = RealityVisuals.Colors.Magenta
     private val green = RealityVisuals.Colors.Green
-    private val text = RealityVisuals.Colors.Text
+    private val primaryText = RealityVisuals.Colors.Text
     private val muted = RealityVisuals.Colors.TextDim
 
     fun show() {
@@ -37,7 +37,7 @@ class AboutScreen(private val activity: Activity, private val onBack: () -> Unit
         }, LinearLayout.LayoutParams(-1, dp(28)))
         root.addView(TextView(activity).apply {
             text = AboutContent.TITLE
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 28f)
         })
         root.addView(TextView(activity).apply {
@@ -142,7 +142,7 @@ class AboutScreen(private val activity: Activity, private val onBack: () -> Unit
         }
         stack.addView(TextView(activity).apply {
             text = capability.title
-            setTextColor(text)
+            setTextColor(primaryText)
             RealityTypography.displayMedium(this, 14f)
         })
         stack.addView(TextView(activity).apply {
