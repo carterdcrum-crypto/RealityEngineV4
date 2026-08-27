@@ -33,12 +33,7 @@ class SettingsDashboardScreen(
     private val onCallAudio: () -> Unit,
     private val onAndroidPhoneSettings: () -> Unit,
 ) {
-    private data class Readiness(
-        val label: String,
-        val ready: Boolean,
-        val detail: String,
-        val attention: Boolean = false,
-    )
+    private data class Readiness(val label: String, val ready: Boolean, val detail: String, val attention: Boolean = false)
 
     private val cyan = RealityVisuals.Colors.Cyan
     private val magenta = RealityVisuals.Colors.Magenta
@@ -58,101 +53,75 @@ class SettingsDashboardScreen(
         }
 
         root.addView(header())
-        root.addView(readinessPanel(), LinearLayout.LayoutParams(-1, -2).apply {
-            setMargins(0, dp(8), 0, dp(12))
-        })
+        root.addView(readinessPanel(), LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(8), 0, dp(12)) })
 
         root.addView(section("SETUP"))
+        root.addView(row("Setup walkthrough", "Guided phone, permission, audio and AI setup", "GUIDE", cyan, onWalkthrough))
         root.addView(row(
-            title = "Setup walkthrough",
-            subtitle = "Guided phone, permission, audio and AI setup",
-            status = "GUIDE",
-            statusColor = cyan,
-            click = onWalkthrough,
+            "Default phone application",
+            defaultPhoneDetail(),
+            if (isDefaultPhone()) "READY" else "SETUP",
+            if (isDefaultPhone()) green else amber,
+            onDefaultPhone,
         ))
         root.addView(row(
-            title = "Default phone application",
-            subtitle = defaultPhoneDetail(),
-            status = if (isDefaultPhone()) "READY" else "SETUP",
-            statusColor = if (isDefaultPhone()) green else amber,
-            click = onDefaultPhone,
-        ))
-        root.addView(row(
-            title = "Shizuku call audio",
-            subtitle = shizukuDetail(),
-            status = if (shizukuReady()) "READY" else "SETUP",
-            statusColor = if (shizukuReady()) green else amber,
-            click = onShizuku,
+            "Shizuku call audio",
+            shizukuDetail(),
+            if (shizukuReady()) "READY" else "SETUP",
+            if (shizukuReady()) green else amber,
+            onShizuku,
         ))
         val audio = callAudioReadiness()
         root.addView(row(
-            title = "Call audio source",
-            subtitle = audio.detail,
-            status = if (audio.ready) "READY" else if (audio.attention) "BLOCKED" else "CHECK",
-            statusColor = if (audio.ready) green else if (audio.attention) magenta else amber,
-            click = onCallAudio,
+            "Call audio source",
+            audio.detail,
+            if (audio.ready) "READY" else if (audio.attention) "BLOCKED" else "CHECK",
+            if (audio.ready) green else if (audio.attention) magenta else amber,
+            onCallAudio,
         ))
 
         root.addView(section("INTELLIGENCE"))
         root.addView(row(
-            title = "Groq API",
-            subtitle = if (store.groqConfigured()) "API key securely configured" else "Required for response coaching",
-            status = if (store.groqConfigured()) "READY" else "KEY",
-            statusColor = if (store.groqConfigured()) green else amber,
+            "Groq API",
+            if (store.groqConfigured()) "API key securely configured" else "Required for response coaching",
+            if (store.groqConfigured()) "READY" else "KEY",
+            if (store.groqConfigured()) green else amber,
         ) { editSecret("Groq API key", store.groqApiKey) { store.groqApiKey = it } })
+        root.addView(row("Groq coach model", groqModelSummary(), "MODEL", cyan) { chooseGroqModel() })
         root.addView(row(
-            title = "Groq coach model",
-            subtitle = groqModelSummary(),
-            status = "MODEL",
-            statusColor = cyan,
-        ) { chooseGroqModel() })
-        root.addView(row(
-            title = "Deepgram API",
-            subtitle = if (store.deepgramConfigured()) "Live transcription configured" else "Required for live transcription",
-            status = if (store.deepgramConfigured()) "READY" else "KEY",
-            statusColor = if (store.deepgramConfigured()) green else amber,
+            "Deepgram API",
+            if (store.deepgramConfigured()) "Live transcription configured" else "Required for live transcription",
+            if (store.deepgramConfigured()) "READY" else "KEY",
+            if (store.deepgramConfigured()) green else amber,
         ) { editSecret("Deepgram API key", store.deepgramApiKey) { store.deepgramApiKey = it } })
+        root.addView(row("Deepgram model", deepgramModelSummary(), "MODEL", cyan) { chooseDeepgramModel() })
         root.addView(row(
-            title = "Deepgram model",
-            subtitle = deepgramModelSummary(),
-            status = "MODEL",
-            statusColor = cyan,
-        ) { chooseDeepgramModel() })
-        root.addView(row(
-            title = "Supabase caller memory",
-            subtitle = if (store.supabaseConfigured()) "Caller profile sync configured" else "Optional cloud caller-profile memory",
-            status = if (store.supabaseConfigured()) "READY" else "OPTIONAL",
-            statusColor = if (store.supabaseConfigured()) green else muted,
+            "Supabase caller memory",
+            if (store.supabaseConfigured()) "URL + publishable key saved · tap to test or edit" else "Set URL, publishable key and test caller-memory sync",
+            if (store.supabaseConfigured()) "CONFIG" else "SETUP",
+            if (store.supabaseConfigured()) cyan else amber,
         ) { editSupabase() })
 
         root.addView(section("LIVE BEHAVIOR"))
-        root.addView(toggleRow(
-            title = "Response coach",
-            subtitle = "Generate ranked response suggestions during calls",
-            enabled = store.responseCoachEnabled,
-        ) {
+        root.addView(toggleRow("Response coach", "Generate ranked response suggestions during calls", store.responseCoachEnabled) {
             store.responseCoachEnabled = !store.responseCoachEnabled
             onRefresh()
         })
         val persona = CoachPersonaCatalog.byId(store.coachPersonaId)
         root.addView(row(
-            title = "Coach persona",
-            subtitle = "${persona.description} Tap to choose; caller overrides are available inside the picker.",
-            status = persona.label.uppercase(),
-            statusColor = magenta,
+            "Coach persona",
+            "${persona.description} Caller overrides are available inside the picker.",
+            persona.label.uppercase(),
+            magenta,
         ) { chooseCoachPersona() })
-        root.addView(toggleRow(
-            title = "Haptic alerts",
-            subtitle = "Quiet vibration when multiple signals are elevated",
-            enabled = store.hapticsEnabled,
-        ) {
+        root.addView(toggleRow("Haptic alerts", "Quiet vibration when multiple signals are elevated", store.hapticsEnabled) {
             store.hapticsEnabled = !store.hapticsEnabled
             onRefresh()
         })
         root.addView(toggleRow(
-            title = "Auto-record calls for review",
-            subtitle = "Show REC while active, then require Save or Permanently Delete after hangup",
-            enabled = store.autoRecordCalls,
+            "Auto-record calls for review",
+            "Show REC while active, then require Save or Permanently Delete after hangup",
+            store.autoRecordCalls,
         ) {
             if (store.autoRecordCalls) {
                 store.autoRecordCalls = false
@@ -162,57 +131,30 @@ class SettingsDashboardScreen(
                     .setTitle("Enable call recording?")
                     .setMessage("Recording will be visibly marked during calls and reviewed after every recorded call. Only record calls where recording is permitted.")
                     .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Enable") { _, _ ->
-                        store.autoRecordCalls = true
-                        onRefresh()
-                    }
+                    .setPositiveButton("Enable") { _, _ -> store.autoRecordCalls = true; onRefresh() }
                     .show()
             }
         })
         root.addView(row(
-            title = "Analysis frequency",
-            subtitle = "Run coaching every ${store.analysisFrequencyTurns} ${if (store.analysisFrequencyTurns == 1) "turn" else "turns"}",
-            status = "${store.analysisFrequencyTurns}×",
-            statusColor = cyan,
+            "Analysis frequency",
+            "Run coaching every ${store.analysisFrequencyTurns} ${if (store.analysisFrequencyTurns == 1) "turn" else "turns"}",
+            "${store.analysisFrequencyTurns}×",
+            cyan,
         ) { chooseAnalysisFrequency() })
 
         root.addView(section("SYSTEM"))
-        root.addView(row(
-            title = "Button geometry",
-            subtitle = "Visual shape used by primary controls",
-            status = buttonShapeLabel.uppercase(),
-            statusColor = cyan,
-            click = onCycleButtonShape,
-        ))
-        root.addView(row(
-            title = "Android phone settings",
-            subtitle = "Manage system calling apps and defaults",
-            status = "ANDROID",
-            statusColor = muted,
-            click = onAndroidPhoneSettings,
-        ))
+        root.addView(row("Button geometry", "Visual shape used by primary controls", buttonShapeLabel.uppercase(), cyan, onCycleButtonShape))
+        root.addView(row("Android phone settings", "Manage system calling apps and defaults", "ANDROID", muted, onAndroidPhoneSettings))
 
         root.addView(section("APP"))
+        root.addView(row("App updates", "Check the private GitHub release for the newest green build", "CHECK", cyan, onCheckUpdate))
         root.addView(row(
-            title = "App updates",
-            subtitle = "Check the private GitHub release for the newest green build",
-            status = "CHECK",
-            statusColor = cyan,
-            click = onCheckUpdate,
-        ))
-        root.addView(row(
-            title = "Private update access",
-            subtitle = if (store.privateUpdaterConfigured()) "GitHub updater token configured" else "GitHub token required for private updates",
-            status = if (store.privateUpdaterConfigured()) "READY" else "TOKEN",
-            statusColor = if (store.privateUpdaterConfigured()) green else amber,
+            "Private update access",
+            if (store.privateUpdaterConfigured()) "GitHub updater token configured" else "GitHub token required for private updates",
+            if (store.privateUpdaterConfigured()) "READY" else "TOKEN",
+            if (store.privateUpdaterConfigured()) green else amber,
         ) { editSecret("GitHub updater token", store.githubUpdaterToken) { store.githubUpdaterToken = it } })
-        root.addView(row(
-            title = "About Reality Engine",
-            subtitle = "Capabilities, design intent and signal guidance",
-            status = "INFO",
-            statusColor = magenta,
-            click = onAbout,
-        ))
+        root.addView(row("About Reality Engine", "Capabilities, design intent and signal guidance", "INFO", magenta, onAbout))
 
         return root
     }
@@ -246,34 +188,31 @@ class SettingsDashboardScreen(
     private fun readinessPanel(): View {
         val items = readinessItems()
         val readyCount = items.count { it.ready }
-        val wrapper = LinearLayout(activity).apply {
+        return LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             background = RealityVisuals.panel(activity, fill = raised, stroke = border, radiusDp = 14f)
             setPadding(dp(12), dp(10), dp(12), dp(10))
-        }
-        wrapper.addView(LinearLayout(activity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(activity).apply {
-                text = "SYSTEM READINESS"
-                RealityVisuals.styleMicroLabel(this, cyan)
-            }, LinearLayout.LayoutParams(0, dp(24), 1f))
-            addView(TextView(activity).apply {
-                text = if (readyCount == items.size) "ALL SYSTEMS READY" else "${items.size - readyCount} NEED ATTENTION"
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                RealityVisuals.styleMicroLabel(this, if (readyCount == items.size) green else amber)
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(activity).apply {
+                    text = "SYSTEM READINESS"
+                    RealityVisuals.styleMicroLabel(this, cyan)
+                }, LinearLayout.LayoutParams(0, dp(24), 1f))
+                addView(TextView(activity).apply {
+                    text = if (readyCount == items.size) "ALL SYSTEMS READY" else "${items.size - readyCount} NEED ATTENTION"
+                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                    RealityVisuals.styleMicroLabel(this, if (readyCount == items.size) green else amber)
+                })
             })
-        })
-
-        wrapper.addView(ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = items.size
-            progress = readyCount
-            progressTintList = ColorStateList.valueOf(if (readyCount == items.size) green else cyan)
-            progressBackgroundTintList = ColorStateList.valueOf(RealityVisuals.Colors.Track)
-        }, LinearLayout.LayoutParams(-1, dp(6)).apply { setMargins(0, dp(2), 0, dp(8)) })
-
-        items.forEach { item -> wrapper.addView(readinessLine(item)) }
-        return wrapper
+            addView(ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = items.size
+                progress = readyCount
+                progressTintList = ColorStateList.valueOf(if (readyCount == items.size) green else cyan)
+                progressBackgroundTintList = ColorStateList.valueOf(RealityVisuals.Colors.Track)
+            }, LinearLayout.LayoutParams(-1, dp(6)).apply { setMargins(0, dp(2), 0, dp(8)) })
+            items.forEach { addView(readinessLine(it)) }
+        }
     }
 
     private fun readinessLine(item: Readiness): View = LinearLayout(activity).apply {
@@ -304,75 +243,51 @@ class SettingsDashboardScreen(
         RealityVisuals.styleMicroLabel(this, magenta)
     }
 
-    private fun toggleRow(
-        title: String,
-        subtitle: String,
-        enabled: Boolean,
-        click: () -> Unit,
-    ): View = row(
-        title = title,
-        subtitle = subtitle,
-        status = if (enabled) "ON" else "OFF",
-        statusColor = if (enabled) green else muted,
-        click = click,
-    )
+    private fun toggleRow(title: String, subtitle: String, enabled: Boolean, click: () -> Unit): View =
+        row(title, subtitle, if (enabled) "ON" else "OFF", if (enabled) green else muted, click)
 
-    private fun row(
-        title: String,
-        subtitle: String,
-        status: String,
-        statusColor: Int,
-        click: () -> Unit,
-    ): View = LinearLayout(activity).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(14), dp(10), dp(10), dp(10))
-        background = RealityVisuals.panel(activity, fill = panel, stroke = border, radiusDp = 12f)
-        isClickable = true
-        isFocusable = true
-
-        val textStack = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
+    private fun row(title: String, subtitle: String, status: String, statusColor: Int, click: () -> Unit): View =
+        LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-        }
-        textStack.addView(TextView(activity).apply {
-            text = title
-            setTextColor(primaryText)
-            RealityTypography.displayMedium(this, 14.5f)
-        })
-        textStack.addView(TextView(activity).apply {
-            text = subtitle
-            setTextColor(muted)
-            setPadding(0, dp(3), dp(8), 0)
-            RealityTypography.display(this, 11.5f)
-            maxLines = 2
-        })
-        addView(textStack, LinearLayout.LayoutParams(0, -2, 1f))
+            setPadding(dp(14), dp(10), dp(10), dp(10))
+            background = RealityVisuals.panel(activity, fill = panel, stroke = border, radiusDp = 12f)
+            isClickable = true
+            isFocusable = true
+            minimumHeight = dp(72)
 
-        addView(TextView(activity).apply {
-            text = status
-            gravity = Gravity.CENTER
-            background = RealityVisuals.panel(
-                activity,
-                fill = if (statusColor == green) Color.rgb(6, 28, 22) else raised,
-                stroke = statusColor,
-                radiusDp = 18f,
-            )
-            setPadding(dp(8), dp(4), dp(8), dp(4))
-            RealityVisuals.styleMicroLabel(this, statusColor)
-            maxLines = 1
-        })
+            addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(TextView(activity).apply {
+                    text = title
+                    setTextColor(primaryText)
+                    RealityTypography.displayMedium(this, 14.5f)
+                })
+                addView(TextView(activity).apply {
+                    text = subtitle
+                    setTextColor(muted)
+                    setPadding(0, dp(3), dp(8), 0)
+                    RealityTypography.display(this, 11.5f)
+                    maxLines = 2
+                })
+            }, LinearLayout.LayoutParams(0, -2, 1f))
 
-        setOnClickListener {
-            RealityVisuals.reveal(this)
-            click()
-        }
-    }.also {
-        it.layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
-            setMargins(0, dp(4), 0, dp(4))
-        }
-        it.minimumHeight = dp(72)
-    }
+            addView(TextView(activity).apply {
+                text = status
+                gravity = Gravity.CENTER
+                background = RealityVisuals.panel(
+                    activity,
+                    fill = if (statusColor == green) Color.rgb(6, 28, 22) else raised,
+                    stroke = statusColor,
+                    radiusDp = 18f,
+                )
+                setPadding(dp(8), dp(4), dp(8), dp(4))
+                RealityVisuals.styleMicroLabel(this, statusColor)
+                maxLines = 1
+            })
+            setOnClickListener { RealityVisuals.reveal(this); click() }
+        }.also { it.layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(4), 0, dp(4)) } }
 
     private fun readinessItems(): List<Readiness> = listOf(
         Readiness("Default phone", isDefaultPhone(), defaultPhoneDetail()),
@@ -388,22 +303,15 @@ class SettingsDashboardScreen(
         return telecom.defaultDialerPackage == activity.packageName
     }
 
-    private fun defaultPhoneDetail(): String =
-        if (isDefaultPhone()) "Reality Engine is the active phone app" else "Choose Reality Engine as the default phone app"
-
-    private fun microphoneReady(): Boolean =
-        activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-
-    private fun shizukuReady(): Boolean =
-        ShizukuAudioStatus.binderAvailable() && ShizukuAudioStatus.permissionGranted()
-
-    private fun shizukuDetail(): String = when {
+    private fun defaultPhoneDetail() = if (isDefaultPhone()) "Reality Engine is the active phone app" else "Choose Reality Engine as the default phone app"
+    private fun microphoneReady() = activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    private fun shizukuReady() = ShizukuAudioStatus.binderAvailable() && ShizukuAudioStatus.permissionGranted()
+    private fun shizukuDetail() = when {
         !ShizukuAudioStatus.binderAvailable() -> "Shizuku is offline"
         !ShizukuAudioStatus.permissionGranted() -> "Authorization required"
         else -> "Connected and authorized"
     }
-
-    private fun coachReady(): Boolean = store.groqConfigured() && store.responseCoachEnabled
+    private fun coachReady() = store.groqConfigured() && store.responseCoachEnabled
 
     private fun callAudioReadiness(): Readiness = when (CallAudioBridge.state(activity)) {
         CallAudioBridge.State.VOICE_CALL_SOURCE_AVAILABLE -> Readiness("Call audio", true, "Supported voice-call audio source available")
@@ -413,16 +321,13 @@ class SettingsDashboardScreen(
         CallAudioBridge.State.VOICE_CALL_SOURCE_BLOCKED -> Readiness("Call audio", false, "This phone is blocking the voice-call source", attention = true)
     }
 
-    private fun groqModelSummary(): String = when (store.groqModel) {
+    private fun groqModelSummary() = when (store.groqModel) {
         "openai/gpt-oss-20b" -> "GPT-OSS 20B · balanced"
         "llama-3.3-70b-versatile" -> "Llama 3.3 70B · higher language quality"
         else -> "Llama 3.1 8B · lowest latency"
     }
 
-    private fun deepgramModelSummary(): String = when (store.deepgramModel) {
-        "nova-3" -> "Nova-3 · recommended live transcription"
-        else -> "Nova-2 Phonecall · compatibility fallback"
-    }
+    private fun deepgramModelSummary() = if (store.deepgramModel == "nova-3") "Nova-3 · recommended live transcription" else "Nova-2 Phonecall · compatibility fallback"
 
     private fun chooseCoachPersona() {
         val personas = CoachPersonaCatalog.all
@@ -430,14 +335,8 @@ class SettingsDashboardScreen(
         val selected = personas.indexOfFirst { it.id == store.coachPersonaId }.coerceAtLeast(0)
         AlertDialog.Builder(activity)
             .setTitle("Default coach persona")
-            .setSingleChoiceItems(labels, selected) { dialog, which ->
-                store.coachPersonaId = personas[which].id
-                dialog.dismiss()
-                onRefresh()
-            }
-            .setNeutralButton("Caller overrides") { _, _ ->
-                activity.startActivity(Intent(activity, CoachPersonaManagerActivity::class.java))
-            }
+            .setSingleChoiceItems(labels, selected) { dialog, which -> store.coachPersonaId = personas[which].id; dialog.dismiss(); onRefresh() }
+            .setNeutralButton("Caller overrides") { _, _ -> activity.startActivity(Intent(activity, CoachPersonaManagerActivity::class.java)) }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -451,14 +350,9 @@ class SettingsDashboardScreen(
                 else -> "Llama 3.1 8B — Fastest"
             }
         }.toTypedArray()
-        val selected = models.indexOf(store.groqModel).coerceAtLeast(0)
         AlertDialog.Builder(activity)
             .setTitle("Groq coach model")
-            .setSingleChoiceItems(labels, selected) { dialog, which ->
-                store.groqModel = models[which]
-                dialog.dismiss()
-                onRefresh()
-            }
+            .setSingleChoiceItems(labels, models.indexOf(store.groqModel).coerceAtLeast(0)) { dialog, which -> store.groqModel = models[which]; dialog.dismiss(); onRefresh() }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -466,14 +360,9 @@ class SettingsDashboardScreen(
     private fun chooseDeepgramModel() {
         val models = SettingsStore.DEEPGRAM_MODELS
         val labels = models.map { if (it == "nova-3") "Nova-3 — Recommended" else "Nova-2 Phonecall — Compatibility" }.toTypedArray()
-        val selected = models.indexOf(store.deepgramModel).coerceAtLeast(0)
         AlertDialog.Builder(activity)
             .setTitle("Deepgram transcription model")
-            .setSingleChoiceItems(labels, selected) { dialog, which ->
-                store.deepgramModel = models[which]
-                dialog.dismiss()
-                onRefresh()
-            }
+            .setSingleChoiceItems(labels, models.indexOf(store.deepgramModel).coerceAtLeast(0)) { dialog, which -> store.deepgramModel = models[which]; dialog.dismiss(); onRefresh() }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -481,34 +370,15 @@ class SettingsDashboardScreen(
     private fun chooseAnalysisFrequency() {
         val values = intArrayOf(1, 2, 3, 5, 8, 10)
         val labels = values.map { if (it == 1) "Every turn" else "Every $it turns" }.toTypedArray()
-        val selected = values.indexOf(store.analysisFrequencyTurns).coerceAtLeast(0)
         AlertDialog.Builder(activity)
             .setTitle("Analysis frequency")
-            .setSingleChoiceItems(labels, selected) { dialog, which ->
-                store.analysisFrequencyTurns = values[which]
-                dialog.dismiss()
-                onRefresh()
-            }
+            .setSingleChoiceItems(labels, values.indexOf(store.analysisFrequencyTurns).coerceAtLeast(0)) { dialog, which -> store.analysisFrequencyTurns = values[which]; dialog.dismiss(); onRefresh() }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
     private fun editSupabase() {
-        val input = EditText(activity).apply {
-            setText(store.supabaseUrl)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-            setSelection(length())
-        }
-        AlertDialog.Builder(activity)
-            .setTitle("Supabase URL")
-            .setMessage("Set the project URL. The anon key can remain in secure storage if already configured.")
-            .setView(input)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save") { _, _ ->
-                store.supabaseUrl = input.text.toString().trim()
-                onRefresh()
-            }
-            .show()
+        activity.startActivity(Intent(activity, SupabaseSetupActivity::class.java))
     }
 
     private fun editSecret(title: String, current: String, save: (String) -> Unit) {
@@ -521,12 +391,9 @@ class SettingsDashboardScreen(
             .setTitle(title)
             .setView(input)
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save") { _, _ ->
-                save(input.text.toString().trim())
-                onRefresh()
-            }
+            .setPositiveButton("Save") { _, _ -> save(input.text.toString().trim()); onRefresh() }
             .show()
     }
 
-    private fun dp(value: Int): Int = (value * activity.resources.displayMetrics.density).toInt()
+    private fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
 }
