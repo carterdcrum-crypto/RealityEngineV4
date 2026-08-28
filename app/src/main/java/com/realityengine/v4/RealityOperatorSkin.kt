@@ -16,20 +16,17 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
-import android.view.ViewTreeObserver
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
-import java.util.Collections
-import java.util.WeakHashMap
 import kotlin.math.min
 
 /**
  * Asset-first visual shell for the existing V4 View hierarchy.
  *
- * This deliberately does not own navigation, data, telephony, AI, audio, update, memory or
- * soundboard behavior. It watches the already-built View tree and applies the shipped raster atlas
- * as the environment underneath V4's controls.
+ * This layer is deliberately fail-open: no visual asset or decoration failure is allowed to crash
+ * the dialer. It never owns navigation, data, telephony, AI, audio, update, memory or soundboard
+ * behavior.
  */
 object RealityOperatorSkin {
     enum class Scene(val frame: Int) {
@@ -41,36 +38,24 @@ object RealityOperatorSkin {
         MEMORY(5),
     }
 
-    private val attached = Collections.synchronizedMap(WeakHashMap<Activity, ViewTreeObserver.OnGlobalLayoutListener>())
-    private val lastScene = Collections.synchronizedMap(WeakHashMap<Activity, Scene>())
-
     val callbacks = object : Application.ActivityLifecycleCallbacks {
-        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = attach(activity)
-        override fun onActivityStarted(activity: Activity) = attach(activity)
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+        override fun onActivityStarted(activity: Activity) = Unit
         override fun onActivityResumed(activity: Activity) {
-            attach(activity)
-            apply(activity)
+            // Never decorate while Android is constructing or laying out the Activity. Waiting for
+            // the content root to post avoids re-entrant layout work on Samsung/One UI.
+            activity.findViewById<ViewGroup>(android.R.id.content)?.post {
+                applySafely(activity)
+            }
         }
         override fun onActivityPaused(activity: Activity) = Unit
         override fun onActivityStopped(activity: Activity) = Unit
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-        override fun onActivityDestroyed(activity: Activity) {
-            val listener = attached.remove(activity)
-            val content = activity.findViewById<ViewGroup>(android.R.id.content)
-            if (listener != null && content?.viewTreeObserver?.isAlive == true) {
-                runCatching { content.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
-            }
-            lastScene.remove(activity)
-        }
+        override fun onActivityDestroyed(activity: Activity) = Unit
     }
 
-    private fun attach(activity: Activity) {
-        if (attached.containsKey(activity)) return
-        val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-        val listener = ViewTreeObserver.OnGlobalLayoutListener { apply(activity) }
-        attached[activity] = listener
-        content.viewTreeObserver.addOnGlobalLayoutListener(listener)
-        content.post { apply(activity) }
+    fun applySafely(activity: Activity) {
+        runCatching { apply(activity) }
     }
 
     private fun apply(activity: Activity) {
@@ -79,14 +64,13 @@ object RealityOperatorSkin {
         val root = content.getChildAt(0)
         val scene = sceneFor(activity, root)
 
-        if (lastScene[activity] != scene || root.background !is OperatorSceneDrawable) {
-            root.background = OperatorSceneDrawable(activity, scene)
-            lastScene[activity] = scene
-        }
+        // Replacing a drawable is cheap and, unlike the old global-layout listener, cannot loop
+        // back into layout callbacks indefinitely.
+        root.background = OperatorSceneDrawable(activity, scene)
 
         activity.window.statusBarColor = Color.rgb(2, 7, 12)
         activity.window.navigationBarColor = Color.rgb(2, 7, 12)
-        softenTree(root, isRoot = true)
+        softenTree(root, isRoot = true, depth = 0)
     }
 
     private fun sceneFor(activity: Activity, root: View): Scene {
@@ -128,15 +112,16 @@ object RealityOperatorSkin {
     /** MainActivity's bottom nav always contains Settings/Traffic/Index labels. Read its scroll body
      * instead so those persistent nav labels do not force the wrong scene. */
     private fun primaryMainText(root: View): String {
-        val scroll = firstScrollView(root)
+        val scroll = firstScrollView(root, 0)
         return visibleText(scroll ?: root)
     }
 
-    private fun firstScrollView(view: View): ScrollView? {
+    private fun firstScrollView(view: View, depth: Int): ScrollView? {
+        if (depth > 12) return null
         if (view is ScrollView) return view
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) {
-                firstScrollView(view.getChildAt(i))?.let { return it }
+            for (i in 0 until min(view.childCount, 90)) {
+                firstScrollView(view.getChildAt(i), depth + 1)?.let { return it }
             }
         }
         return null
@@ -149,7 +134,7 @@ object RealityOperatorSkin {
     }
 
     private fun collectText(view: View, out: StringBuilder, depth: Int) {
-        if (depth > 8 || out.length > 2200 || view.visibility != View.VISIBLE) return
+        if (depth > 10 || out.length > 2200 || view.visibility != View.VISIBLE) return
         if (view is TextView) {
             val value = view.text?.toString().orEmpty()
             if (value.isNotBlank()) out.append(value).append('\n')
@@ -161,31 +146,38 @@ object RealityOperatorSkin {
 
     /**
      * Let the raster environment breathe through legacy opaque backgrounds without changing View
-     * structure or event handlers. Existing neon borders and status colors remain intact.
+     * structure or event handlers. Each individual decoration is isolated so an unusual Android
+     * drawable implementation cannot take down the Activity.
      */
-    private fun softenTree(view: View, isRoot: Boolean = false) {
+    private fun softenTree(view: View, isRoot: Boolean = false, depth: Int) {
+        if (depth > 14) return
         if (!isRoot) {
-            when (val bg = view.background) {
-                is ColorDrawable -> {
-                    if (isDark(bg.color)) {
-                        val alpha = when (view) {
-                            is ScrollView, is ViewGroup -> 28
-                            else -> 70
+            runCatching {
+                when (val bg = view.background) {
+                    is ColorDrawable -> {
+                        if (isDark(bg.color)) {
+                            val alpha = when (view) {
+                                is ScrollView, is ViewGroup -> 28
+                                else -> 70
+                            }
+                            bg.color = Color.argb(alpha, Color.red(bg.color), Color.green(bg.color), Color.blue(bg.color))
                         }
-                        bg.color = Color.argb(alpha, Color.red(bg.color), Color.green(bg.color), Color.blue(bg.color))
                     }
-                }
-                null -> Unit
-                else -> {
-                    if (view is Button || view is TextView || view is ViewGroup) {
-                        bg.mutate().alpha = if (view is Button) 232 else 220
+                    null -> Unit
+                    else -> {
+                        // Buttons/cards get translucency; leave complex framework widgets alone.
+                        if (view is Button || view is TextView) {
+                            bg.mutate().alpha = if (view is Button) 232 else 220
+                        }
                     }
                 }
             }
         }
 
         if (view is ViewGroup) {
-            for (i in 0 until view.childCount) softenTree(view.getChildAt(i))
+            for (i in 0 until min(view.childCount, 120)) {
+                softenTree(view.getChildAt(i), depth = depth + 1)
+            }
         }
     }
 
@@ -203,15 +195,28 @@ object RealityOperatorSkin {
         private val bitmap = Atlas.bitmap(activity)
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.rgb(3, 7, 12)
+        }
 
         override fun draw(canvas: Canvas) {
-            if (bounds.isEmpty || bitmap.width <= 0 || bitmap.height <= 0) return
-            val calculated = ((bitmap.width * 13f) / 6f).toInt().coerceAtLeast(1)
-            val frameHeight = if (calculated * 6 <= bitmap.height) calculated else (bitmap.height / 6).coerceAtLeast(1)
-            val top = (scene.frame * frameHeight).coerceIn(0, (bitmap.height - 1).coerceAtLeast(0))
-            val bottom = (top + frameHeight).coerceAtMost(bitmap.height)
-            val src = Rect(0, top, bitmap.width, bottom)
-            canvas.drawBitmap(bitmap, src, bounds, paint)
+            val source = bitmap
+            if (bounds.isEmpty) return
+            if (source == null || source.width <= 0 || source.height <= 0) {
+                canvas.drawRect(bounds, fallbackPaint)
+                return
+            }
+
+            val calculated = ((source.width * 13f) / 6f).toInt().coerceAtLeast(1)
+            val frameHeight = if (calculated * 6 <= source.height) calculated else (source.height / 6).coerceAtLeast(1)
+            val top = (scene.frame * frameHeight).coerceIn(0, (source.height - 1).coerceAtLeast(0))
+            val bottom = (top + frameHeight).coerceAtMost(source.height)
+            if (bottom <= top) {
+                canvas.drawRect(bounds, fallbackPaint)
+                return
+            }
+            val src = Rect(0, top, source.width, bottom)
+            canvas.drawBitmap(source, src, bounds, paint)
 
             shadePaint.shader = LinearGradient(
                 0f,
@@ -238,13 +243,18 @@ object RealityOperatorSkin {
 
     private object Atlas {
         @Volatile private var cached: Bitmap? = null
+        @Volatile private var attempted = false
 
-        fun bitmap(activity: Activity): Bitmap {
+        fun bitmap(activity: Activity): Bitmap? {
             cached?.let { return it }
+            if (attempted) return null
             return synchronized(this) {
-                cached ?: requireNotNull(
+                cached?.let { return@synchronized it }
+                if (attempted) return@synchronized null
+                attempted = true
+                runCatching {
                     BitmapFactory.decodeResource(activity.resources, R.drawable.re_operator_atlas)
-                ) { "Unable to decode Reality Engine raster operator atlas" }.also { cached = it }
+                }.getOrNull()?.also { cached = it }
             }
         }
     }
