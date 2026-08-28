@@ -26,7 +26,15 @@ class PostCallIntelligenceActivity : Activity() {
         val match = ContactMediaStore.findByNumber(this, phone)
         val name = profile.displayName.ifBlank { match?.name.orEmpty().ifBlank { fallback.ifBlank { phone } } }
         val transcript = CallTranscriptStore.savedFor(this, phone).firstOrNull()
-        val bookmarks = CallBookmarkStore(this).list(phone).takeLast(6)
+        val callStartedAtMs = transcript?.timestampMs
+        val callEvents = if (callStartedAtMs != null && callStartedAtMs > 0L) {
+            profile.evidenceEvents.filter { it.timestampMs >= callStartedAtMs - 3_000L }.takeLast(12)
+        } else {
+            emptyList()
+        }
+        val bookmarks = CallBookmarkStore(this).list(phone)
+            .filter { callStartedAtMs == null || it.timestampMs >= callStartedAtMs - 3_000L }
+            .takeLast(6)
         val proposal = MemoryProposalStore(this).load(phone)
 
         val root = LinearLayout(this).apply {
@@ -59,12 +67,11 @@ class PostCallIntelligenceActivity : Activity() {
         }
 
         root.addView(section("SIGNAL TIMELINE"))
-        if (profile.evidenceEvents.isEmpty()) {
-            root.addView(card("No elevated signal moments were saved for this call.", RealityVisuals.Colors.Border))
+        if (callEvents.isEmpty()) {
+            root.addView(card("No elevated signal moments were saved for this completed call.", RealityVisuals.Colors.Border))
         } else {
-            val events = profile.evidenceEvents.takeLast(12)
-            val base = events.firstOrNull()?.timestampMs ?: 0L
-            events.forEach { event ->
+            val base = callStartedAtMs ?: callEvents.first().timestampMs
+            callEvents.forEach { event ->
                 val seconds = ((event.timestampMs - base).coerceAtLeast(0L) / 1000L)
                 val marker = "%d:%02d".format(seconds / 60, seconds % 60)
                 val text = buildString {
@@ -89,7 +96,7 @@ class PostCallIntelligenceActivity : Activity() {
 
         transcript?.let {
             root.addView(section("TRANSCRIPT"))
-            root.addView(card("${it.turnCount} saved turns · Open Intelligence search to find specific moments later.", RealityVisuals.Colors.Cyan))
+            root.addView(card("${it.turnCount} saved turns · This timeline is scoped to this transcript only.", RealityVisuals.Colors.Cyan))
         }
 
         if (proposal != null) {
