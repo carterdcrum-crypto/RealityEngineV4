@@ -5,10 +5,9 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.view.View
 import android.widget.Button
-import android.widget.LinearLayout
 import android.widget.Toast
 
-/** Wires ContactActionsDialog into the contact index without growing MainActivity further. */
+/** Wires modern contact management flows into the contact index. */
 class ContactManagementPanel(
     private val activity: Activity,
     private val index: ContactIndex,
@@ -19,6 +18,18 @@ class ContactManagementPanel(
         text = "+ Add contact"
         setOnClickListener {
             if (ensureWritePermission()) actions.add(onDone = refresh)
+        }
+    }
+
+    fun listsButton(refresh: () -> Unit): Button = Button(activity).apply {
+        text = "Lists"
+        setOnClickListener { actions.manageLists(index.search(""), refresh) }
+    }
+
+    fun mergeDuplicatesButton(refresh: () -> Unit): Button = Button(activity).apply {
+        text = "Merge"
+        setOnClickListener {
+            if (ensureWritePermission()) actions.mergeDuplicates(index.search(""), refresh)
         }
     }
 
