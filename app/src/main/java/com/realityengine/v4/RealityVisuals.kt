@@ -3,16 +3,15 @@ package com.realityengine.v4
 import android.animation.ObjectAnimator
 import android.content.Context
 import android.content.res.ColorStateList
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
+import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
-import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -22,31 +21,27 @@ import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import kotlin.math.max
+import kotlin.math.min
 
-/**
- * Shared visual language for Reality Engine V4.
- *
- * Behavior remains owned by the existing V4 screens and engines. This object owns presentation.
- * The core surface is now backed by a shipped raster glass plate rather than a plain generated
- * rectangle, so Settings, call controls, memory, post-call cards and every other caller of panel()
- * inherit the visual overhaul without duplicating feature code.
- */
+/** Shared visual language for Reality Engine V4. */
 object RealityVisuals {
+    const val HUD_OWNED_TAG = "realityengine.hud.owned"
+
     object Colors {
-        val Background: Int = Color.rgb(2, 6, 12)
-        val BackgroundRaised: Int = Color.rgb(5, 12, 21)
-        val Panel: Int = Color.rgb(7, 15, 27)
-        val PanelStrong: Int = Color.rgb(9, 20, 34)
-        val Cyan: Int = Color.rgb(40, 224, 255)
-        val CyanSoft: Int = Color.rgb(104, 207, 228)
-        val Magenta: Int = Color.rgb(255, 55, 190)
-        val Green: Int = Color.rgb(75, 255, 165)
+        val Background: Int = Color.rgb(1, 4, 9)
+        val BackgroundRaised: Int = Color.rgb(3, 10, 18)
+        val Panel: Int = Color.rgb(3, 14, 26)
+        val PanelStrong: Int = Color.rgb(4, 22, 40)
+        val Cyan: Int = Color.rgb(0, 225, 255)
+        val CyanSoft: Int = Color.rgb(93, 191, 232)
+        val Magenta: Int = Color.rgb(255, 28, 193)
+        val Green: Int = Color.rgb(32, 255, 103)
         val Amber: Int = Color.rgb(255, 196, 88)
-        val Text: Int = Color.rgb(229, 250, 253)
-        val TextDim: Int = Color.rgb(123, 157, 176)
-        val Border: Int = Color.rgb(22, 104, 128)
-        val Track: Int = Color.rgb(12, 38, 52)
-        val DangerFill: Int = Color.rgb(38, 8, 25)
+        val Text: Int = Color.rgb(244, 252, 255)
+        val TextDim: Int = Color.rgb(112, 151, 184)
+        val Border: Int = Color.rgb(0, 116, 154)
+        val Track: Int = Color.rgb(8, 34, 49)
+        val DangerFill: Int = Color.rgb(38, 5, 25)
     }
 
     fun panel(
@@ -55,12 +50,12 @@ object RealityVisuals {
         stroke: Int = Colors.Border,
         radiusDp: Float = 12f,
         strokeDp: Int = 1,
-    ): Drawable = RasterGlassDrawable(
-        context = context,
+    ): Drawable = HudPlateDrawable(
+        density = context.resources.displayMetrics.density,
         fill = fill,
         stroke = stroke,
-        radiusPx = radiusDp * context.resources.displayMetrics.density,
-        strokePx = dp(context, strokeDp).toFloat().coerceAtLeast(1f),
+        cutDp = radiusDp.coerceIn(5f, 22f),
+        strokeDp = strokeDp.coerceAtLeast(1),
     )
 
     fun circle(
@@ -69,8 +64,8 @@ object RealityVisuals {
         stroke: Int = Colors.Cyan,
     ): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
-        setColor(glass(fill, 232))
-        setStroke(dp(context, 1), glowStroke(stroke))
+        setColor(Color.argb(245, Color.red(fill), Color.green(fill), Color.blue(fill)))
+        setStroke(dp(context, 2), stroke)
     }
 
     fun styleControl(
@@ -82,7 +77,7 @@ object RealityVisuals {
     ) {
         button.apply {
             textSize = 10f
-            letterSpacing = .06f
+            letterSpacing = .08f
             setTextColor(accent)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             background = panel(
@@ -90,6 +85,7 @@ object RealityVisuals {
                 fill = if (destructive) Colors.DangerFill else Colors.Panel,
                 stroke = accent,
                 radiusDp = radiusDp,
+                strokeDp = 2,
             )
             stateListAnimator = null
             elevation = 0f
@@ -106,8 +102,8 @@ object RealityVisuals {
 
     fun styleMicroLabel(view: TextView, accent: Int = Colors.TextDim) {
         view.apply {
-            textSize = 8.5f
-            letterSpacing = .12f
+            textSize = 9f
+            letterSpacing = .16f
             setTextColor(accent)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             includeFontPadding = false
@@ -117,7 +113,7 @@ object RealityVisuals {
     fun styleSignal(bar: ProgressBar, accent: Int) {
         bar.max = 100
         bar.progressTintList = ColorStateList.valueOf(accent)
-        bar.progressBackgroundTintList = ColorStateList.valueOf(Color.argb(200, 11, 37, 50))
+        bar.progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(7, 32, 45))
     }
 
     fun animateSignal(bar: ProgressBar, target: Int) {
@@ -147,60 +143,112 @@ object RealityVisuals {
     fun pulseOnce(view: View) {
         view.animate().cancel()
         view.animate()
-            .alpha(.62f)
-            .setDuration(180L)
-            .withEndAction { view.animate().alpha(1f).setDuration(260L).start() }
+            .alpha(.64f)
+            .scaleX(.985f)
+            .scaleY(.985f)
+            .setDuration(85L)
+            .withEndAction {
+                view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(145L).start()
+            }
             .start()
     }
 
-    private class RasterGlassDrawable(
-        context: Context,
+    private class HudPlateDrawable(
+        private val density: Float,
         private val fill: Int,
         private val stroke: Int,
-        private val radiusPx: Float,
-        private val strokePx: Float,
+        cutDp: Float,
+        strokeDp: Int,
     ) : Drawable() {
-        private val asset: Bitmap? = PanelAsset.bitmap(context)
-        private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = glass(fill, if (isBright(fill)) 246 else 220)
-            style = Paint.Style.FILL
-        }
-        private val texturePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-            alpha = 190
-        }
-        private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = glowStroke(stroke)
+        private val cutPx = cutDp * density
+        private val strokePx = strokeDp * density
+        private val outerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = strokePx
+            strokeWidth = 5.5f * density
+            color = Color.argb(45, Color.red(stroke), Color.green(stroke), Color.blue(stroke))
         }
+        private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = strokePx.coerceAtLeast(1.4f * density)
+            color = Color.argb(255, Color.red(stroke), Color.green(stroke), Color.blue(stroke))
+        }
+        private val innerEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 0.8f * density
+            color = Color.argb(165, 118, 229, 255)
+        }
+        private val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2.2f * density
+            strokeCap = Paint.Cap.ROUND
+            color = Color.argb(235, 130, 247, 255)
+        }
+        private val texture = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = Color.argb(60, Color.red(stroke), Color.green(stroke), Color.blue(stroke))
+        }
+        private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var drawableAlpha = 255
 
         override fun draw(canvas: Canvas) {
             if (bounds.isEmpty) return
-            val inset = strokePx / 2f
-            val rect = RectF(
-                bounds.left + inset,
-                bounds.top + inset,
-                bounds.right - inset,
-                bounds.bottom - inset,
+            val rect = RectF(bounds)
+            val c = min(cutPx, min(rect.width(), rect.height()) * .18f)
+            val path = beveled(rect, c)
+
+            val top = lighten(fill, 1.45f)
+            val bottom = darken(fill, .58f)
+            fillPaint.shader = LinearGradient(
+                rect.left,
+                rect.top,
+                rect.left,
+                rect.bottom,
+                intArrayOf(top, fill, bottom),
+                floatArrayOf(0f, .42f, 1f),
+                Shader.TileMode.CLAMP,
             )
-
             fillPaint.alpha = drawableAlpha
-            canvas.drawRoundRect(rect, radiusPx, radiusPx, fillPaint)
+            canvas.drawPath(path, fillPaint)
+            fillPaint.shader = null
 
-            asset?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 }?.let { bitmap ->
-                texturePaint.alpha = (drawableAlpha * 0.78f).toInt().coerceIn(0, 255)
-                val clip = Path().apply {
-                    addRoundRect(rect, radiusPx, radiusPx, Path.Direction.CW)
-                }
-                canvas.save()
-                canvas.clipPath(clip)
-                canvas.drawBitmap(bitmap, Rect(0, 0, bitmap.width, bitmap.height), bounds, texturePaint)
-                canvas.restore()
+            outerGlow.alpha = (drawableAlpha * .34f).toInt()
+            canvas.drawPath(path, outerGlow)
+
+            edge.alpha = drawableAlpha
+            canvas.drawPath(path, edge)
+
+            val inner = RectF(rect).apply { inset(4f * density, 4f * density) }
+            val innerPath = beveled(inner, max(2f * density, c - 4f * density))
+            innerEdge.alpha = (drawableAlpha * .82f).toInt()
+            canvas.drawPath(innerPath, innerEdge)
+
+            val y = rect.top + 4.5f * density
+            val segment = rect.width() * .22f
+            val x = rect.centerX() - segment / 2f
+            highlight.alpha = drawableAlpha
+            canvas.drawLine(x, y, x + segment, y, highlight)
+
+            val dotY = rect.bottom - 7f * density
+            val startX = rect.left + c + 5f * density
+            val cols = 8
+            repeat(cols) { i ->
+                val dx = startX + i * 5.2f * density
+                val row = i % 2
+                canvas.drawCircle(dx, dotY - row * 3.1f * density, .85f * density, texture)
+                canvas.drawCircle(rect.right - (dx - rect.left), dotY - row * 3.1f * density, .85f * density, texture)
             }
+        }
 
-            strokePaint.alpha = drawableAlpha
-            canvas.drawRoundRect(rect, radiusPx, radiusPx, strokePaint)
+        private fun beveled(rect: RectF, c: Float): Path = Path().apply {
+            moveTo(rect.left + c, rect.top)
+            lineTo(rect.right - c, rect.top)
+            lineTo(rect.right, rect.top + c)
+            lineTo(rect.right, rect.bottom - c)
+            lineTo(rect.right - c, rect.bottom)
+            lineTo(rect.left + c, rect.bottom)
+            lineTo(rect.left, rect.bottom - c)
+            lineTo(rect.left, rect.top + c)
+            close()
         }
 
         override fun setAlpha(alpha: Int) {
@@ -208,52 +256,23 @@ object RealityVisuals {
             invalidateSelf()
         }
 
-        override fun setColorFilter(colorFilter: ColorFilter?) {
-            texturePaint.colorFilter = colorFilter
-            invalidateSelf()
-        }
+        override fun setColorFilter(colorFilter: ColorFilter?) = Unit
 
         @Deprecated("Deprecated in Android")
         override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
 
-    private object PanelAsset {
-        @Volatile private var cached: Bitmap? = null
-        @Volatile private var attempted = false
+    private fun lighten(color: Int, factor: Float): Int = Color.rgb(
+        (Color.red(color) * factor).toInt().coerceIn(0, 255),
+        (Color.green(color) * factor).toInt().coerceIn(0, 255),
+        (Color.blue(color) * factor).toInt().coerceIn(0, 255),
+    )
 
-        fun bitmap(context: Context): Bitmap? {
-            cached?.let { return it }
-            if (attempted) return null
-            return synchronized(this) {
-                cached?.let { return@synchronized it }
-                if (attempted) return@synchronized null
-                attempted = true
-                runCatching {
-                    BitmapFactory.decodeResource(context.resources, R.drawable.re_panel_glass)
-                }.getOrNull()?.also { cached = it }
-            }
-        }
-    }
-
-    private fun glass(color: Int, darkAlpha: Int = 214): Int {
-        if (Color.alpha(color) < 255) return color
-        val r = Color.red(color)
-        val g = Color.green(color)
-        val b = Color.blue(color)
-        return Color.argb(if (isBright(color)) 245 else darkAlpha, r, g, b)
-    }
-
-    private fun isBright(color: Int): Boolean {
-        val r = Color.red(color)
-        val g = Color.green(color)
-        val b = Color.blue(color)
-        return max(r, max(g, b)) > 190 && (r + g + b) > 340
-    }
-
-    private fun glowStroke(color: Int): Int {
-        if (Color.alpha(color) < 255) return color
-        return Color.argb(236, Color.red(color), Color.green(color), Color.blue(color))
-    }
+    private fun darken(color: Int, factor: Float): Int = Color.rgb(
+        (Color.red(color) * factor).toInt().coerceIn(0, 255),
+        (Color.green(color) * factor).toInt().coerceIn(0, 255),
+        (Color.blue(color) * factor).toInt().coerceIn(0, 255),
+    )
 
     private fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density).toInt()
