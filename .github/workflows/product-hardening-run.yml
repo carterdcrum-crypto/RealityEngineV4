@@ -1,0 +1,27 @@
+name: Product hardening patch runner
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply product hardening patch
+        run: python3 .github/scripts/product_hardening_patch.py
+      - name: Commit integrated product hardening
+        run: |
+          rm -f .github/workflows/product-hardening-once.yml
+          rm -f .github/workflows/product-hardening-finalize.yml
+          rm -f .github/workflows/product-hardening-run.yml
+          rm -f .github/scripts/product_hardening_patch.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Integrate full product hardening pass"
+          git push
