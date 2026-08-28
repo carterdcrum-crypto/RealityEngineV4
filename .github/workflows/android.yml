@@ -71,14 +71,6 @@ jobs:
             echo "test_outcome=${{ steps.unit_tests.outcome }}"
           } > build-diagnostics/current/summary.txt
           cp build-diagnostics/current/summary.txt build-diagnostics/summary.txt
-      - name: Upload build diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: RealityEngineV4-build-diagnostics-${{ github.sha }}
-          path: build-diagnostics/current/
-          if-no-files-found: warn
-          retention-days: 30
       - name: Save failed diagnostics in repository
         if: failure()
         shell: bash
@@ -96,13 +88,6 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "ci: diagnostics for ${GITHUB_SHA} [skip ci]"
           git push
-      - name: Upload APK
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: RealityEngineV4-debug-apk-${{ github.sha }}
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
       - name: Publish latest updater APK
         if: success()
         shell: bash
