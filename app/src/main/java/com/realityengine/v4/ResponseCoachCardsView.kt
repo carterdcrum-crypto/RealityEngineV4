@@ -1,5 +1,6 @@
 package com.realityengine.v4
 
+import android.app.AlertDialog
 import android.content.Context
 import android.graphics.Color
 import android.view.Gravity
@@ -62,6 +63,20 @@ class ResponseCoachCardsView(context: Context) : HorizontalScrollView(context) {
             strokeDp = 1,
         )
         contentDescription = "Alternative $rank, ${suggestion.mode}: ${suggestion.text}"
+        isClickable = true
+        isFocusable = true
+        setOnClickListener {
+            AlertDialog.Builder(context)
+                .setTitle("Why #$rank ${suggestion.mode}?")
+                .setMessage(buildString {
+                    append(suggestion.text)
+                    append("\n\nWHY\n")
+                    append(suggestion.reason.ifBlank { "This is a ranked alternate strategy for the same live caller turn." })
+                    append("\n\nTONE · ${suggestion.tone}")
+                })
+                .setPositiveButton("Close", null)
+                .show()
+        }
     }
 
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
