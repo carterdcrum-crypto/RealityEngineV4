@@ -70,6 +70,18 @@ object LiveTranscriptState {
 
         val next = State(resolved, isFinal, now, history, isCaller)
         current = next
+
+        // Deepgram interim hypotheses arrive while a caller is still speaking. Feed those words to
+        // the lightweight linguistic analyzer immediately so the live bar is actually live. A null
+        // speaker is caller-compatible in the existing mono/diarized pipeline until proven otherwise.
+        if (isCaller != false) {
+            val linguistic = LinguisticSignalAnalyzer.analyze(resolved)
+            LiveSignalState.publishRealtime(
+                linguistic = linguistic.score,
+                context = resolved.take(180),
+            )
+        }
+
         val copy = synchronized(this) { listeners.toList() }
         copy.forEach { it(next) }
     }
