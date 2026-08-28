@@ -1,9 +1,12 @@
 package com.realityengine.v4
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -11,10 +14,13 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 
-/** Modern contact Index UI with live search, persistent favorites, native photos and recent-contact filtering. */
+/** Modern contact Index UI with search, favorites, recent contacts, lists, messaging and merge tools. */
 class ContactsScreen(
     private val activity: Activity,
     private val index: ContactIndex,
@@ -24,20 +30,23 @@ class ContactsScreen(
     private val onDialContact: (String) -> Unit,
     private val onRequestContactsPermission: () -> Unit,
 ) {
-    enum class Filter { ALL, FAVORITES, RECENT }
+    enum class Filter { ALL, FAVORITES, RECENT, LIST }
 
     private val cyan = RealityVisuals.Colors.Cyan
     private val magenta = RealityVisuals.Colors.Magenta
     private val green = RealityVisuals.Colors.Green
     private val muted = RealityVisuals.Colors.TextDim
     private val panel = RealityVisuals.Colors.Panel
+    private val lists = ContactListsStore(activity)
 
     private lateinit var listHost: LinearLayout
     private lateinit var allChip: Button
     private lateinit var favoritesChip: Button
     private lateinit var recentChip: Button
+    private lateinit var listChip: Button
     private var filter = Filter.ALL
     private var query = ""
+    private var activeListName: String? = null
 
     fun build(initialQuery: String = "", initialFilter: Filter = Filter.ALL): View {
         query = initialQuery
@@ -62,24 +71,39 @@ class ContactsScreen(
             gravity = Gravity.CENTER_VERTICAL
         }
         val addButton = management.addContactButton { renderList() }.apply {
-            text = "Add contact"
-            RealityVisuals.styleControl(
-                this,
-                R.drawable.ic_re_person_add,
-                accent = cyan,
-                radiusDp = 12f,
-            )
+            text = "ADD"
+            RealityVisuals.styleControl(this, R.drawable.ic_re_person_add, accent = cyan, radiusDp = 12f)
         }
-        utilityRow.addView(addButton, LinearLayout.LayoutParams(0, 46.dp(), 1f))
+        utilityRow.addView(addButton, utilityLayout())
+
+        val listsButton = management.listsButton {
+            if (filter == Filter.LIST && activeListName !in lists.names()) {
+                filter = Filter.ALL
+                activeListName = null
+                refreshChips()
+            }
+            renderList()
+        }.apply {
+            text = "LISTS"
+            RealityVisuals.styleControl(this, 0, accent = green, radiusDp = 12f)
+        }
+        utilityRow.addView(listsButton, utilityLayout())
+
+        val mergeButton = management.mergeDuplicatesButton { renderList() }.apply {
+            text = "MERGE"
+            RealityVisuals.styleControl(this, 0, accent = magenta, radiusDp = 12f)
+        }
+        utilityRow.addView(mergeButton, utilityLayout())
+        root.addView(utilityRow, LinearLayout.LayoutParams(-1, 46.dp()))
+
         val count = TextView(activity).apply {
             tag = COUNT_TAG
             text = ""
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(12.dp(), 0, 4.dp(), 0)
+            setPadding(0, 2.dp(), 4.dp(), 0)
             RealityVisuals.styleMicroLabel(this, muted)
         }
-        utilityRow.addView(count, LinearLayout.LayoutParams(0, 46.dp(), 1f))
-        root.addView(utilityRow)
+        root.addView(count, LinearLayout.LayoutParams(-1, 24.dp()))
 
         listHost = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
@@ -150,9 +174,11 @@ class ContactsScreen(
         allChip = chip("All", Filter.ALL)
         favoritesChip = chip("Favorites", Filter.FAVORITES)
         recentChip = chip("Recent", Filter.RECENT)
+        listChip = chip("Lists", Filter.LIST)
         addView(allChip, chipLayout())
         addView(favoritesChip, chipLayout())
         addView(recentChip, chipLayout())
+        addView(listChip, chipLayout())
     }
 
     private fun chip(label: String, target: Filter): Button = Button(activity).apply {
@@ -161,26 +187,53 @@ class ContactsScreen(
         minHeight = 0
         stateListAnimator = null
         setOnClickListener {
-            filter = target
-            refreshChips()
-            renderList()
+            if (target == Filter.LIST) chooseListFilter()
+            else {
+                filter = target
+                refreshChips()
+                renderList()
+            }
         }
     }
 
+    private fun chooseListFilter() {
+        val names = lists.names()
+        if (names.isEmpty()) {
+            Toast.makeText(activity, "Create a contact list with LISTS first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("View contact list")
+            .setItems(names.toTypedArray()) { _, which ->
+                activeListName = names[which]
+                filter = Filter.LIST
+                refreshChips()
+                renderList()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun chipLayout() = LinearLayout.LayoutParams(0, 40.dp(), 1f).apply {
+        setMargins(2.dp(), 0, 2.dp(), 0)
+    }
+
+    private fun utilityLayout() = LinearLayout.LayoutParams(0, 42.dp(), 1f).apply {
         setMargins(3.dp(), 0, 3.dp(), 0)
     }
 
     private fun refreshChips() {
         if (!::allChip.isInitialized) return
+        listChip.text = activeListName?.take(10)?.uppercase() ?: "Lists"
         styleChip(allChip, filter == Filter.ALL)
         styleChip(favoritesChip, filter == Filter.FAVORITES)
         styleChip(recentChip, filter == Filter.RECENT)
+        styleChip(listChip, filter == Filter.LIST)
     }
 
     private fun styleChip(button: Button, active: Boolean) {
-        button.textSize = 10f
-        button.letterSpacing = .05f
+        button.textSize = 9f
+        button.letterSpacing = .04f
         button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         button.setTextColor(if (active) Color.rgb(0, 24, 29) else muted)
         button.background = RealityVisuals.panel(
@@ -203,6 +256,7 @@ class ContactsScreen(
             Filter.RECENT -> all
                 .filter { normalize(it.number) in recentOrder }
                 .sortedBy { recentOrder[normalize(it.number)] ?: Int.MAX_VALUE }
+            Filter.LIST -> activeListName?.let { lists.filter(it, all) }.orEmpty()
         }
 
         ((listHost.parent as? LinearLayout)?.findViewWithTag<TextView>(COUNT_TAG))?.text =
@@ -239,6 +293,7 @@ class ContactsScreen(
     ): View {
         val favorite = favorites.isFavorite(contact.number)
         val recent = normalize(contact.number) in recentOrder
+        val contactLists = lists.listsFor(contact.number)
 
         val row = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -281,25 +336,47 @@ class ContactsScreen(
                 append(contact.number)
                 if (favorite) append("  ·  FAVORITE")
                 else if (recent) append("  ·  RECENT")
+                if (contactLists.isNotEmpty()) append("  ·  ").append(contactLists.first().uppercase())
             }
             maxLines = 1
             setTextColor(if (favorite) green else muted)
-            RealityTypography.technical(this, 9f)
+            RealityTypography.technical(this, 8.5f)
         })
         row.addView(identity, LinearLayout.LayoutParams(0, 54.dp(), 1f))
 
-        val favoriteButton = Button(activity).apply {
-            text = ""
+        val messageButton = Button(activity).apply {
+            text = "TXT"
             minWidth = 0
             minHeight = 0
+            contentDescription = "Message ${contact.name}"
+            RealityVisuals.styleControl(this, 0, accent = cyan, radiusDp = 18f)
+            setPadding(2.dp(), 0, 2.dp(), 0)
+            setOnClickListener {
+                runCatching {
+                    activity.startActivity(Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", contact.number, null)))
+                }.onFailure {
+                    Toast.makeText(activity, "No messaging app available", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        row.addView(messageButton, LinearLayout.LayoutParams(44.dp(), 42.dp()).apply { setMargins(0, 0, 6.dp(), 0) })
+
+        val favoriteButton = ImageButton(activity).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             contentDescription = if (favorite) "Remove favorite" else "Add favorite"
-            RealityVisuals.styleControl(
-                this,
-                R.drawable.ic_re_star,
-                accent = if (favorite) green else muted,
+            setImageResource(R.drawable.ic_re_star)
+            imageTintList = ColorStateList.valueOf(if (favorite) green else muted)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            background = RealityVisuals.panel(
+                activity,
+                fill = RealityVisuals.Colors.Panel,
+                stroke = if (favorite) green else RealityVisuals.Colors.Border,
                 radiusDp = 18f,
+                strokeDp = 2,
             )
-            setPadding(0, 0, 0, 0)
+            setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
+            minimumWidth = 0
+            minimumHeight = 0
             setOnClickListener {
                 favorites.toggle(contact.number)
                 renderList()
@@ -328,6 +405,7 @@ class ContactsScreen(
             text = when (filter) {
                 Filter.FAVORITES -> "NO FAVORITES YET"
                 Filter.RECENT -> if (callHistory.hasPermission()) "NO RECENT CONTACTS" else "CALL HISTORY ACCESS NEEDED"
+                Filter.LIST -> "NO CONTACTS IN ${activeListName?.uppercase() ?: "THIS LIST"}"
                 Filter.ALL -> "NO CONTACT MATCHES"
             }
             gravity = Gravity.CENTER
@@ -341,6 +419,7 @@ class ContactsScreen(
                 } else {
                     "Authorize call history from Traffic to enable recent-contact ordering."
                 }
+                Filter.LIST -> "Use LISTS to add members or choose another list."
                 Filter.ALL -> "Try a different name or phone number."
             }
             gravity = Gravity.CENTER
