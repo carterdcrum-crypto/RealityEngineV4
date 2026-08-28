@@ -2,7 +2,6 @@ package com.realityengine.v4
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.Button
@@ -13,11 +12,25 @@ import java.text.DateFormat
 import java.util.Date
 
 class TranscriptLibraryActivity : Activity() {
+    companion object {
+        const val EXTRA_PHONE = "phone"
+        const val EXTRA_NAME = "name"
+    }
+
     private lateinit var list: LinearLayout
+    private lateinit var titleView: TextView
+    private lateinit var subtitleView: TextView
+    private val phoneFilter: String by lazy { intent.getStringExtra(EXTRA_PHONE).orEmpty().trim() }
+    private val nameFilter: String by lazy { intent.getStringExtra(EXTRA_NAME).orEmpty().trim() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildUi()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::list.isInitialized) render()
     }
 
     private fun buildUi() {
@@ -26,17 +39,17 @@ class TranscriptLibraryActivity : Activity() {
             setPadding(dp(18), dp(26), dp(18), dp(18))
             setBackgroundColor(RealityVisuals.Colors.Background)
         }
-        root.addView(TextView(this).apply {
-            text = "SAVED TRANSCRIPTS"
+        titleView = TextView(this).apply {
             setTextColor(RealityVisuals.Colors.Text)
             RealityTypography.displayMedium(this, 24f)
-        })
-        root.addView(TextView(this).apply {
-            text = "Completed call transcripts are saved privately on this device."
+        }
+        root.addView(titleView)
+        subtitleView = TextView(this).apply {
             setTextColor(RealityVisuals.Colors.TextDim)
             RealityTypography.display(this, 12f)
             setPadding(0, dp(6), 0, dp(12))
-        })
+        }
+        root.addView(subtitleView)
         val scroll = ScrollView(this)
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(list)
@@ -47,10 +60,25 @@ class TranscriptLibraryActivity : Activity() {
 
     private fun render() {
         list.removeAllViews()
-        val transcripts = CallTranscriptStore.savedAll(this)
+        val scoped = phoneFilter.isNotBlank()
+        val displayName = if (scoped) {
+            nameFilter.ifBlank {
+                ContactMediaStore.findByNumber(this, phoneFilter)?.name?.takeIf { it.isNotBlank() }
+                    ?: phoneFilter
+            }
+        } else ""
+
+        titleView.text = if (scoped) "CALL TRANSCRIPTS" else "SAVED TRANSCRIPTS"
+        subtitleView.text = if (scoped) {
+            "$displayName · full completed-call transcript history stored privately on this device."
+        } else {
+            "Completed call transcripts are saved privately on this device."
+        }
+
+        val transcripts = if (scoped) CallTranscriptStore.savedFor(this, phoneFilter) else CallTranscriptStore.savedAll(this)
         if (transcripts.isEmpty()) {
             list.addView(TextView(this).apply {
-                text = "NO SAVED TRANSCRIPTS YET"
+                text = if (scoped) "NO SAVED TRANSCRIPTS FOR THIS CALLER YET" else "NO SAVED TRANSCRIPTS YET"
                 gravity = Gravity.CENTER
                 setTextColor(RealityVisuals.Colors.TextDim)
                 RealityTypography.displayMedium(this, 13f)
@@ -59,16 +87,27 @@ class TranscriptLibraryActivity : Activity() {
             return
         }
         transcripts.forEach { saved ->
-            val title = ContactMediaStore.findByNumber(this, saved.phoneNumber)?.name?.takeIf { it.isNotBlank() }
-                ?: saved.phoneNumber
+            val title = if (scoped) displayName else {
+                ContactMediaStore.findByNumber(this, saved.phoneNumber)?.name?.takeIf { it.isNotBlank() }
+                    ?: saved.phoneNumber
+            }
             list.addView(Button(this).apply {
-                text = "$title\n${format(saved.timestampMs)} · ${saved.turnCount} turns"
+                text = if (scoped) {
+                    "${format(saved.timestampMs)}\n${saved.turnCount} turns · FULL TRANSCRIPT"
+                } else {
+                    "$title\n${format(saved.timestampMs)} · ${saved.turnCount} turns"
+                }
                 gravity = Gravity.START or Gravity.CENTER_VERTICAL
                 setTextColor(RealityVisuals.Colors.Text)
-                background = RealityVisuals.panel(this@TranscriptLibraryActivity, fill = RealityVisuals.Colors.Panel, stroke = RealityVisuals.Colors.Border, radiusDp = 12f)
+                background = RealityVisuals.panel(
+                    this@TranscriptLibraryActivity,
+                    fill = RealityVisuals.Colors.Panel,
+                    stroke = RealityVisuals.Colors.Border,
+                    radiusDp = 16f,
+                )
                 stateListAnimator = null
                 setOnClickListener { showTranscript(saved, title) }
-            }, LinearLayout.LayoutParams(-1, dp(72)).apply { setMargins(0, dp(3), 0, dp(3)) })
+            }, LinearLayout.LayoutParams(-1, dp(74)).apply { setMargins(0, dp(3), 0, dp(3)) })
         }
     }
 
@@ -82,7 +121,10 @@ class TranscriptLibraryActivity : Activity() {
                     .setTitle("Delete transcript?")
                     .setMessage("This permanently removes this saved transcript from Reality Engine private storage.")
                     .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Delete") { _, _ -> CallTranscriptStore.delete(saved); render() }
+                    .setPositiveButton("Delete") { _, _ ->
+                        CallTranscriptStore.delete(saved)
+                        render()
+                    }
                     .show()
             }
             .show()
