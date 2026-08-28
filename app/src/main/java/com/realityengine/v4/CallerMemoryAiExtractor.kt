@@ -29,6 +29,7 @@ class CallerMemoryAiExtractor(context: Context) {
     private val appContext = context.applicationContext
     private val settings = SettingsStore(appContext)
     private val performance = CoachProviderPerformanceStore(appContext)
+    private val routingPreference = CoachRoutingPreferenceStore(appContext)
 
     fun configured(): Boolean = settings.coachConfigured()
 
@@ -70,7 +71,14 @@ class CallerMemoryAiExtractor(context: Context) {
         if (settings.coachProvider != SettingsStore.COACH_PROVIDER_AUTO) {
             return configured.filter { it == settings.coachProvider }
         }
-        return configured.sortedByDescending { CoachProviderPerformanceStore.score(performance.stats(it)) }
+        val now = System.currentTimeMillis()
+        val adaptive = configured.sortedWith(
+            compareBy<String> { if (performance.stats(it).cooldownUntilMs > now) 1 else 0 }
+                .thenByDescending { CoachProviderPerformanceStore.score(performance.stats(it)) }
+        )
+        val preferred = routingPreference.preferredProvider
+        val cooldown = if (preferred == CoachRoutingPreferenceStore.BEST) 0L else performance.stats(preferred).cooldownUntilMs
+        return CoachRoutingPreferenceStore.applyPreference(adaptive, preferred, cooldown, now)
     }
 
     private fun requestGroq(prompt: String): String {
