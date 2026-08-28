@@ -10,7 +10,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 
-/** Reusable circular avatar that prefers the Android contact photo and falls back to initials. */
+/** Reusable Lucid Prism avatar that prefers the Android contact photo and falls back to initials. */
 class ContactAvatarView(context: Context) : FrameLayout(context) {
     private val photo = ImageView(context).apply {
         scaleType = ImageView.ScaleType.CENTER_CROP
@@ -25,29 +25,39 @@ class ContactAvatarView(context: Context) : FrameLayout(context) {
 
     private val initials = TextView(context).apply {
         gravity = Gravity.CENTER
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        textSize = 14f
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        textSize = 13.5f
+        includeFontPadding = false
     }
 
     init {
-        addView(photo, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        addView(initials, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        clipChildren = false
+        val inset = dp(2)
+        addView(photo, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
+            setMargins(inset, inset, inset, inset)
+        })
+        addView(initials, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
+            setMargins(inset, inset, inset, inset)
+        })
     }
 
     fun bind(contactId: Long, name: String, accent: Int = RealityVisuals.Colors.Cyan) {
+        background = RealityVisuals.circle(
+            context,
+            fill = RealityVisuals.Colors.PanelStrong,
+            stroke = accent,
+        )
         val bitmap = ContactMediaStore.loadPhoto(context, contactId)
         if (bitmap != null) {
             photo.setImageBitmap(bitmap)
             photo.visibility = View.VISIBLE
             initials.visibility = View.GONE
-            background = RealityVisuals.circle(context, fill = RealityVisuals.Colors.PanelStrong, stroke = accent)
         } else {
             photo.setImageDrawable(null)
             photo.visibility = View.GONE
             initials.visibility = View.VISIBLE
             initials.text = initialsFor(name)
             initials.setTextColor(accent)
-            background = RealityVisuals.circle(context, fill = RealityVisuals.Colors.PanelStrong, stroke = accent)
         }
         contentDescription = if (bitmap != null) "$name contact photo" else "$name initials"
     }
@@ -58,4 +68,6 @@ class ContactAvatarView(context: Context) : FrameLayout(context) {
             it.first().uppercaseChar().toString()
         }
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
