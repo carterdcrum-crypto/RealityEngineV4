@@ -17,13 +17,7 @@ import java.util.WeakHashMap
 import kotlin.math.abs
 import kotlin.math.min
 
-/**
- * Makes functional iconography structurally incapable of becoming OEM emoji and applies the
- * Lucid Prism navigation treatment.
- *
- * Dock icon slots are real ImageViews, not text pretending to be an icon. That guarantee remains
- * in place while the old green/cyan tactical dock is replaced by a softer blue/lilac glass dock.
- */
+/** Guarantees vector-only functional iconography and keeps the bottom dock minimal and premium. */
 object RealityVectorIconGuard {
     private val listeners = Collections.synchronizedMap(
         WeakHashMap<Activity, ViewTreeObserver.OnGlobalLayoutListener>()
@@ -98,8 +92,6 @@ object RealityVectorIconGuard {
 
         if (view is LinearLayout && convertDockItem(activity, view)) return
 
-        // Legacy backspace text is still sanitized as a safety net. New screens use ImageButton
-        // directly, but this ensures an older call/dial surface can never regress into a glyph.
         if (view is TextView && view.text?.toString() == "⌫") {
             view.tag = RealityVisuals.HUD_OWNED_TAG
             view.text = ""
@@ -130,18 +122,34 @@ object RealityVectorIconGuard {
         }
 
         val active = isActiveColor(label.currentTextColor)
-        val accent = if (active) RealityVisuals.Colors.Lilac else Color.rgb(143, 157, 188)
-        val fill = if (active) Color.rgb(25, 26, 57) else Color.rgb(7, 12, 27)
-        val stroke = if (active) RealityVisuals.Colors.Lilac else Color.rgb(61, 78, 118)
+        val accent = if (active) RealityVisuals.Colors.Lilac else Color.rgb(129, 140, 166)
+
+        (item.parent as? LinearLayout)?.let { dock ->
+            dock.tag = "realityengine.nav.shell"
+            dock.background = RealityVisuals.panel(
+                activity,
+                fill = Color.rgb(8, 13, 25),
+                stroke = Color.rgb(48, 60, 88),
+                radiusDp = 27f,
+            )
+            dock.setPadding(4.dp(activity), 3.dp(activity), 4.dp(activity), 3.dp(activity))
+        }
 
         item.tag = RealityVisuals.HUD_OWNED_TAG
-        item.background = RealityVisuals.panel(
-            activity,
-            fill = fill,
-            stroke = stroke,
-            radiusDp = 18f,
-            strokeDp = 1,
-        )
+        item.background = if (active) {
+            RealityVisuals.panel(
+                activity,
+                fill = Color.rgb(21, 21, 42),
+                stroke = Color.rgb(88, 77, 137),
+                radiusDp = 22f,
+            )
+        } else {
+            null
+        }
+        (item.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+            lp.setMargins(2.dp(activity), 1.dp(activity), 2.dp(activity), 1.dp(activity))
+            item.layoutParams = lp
+        }
 
         val first = item.getChildAt(0)
         val iconView = if (first is ImageView) {
@@ -160,16 +168,18 @@ object RealityVectorIconGuard {
         iconView.setImageResource(iconRes)
         iconView.imageTintList = ColorStateList.valueOf(accent)
         iconView.background = null
-        iconView.setPadding(10.dp(activity), 5.dp(activity), 10.dp(activity), 5.dp(activity))
+        iconView.setPadding(11.dp(activity), 5.dp(activity), 11.dp(activity), 4.dp(activity))
         iconView.contentDescription = labelText
 
-        label.setTextColor(accent)
-        RealityTypography.displayMedium(label, 9f)
+        label.setTextColor(if (active) RealityVisuals.Colors.Text else accent)
+        RealityTypography.displayMedium(label, if (active) 8.7f else 8.3f)
+        label.letterSpacing = .01f
         return true
     }
 
     private fun isActiveColor(color: Int): Boolean =
-        colorDistance(color, RealityVisuals.Colors.Cyan) < 120 ||
+        colorDistance(color, Color.rgb(40, 224, 255)) < 120 ||
+            colorDistance(color, RealityVisuals.Colors.Cyan) < 120 ||
             colorDistance(color, RealityVisuals.Colors.CyanSoft) < 120 ||
             colorDistance(color, RealityVisuals.Colors.Lilac) < 120 ||
             colorDistance(color, RealityVisuals.Colors.Green) < 95
