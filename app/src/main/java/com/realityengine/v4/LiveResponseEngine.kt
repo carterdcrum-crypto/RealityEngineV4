@@ -296,29 +296,55 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
 
     private fun requestGroq(snapshot: ConversationContext.Snapshot, quickModeId: String?): Result {
         if (!settings.groqConfigured()) throw IllegalStateException("GROQ API KEY REQUIRED")
+        return try {
+            requestGroqOnce(snapshot, quickModeId, structured = true)
+        } catch (first: GroqHttpException) {
+            if (first.code != 400 || !isGroqJsonGenerationFailure(first.message.orEmpty())) throw first
+            // Groq can occasionally reject its own JSON constrained generation even though the same
+            // model can produce usable JSON from a direct prompt. Retry once, relaxed, then stop.
+            requestGroqOnce(snapshot, quickModeId, structured = false)
+        }
+    }
+
+    private fun requestGroqOnce(
+        snapshot: ConversationContext.Snapshot,
+        quickModeId: String?,
+        structured: Boolean,
+    ): Result {
         val model = settings.groqModel
         val connection = URL("https://api.groq.com/openai/v1/chat/completions").openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
             connection.connectTimeout = 7_000
-            connection.readTimeout = 9_000
+            connection.readTimeout = 11_000
             connection.doOutput = true
             connection.setRequestProperty("Authorization", "Bearer ${settings.groqApiKey}")
             connection.setRequestProperty("Content-Type", "application/json")
+
             val strategyGuide = ResponseStrategyCatalog.promptGuide()
             val quickMode = CoachQuickModeCatalog.byId(quickModeId)
-            val quickInstruction = quickMode?.let { "\n\nONE-SHOT QUICK MODE — ${it.label.uppercase()}: ${it.promptInstruction}" }.orEmpty()
-            val system = """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Choose exactly five DISTINCT strategies from the catalog below that best fit the current moment. Rank them: one BEST choice plus four alternatives. Do not force a strategy when it does not fit. Keep suggestions non-coercive: do not manipulate, threaten, shame, pressure, or fabricate. COGNITIVE_PROBE must remain a neutral question, never a trap.
+            val quickInstruction = quickMode?.let {
+                "\n\nONE-SHOT QUICK MODE — ${it.label.uppercase()}: ${it.promptInstruction}"
+            }.orEmpty()
+            val system = if (structured) {
+                """You are a live phone-call response coach. Suggest concise, natural replies for the USER to say to the CALLER. Personalize only from supplied caller profile/context; never invent facts. Choose exactly five DISTINCT strategies from the catalog below that best fit the current moment. Rank them: one BEST choice plus four alternatives. Do not force a strategy when it does not fit. Keep suggestions non-coercive: do not manipulate, threaten, shame, pressure, or fabricate. COGNITIVE_PROBE must remain a neutral question, never a trap.
 
 STRATEGY CATALOG:
 $strategyGuide
 
 Every choice must include a short delivery tone such as warm/relaxed, calm/curious, neutral/firm, light/playful, slow/deliberate, or steady/direct. Return JSON only: {\"best\":{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"},\"alternatives\":[{\"mode\":\"...\",\"tone\":\"...\",\"text\":\"...\",\"reason\":\"...\"}]}. Keep each spoken reply under 18 words and each reason under 6 words. No commentary outside the JSON.$quickInstruction"""
+            } else {
+                """You are a live phone-call response coach. Return ONE compact JSON object only, with no markdown or commentary. Use this exact shape: {\"best\":{\"mode\":\"CLARIFY\",\"tone\":\"calm/curious\",\"text\":\"spoken reply\",\"reason\":\"short reason\"},\"alternatives\":[{\"mode\":\"MIRROR\",\"tone\":\"warm/relaxed\",\"text\":\"spoken reply\",\"reason\":\"short reason\"}]}. Pick one best response and 2-4 distinct alternatives from the strategy catalog. Each spoken reply must be under 18 words and each reason under 6 words. Never invent caller facts. Keep suggestions non-coercive and natural.
+
+STRATEGY CATALOG:
+$strategyGuide$quickInstruction"""
+            }
+
             val body = JSONObject().apply {
                 put("model", model)
-                put("temperature", quickMode?.temperature ?: .25)
-                put("max_completion_tokens", 360)
-                put("response_format", JSONObject().put("type", "json_object"))
+                put("temperature", if (structured) (quickMode?.temperature ?: .25) else .18)
+                put("max_completion_tokens", if (structured) 420 else 560)
+                if (structured) put("response_format", JSONObject().put("type", "json_object"))
                 if (model.startsWith("openai/gpt-oss-")) put("reasoning_effort", "low")
                 put("messages", JSONArray().apply {
                     put(JSONObject().put("role", "system").put("content", system))
@@ -332,10 +358,17 @@ Every choice must include a short delivery tone such as warm/relaxed, calm/curio
                 val detail = readGroqError(connection)
                 throw GroqHttpException(code, groqHttpMessage(code, detail))
             }
+
             val response = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
             val root = JSONObject(response)
-            val content = root.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
-            val parsed = JSONObject(content)
+            val content = root.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .optString("content")
+                .trim()
+            if (content.isBlank()) throw IllegalStateException("GROQ RESPONSE EMPTY")
+            val parsed = parseCoachJson(content)
+
             fun suggestion(item: JSONObject) = Suggestion(
                 ResponseStrategyCatalog.normalizeMode(item.optString("mode", "CLARIFY")),
                 item.optString("tone", "calm/curious").take(48),
@@ -364,6 +397,27 @@ Every choice must include a short delivery tone such as warm/relaxed, calm/curio
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun parseCoachJson(raw: String): JSONObject {
+        var cleaned = raw.trim()
+        if (cleaned.startsWith("```")) {
+            cleaned = cleaned
+                .removePrefix("```json")
+                .removePrefix("```")
+                .removeSuffix("```")
+                .trim()
+        }
+        runCatching { return JSONObject(cleaned) }
+        val first = cleaned.indexOf('{')
+        val last = cleaned.lastIndexOf('}')
+        if (first >= 0 && last > first) return JSONObject(cleaned.substring(first, last + 1))
+        throw IllegalStateException("GROQ RESPONSE INVALID // JSON NOT FOUND")
+    }
+
+    private fun isGroqJsonGenerationFailure(message: String): Boolean {
+        val lower = message.lowercase(Locale.US)
+        return lower.contains("failed_generation") || lower.contains("failed to generate json")
     }
 
     private fun publishRateLimitHeaders(connection: HttpURLConnection, model: String) {
