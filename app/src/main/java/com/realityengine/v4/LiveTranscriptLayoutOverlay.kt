@@ -85,7 +85,7 @@ object LiveTranscriptLayoutOverlay {
             val title = findExactText(root, "LIVE TRANSCRIPT") ?: return
             val header = title.parent as? LinearLayout ?: return
             val workspace = header.parent as? LinearLayout ?: return
-            val transcript = findFirst<LiveTranscriptPanelView>(workspace) ?: return
+            val transcript = findTranscript(workspace) ?: return
 
             installToggle(header, title)
 
@@ -110,7 +110,7 @@ object LiveTranscriptLayoutOverlay {
             val coachPanel = coachHeader?.parent as? View
             if (coachPanel != null) {
                 setHeight(coachPanel, if (focusMode) 108 else 184)
-                val cards = findFirst<ResponseCoachCardsView>(coachPanel)
+                val cards = findCoachCards(coachPanel)
                 if (cards != null) {
                     cards.visibility = if (!focusMode && ResponseCoachState.current().alternatives.isNotEmpty()) View.VISIBLE else View.GONE
                 }
@@ -177,11 +177,21 @@ object LiveTranscriptLayoutOverlay {
         }
     }
 
-    private inline fun <reified T : View> findFirst(root: View): T? {
-        if (root is T) return root
+    private fun findTranscript(root: View): LiveTranscriptPanelView? {
+        if (root is LiveTranscriptPanelView) return root
         if (root is ViewGroup) {
             for (i in 0 until root.childCount) {
-                findFirst<T>(root.getChildAt(i))?.let { return it }
+                findTranscript(root.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun findCoachCards(root: View): ResponseCoachCardsView? {
+        if (root is ResponseCoachCardsView) return root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                findCoachCards(root.getChildAt(i))?.let { return it }
             }
         }
         return null
