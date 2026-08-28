@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.Shader
@@ -21,40 +20,47 @@ import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
 import kotlin.math.max
-import kotlin.math.min
 
-/** Shared visual language for Reality Engine V4. */
+/**
+ * Shared Lucid Prism visual language for Reality Engine V4.
+ *
+ * The functional screens still own behavior. Keeping the visual system here means the same
+ * midnight glass, blue/lilac edge light, spacing and motion automatically carries through the
+ * dialer, contacts, call UI, settings, memory, transcripts and post-call surfaces.
+ */
 object RealityVisuals {
     const val HUD_OWNED_TAG = "realityengine.hud.owned"
 
     object Colors {
-        val Background: Int = Color.rgb(1, 4, 9)
-        val BackgroundRaised: Int = Color.rgb(3, 10, 18)
-        val Panel: Int = Color.rgb(3, 14, 26)
-        val PanelStrong: Int = Color.rgb(4, 22, 40)
-        val Cyan: Int = Color.rgb(0, 225, 255)
-        val CyanSoft: Int = Color.rgb(93, 191, 232)
-        val Magenta: Int = Color.rgb(255, 28, 193)
-        val Green: Int = Color.rgb(32, 255, 103)
-        val Amber: Int = Color.rgb(255, 196, 88)
-        val Text: Int = Color.rgb(244, 252, 255)
-        val TextDim: Int = Color.rgb(112, 151, 184)
-        val Border: Int = Color.rgb(0, 116, 154)
-        val Track: Int = Color.rgb(8, 34, 49)
-        val DangerFill: Int = Color.rgb(38, 5, 25)
+        val Background: Int = Color.rgb(2, 6, 16)
+        val BackgroundRaised: Int = Color.rgb(7, 13, 28)
+        val Panel: Int = Color.rgb(10, 18, 36)
+        val PanelStrong: Int = Color.rgb(14, 25, 49)
+        val Cyan: Int = Color.rgb(142, 205, 255)
+        val CyanSoft: Int = Color.rgb(168, 196, 238)
+        val Lilac: Int = Color.rgb(188, 161, 255)
+        // Preserve the old semantic name so existing screens inherit the prism accent safely.
+        val Magenta: Int = Lilac
+        val Green: Int = Color.rgb(99, 244, 142)
+        val Amber: Int = Color.rgb(247, 193, 111)
+        val Text: Int = Color.rgb(246, 248, 255)
+        val TextDim: Int = Color.rgb(151, 164, 195)
+        val Border: Int = Color.rgb(83, 111, 164)
+        val Track: Int = Color.rgb(18, 31, 56)
+        val DangerFill: Int = Color.rgb(42, 13, 27)
     }
 
     fun panel(
         context: Context,
         fill: Int = Colors.Panel,
         stroke: Int = Colors.Border,
-        radiusDp: Float = 12f,
+        radiusDp: Float = 16f,
         strokeDp: Int = 1,
-    ): Drawable = HudPlateDrawable(
+    ): Drawable = PrismGlassDrawable(
         density = context.resources.displayMetrics.density,
         fill = fill,
         stroke = stroke,
-        cutDp = radiusDp.coerceIn(5f, 22f),
+        radiusDp = radiusDp.coerceIn(7f, 30f),
         strokeDp = strokeDp.coerceAtLeast(1),
     )
 
@@ -62,10 +68,16 @@ object RealityVisuals {
         context: Context,
         fill: Int = Colors.PanelStrong,
         stroke: Int = Colors.Cyan,
-    ): GradientDrawable = GradientDrawable().apply {
+    ): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(
+            withAlpha(lighten(fill, 1.24f), 242),
+            withAlpha(fill, 232),
+            withAlpha(darken(fill, .72f), 242),
+        ),
+    ).apply {
         shape = GradientDrawable.OVAL
-        setColor(Color.argb(245, Color.red(fill), Color.green(fill), Color.blue(fill)))
-        setStroke(dp(context, 2), stroke)
+        setStroke(dp(context, 1), withAlpha(stroke, 218))
     }
 
     fun styleControl(
@@ -73,29 +85,29 @@ object RealityVisuals {
         iconRes: Int,
         accent: Int = Colors.Cyan,
         destructive: Boolean = false,
-        radiusDp: Float = 14f,
+        radiusDp: Float = 17f,
     ) {
         button.apply {
-            textSize = 10f
-            letterSpacing = .08f
+            textSize = 10.5f
+            letterSpacing = .055f
             setTextColor(accent)
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             background = panel(
                 context,
                 fill = if (destructive) Colors.DangerFill else Colors.Panel,
                 stroke = accent,
                 radiusDp = radiusDp,
-                strokeDp = 2,
+                strokeDp = 1,
             )
             stateListAnimator = null
             elevation = 0f
             setAllCaps(false)
             gravity = android.view.Gravity.CENTER
-            setPadding(dp(context, 10), 0, dp(context, 10), 0)
+            setPadding(dp(context, 11), 0, dp(context, 11), 0)
             if (iconRes != 0) {
                 setCompoundDrawablesRelativeWithIntrinsicBounds(iconRes, 0, 0, 0)
                 compoundDrawableTintList = ColorStateList.valueOf(accent)
-                compoundDrawablePadding = dp(context, 6)
+                compoundDrawablePadding = dp(context, 7)
             }
         }
     }
@@ -103,9 +115,9 @@ object RealityVisuals {
     fun styleMicroLabel(view: TextView, accent: Int = Colors.TextDim) {
         view.apply {
             textSize = 9f
-            letterSpacing = .16f
+            letterSpacing = .115f
             setTextColor(accent)
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             includeFontPadding = false
         }
     }
@@ -113,14 +125,14 @@ object RealityVisuals {
     fun styleSignal(bar: ProgressBar, accent: Int) {
         bar.max = 100
         bar.progressTintList = ColorStateList.valueOf(accent)
-        bar.progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(7, 32, 45))
+        bar.progressBackgroundTintList = ColorStateList.valueOf(Colors.Track)
     }
 
     fun animateSignal(bar: ProgressBar, target: Int) {
         val clamped = target.coerceIn(0, 100)
         if (bar.progress == clamped) return
         ObjectAnimator.ofInt(bar, "progress", bar.progress, clamped).apply {
-            duration = 240L
+            duration = 280L
             interpolator = DecelerateInterpolator()
             start()
         }
@@ -128,14 +140,14 @@ object RealityVisuals {
 
     fun reveal(view: View) {
         view.animate().cancel()
-        view.alpha = .72f
-        view.scaleX = .985f
-        view.scaleY = .985f
+        view.alpha = .78f
+        view.scaleX = .992f
+        view.scaleY = .992f
         view.animate()
             .alpha(1f)
             .scaleX(1f)
             .scaleY(1f)
-            .setDuration(220L)
+            .setDuration(260L)
             .setInterpolator(DecelerateInterpolator())
             .start()
     }
@@ -143,112 +155,138 @@ object RealityVisuals {
     fun pulseOnce(view: View) {
         view.animate().cancel()
         view.animate()
-            .alpha(.64f)
+            .alpha(.78f)
             .scaleX(.985f)
             .scaleY(.985f)
             .setDuration(85L)
             .withEndAction {
-                view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(145L).start()
+                view.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(170L).start()
             }
             .start()
     }
 
-    private class HudPlateDrawable(
+    private class PrismGlassDrawable(
         private val density: Float,
         private val fill: Int,
         private val stroke: Int,
-        cutDp: Float,
+        radiusDp: Float,
         strokeDp: Int,
     ) : Drawable() {
-        private val cutPx = cutDp * density
-        private val strokePx = strokeDp * density
-        private val outerGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 5.5f * density
-            color = Color.argb(45, Color.red(stroke), Color.green(stroke), Color.blue(stroke))
-        }
-        private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = strokePx.coerceAtLeast(1.4f * density)
-            color = Color.argb(255, Color.red(stroke), Color.green(stroke), Color.blue(stroke))
-        }
-        private val innerEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 0.8f * density
-            color = Color.argb(165, 118, 229, 255)
-        }
-        private val highlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2.2f * density
-            strokeCap = Paint.Cap.ROUND
-            color = Color.argb(235, 130, 247, 255)
-        }
-        private val texture = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.FILL
-            color = Color.argb(60, Color.red(stroke), Color.green(stroke), Color.blue(stroke))
-        }
+        private val radiusPx = radiusDp * density
+        private val strokePx = max(1f * density, strokeDp * density)
         private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val prismWash = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 4.2f * density
+        }
+        private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = strokePx
+        }
+        private val innerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = .75f * density
+        }
+        private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.1f * density
+            strokeCap = Paint.Cap.ROUND
+        }
         private var drawableAlpha = 255
 
         override fun draw(canvas: Canvas) {
             if (bounds.isEmpty) return
-            val rect = RectF(bounds)
-            val c = min(cutPx, min(rect.width(), rect.height()) * .18f)
-            val path = beveled(rect, c)
+            val outerInset = 2.4f * density
+            val rect = RectF(bounds).apply { inset(outerInset, outerInset) }
+            val radius = radiusPx.coerceAtMost(minOf(rect.width(), rect.height()) / 2f)
 
-            val top = lighten(fill, 1.45f)
-            val bottom = darken(fill, .58f)
+            val brightFill = isBright(fill)
+            val top = withAlpha(lighten(fill, if (brightFill) 1.12f else 1.55f), if (brightFill) 246 else 228)
+            val middle = withAlpha(fill, if (brightFill) 244 else 216)
+            val bottom = withAlpha(darken(fill, if (brightFill) .82f else .68f), if (brightFill) 248 else 232)
             fillPaint.shader = LinearGradient(
                 rect.left,
                 rect.top,
-                rect.left,
+                rect.right,
                 rect.bottom,
-                intArrayOf(top, fill, bottom),
-                floatArrayOf(0f, .42f, 1f),
+                intArrayOf(top, middle, bottom),
+                floatArrayOf(0f, .46f, 1f),
                 Shader.TileMode.CLAMP,
             )
             fillPaint.alpha = drawableAlpha
-            canvas.drawPath(path, fillPaint)
+            canvas.drawRoundRect(rect, radius, radius, fillPaint)
             fillPaint.shader = null
 
-            outerGlow.alpha = (drawableAlpha * .34f).toInt()
-            canvas.drawPath(path, outerGlow)
+            // Very low-alpha blue-to-lilac wash creates the iridescent prism shift without making
+            // controls look like neon signs.
+            prismWash.shader = LinearGradient(
+                rect.left,
+                rect.bottom,
+                rect.right,
+                rect.top,
+                intArrayOf(
+                    Color.TRANSPARENT,
+                    withAlpha(Colors.Cyan, if (brightFill) 12 else 24),
+                    withAlpha(Colors.Lilac, if (brightFill) 15 else 31),
+                    Color.TRANSPARENT,
+                ),
+                floatArrayOf(0f, .30f, .72f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            prismWash.alpha = drawableAlpha
+            canvas.drawRoundRect(rect, radius, radius, prismWash)
+            prismWash.shader = null
 
-            edge.alpha = drawableAlpha
-            canvas.drawPath(path, edge)
+            glowPaint.shader = LinearGradient(
+                rect.left,
+                rect.top,
+                rect.right,
+                rect.bottom,
+                intArrayOf(withAlpha(stroke, 58), withAlpha(Colors.Lilac, 48), withAlpha(Colors.Cyan, 54)),
+                null,
+                Shader.TileMode.CLAMP,
+            )
+            glowPaint.alpha = (drawableAlpha * .72f).toInt()
+            canvas.drawRoundRect(rect, radius, radius, glowPaint)
+            glowPaint.shader = null
 
-            val inner = RectF(rect).apply { inset(4f * density, 4f * density) }
-            val innerPath = beveled(inner, max(2f * density, c - 4f * density))
-            innerEdge.alpha = (drawableAlpha * .82f).toInt()
-            canvas.drawPath(innerPath, innerEdge)
+            borderPaint.shader = LinearGradient(
+                rect.left,
+                rect.top,
+                rect.right,
+                rect.bottom,
+                intArrayOf(withAlpha(stroke, 222), withAlpha(Colors.CyanSoft, 184), withAlpha(Colors.Lilac, 210)),
+                floatArrayOf(0f, .52f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            borderPaint.alpha = drawableAlpha
+            canvas.drawRoundRect(rect, radius, radius, borderPaint)
+            borderPaint.shader = null
 
-            val y = rect.top + 4.5f * density
-            val segment = rect.width() * .22f
-            val x = rect.centerX() - segment / 2f
-            highlight.alpha = drawableAlpha
-            canvas.drawLine(x, y, x + segment, y, highlight)
+            val inner = RectF(rect).apply { inset(3.2f * density, 3.2f * density) }
+            val innerRadius = (radius - 3.2f * density).coerceAtLeast(3f * density)
+            innerPaint.color = withAlpha(Color.WHITE, if (brightFill) 46 else 30)
+            innerPaint.alpha = drawableAlpha
+            canvas.drawRoundRect(inner, innerRadius, innerRadius, innerPaint)
 
-            val dotY = rect.bottom - 7f * density
-            val startX = rect.left + c + 5f * density
-            val cols = 8
-            repeat(cols) { i ->
-                val dx = startX + i * 5.2f * density
-                val row = i % 2
-                canvas.drawCircle(dx, dotY - row * 3.1f * density, .85f * density, texture)
-                canvas.drawCircle(rect.right - (dx - rect.left), dotY - row * 3.1f * density, .85f * density, texture)
-            }
-        }
-
-        private fun beveled(rect: RectF, c: Float): Path = Path().apply {
-            moveTo(rect.left + c, rect.top)
-            lineTo(rect.right - c, rect.top)
-            lineTo(rect.right, rect.top + c)
-            lineTo(rect.right, rect.bottom - c)
-            lineTo(rect.right - c, rect.bottom)
-            lineTo(rect.left + c, rect.bottom)
-            lineTo(rect.left, rect.bottom - c)
-            lineTo(rect.left, rect.top + c)
-            close()
+            // A short glass reflection along the upper edge gives controls the polished Lucid Prism
+            // look while keeping the center clean for text and icons.
+            val y = rect.top + 4.2f * density
+            val span = rect.width() * .38f
+            val start = rect.centerX() - span / 2f
+            highlightPaint.shader = LinearGradient(
+                start,
+                y,
+                start + span,
+                y,
+                intArrayOf(Color.TRANSPARENT, withAlpha(Color.WHITE, 150), withAlpha(Colors.Lilac, 112), Color.TRANSPARENT),
+                null,
+                Shader.TileMode.CLAMP,
+            )
+            highlightPaint.alpha = drawableAlpha
+            canvas.drawLine(start, y, start + span, y, highlightPaint)
+            highlightPaint.shader = null
         }
 
         override fun setAlpha(alpha: Int) {
@@ -256,11 +294,19 @@ object RealityVisuals {
             invalidateSelf()
         }
 
-        override fun setColorFilter(colorFilter: ColorFilter?) = Unit
+        override fun setColorFilter(colorFilter: ColorFilter?) {
+            fillPaint.colorFilter = colorFilter
+            prismWash.colorFilter = colorFilter
+            borderPaint.colorFilter = colorFilter
+            invalidateSelf()
+        }
 
         @Deprecated("Deprecated in Android")
         override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
     }
+
+    private fun withAlpha(color: Int, alpha: Int): Int =
+        Color.argb(alpha.coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))
 
     private fun lighten(color: Int, factor: Float): Int = Color.rgb(
         (Color.red(color) * factor).toInt().coerceIn(0, 255),
@@ -273,6 +319,11 @@ object RealityVisuals {
         (Color.green(color) * factor).toInt().coerceIn(0, 255),
         (Color.blue(color) * factor).toInt().coerceIn(0, 255),
     )
+
+    private fun isBright(color: Int): Boolean {
+        val peak = max(Color.red(color), max(Color.green(color), Color.blue(color)))
+        return peak > 185 && Color.red(color) + Color.green(color) + Color.blue(color) > 330
+    }
 
     private fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density).toInt()
