@@ -26,13 +26,7 @@ import java.util.WeakHashMap
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * Global Lucid Prism shell for V4.
- *
- * This layer deliberately stays presentation-only. Activities, click handlers, telephony, audio,
- * AI, stores and navigation remain owned by the original V4 code. The shell supplies the shared
- * midnight atmosphere and catches older dark widgets that do not already use RealityVisuals.
- */
+/** Presentation-only premium shell for V4. Functional behavior remains in the existing app code. */
 object RealityOperatorSkin {
     enum class Scene {
         IDLE, CALL, INCOMING, SETTINGS, SUMMARY, MEMORY
@@ -167,19 +161,18 @@ object RealityOperatorSkin {
 
     private fun restyleTree(activity: Activity, view: View, isRoot: Boolean, depth: Int) {
         if (depth > 15) return
-
-        // Explicitly designed components own their appearance. This keeps the global compatibility
-        // pass from flattening the Lucid dialer, vector dock, transcript cards or bespoke controls.
-        if (view.tag == RealityVisuals.HUD_OWNED_TAG) return
+        if (view.tag == RealityVisuals.HUD_OWNED_TAG || view.tag == "realityengine.nav.shell") return
 
         if (view is LinearLayout && isBottomNavContainer(view)) {
+            view.tag = "realityengine.nav.shell"
             view.background = RealityVisuals.panel(
                 activity,
-                fill = Color.rgb(7, 12, 27),
-                stroke = Color.rgb(74, 91, 139),
-                radiusDp = 20f,
-                strokeDp = 1,
+                fill = Color.rgb(8, 13, 25),
+                stroke = Color.rgb(48, 60, 88),
+                radiusDp = 27f,
             )
+            view.setPadding(4.dp(activity), 3.dp(activity), 4.dp(activity), 3.dp(activity))
+            return
         }
 
         if (!isRoot) {
@@ -188,17 +181,17 @@ object RealityOperatorSkin {
                     is Button -> {
                         val rawAccent = view.currentTextColor.takeIf { Color.alpha(it) > 100 }
                             ?: RealityVisuals.Colors.CyanSoft
-                        val accent = normalizeAccent(rawAccent)
                         val destructive = accentRed(rawAccent)
+                        val accent = normalizeAccent(rawAccent)
                         view.background = RealityVisuals.panel(
                             activity,
                             fill = if (destructive) RealityVisuals.Colors.DangerFill else RealityVisuals.Colors.Panel,
-                            stroke = accent,
-                            radiusDp = 17f,
-                            strokeDp = 1,
+                            stroke = if (destructive) accent else Color.rgb(58, 70, 101),
+                            radiusDp = 20f,
                         )
                         view.stateListAnimator = null
                         view.elevation = 0f
+                        view.letterSpacing = .01f
                     }
                     is EditText -> {
                         val old = view.background
@@ -207,28 +200,25 @@ object RealityOperatorSkin {
                                 activity,
                                 fill = RealityVisuals.Colors.BackgroundRaised,
                                 stroke = RealityVisuals.Colors.Border,
-                                radiusDp = 17f,
-                                strokeDp = 1,
+                                radiusDp = 21f,
                             )
                         }
                     }
                     is TextView -> {
                         val old = view.background
                         if (old != null && shouldRestyleTextPlate(view, old)) {
-                            val accent = normalizeAccent(view.currentTextColor)
                             view.background = RealityVisuals.panel(
                                 activity,
                                 fill = RealityVisuals.Colors.Panel,
-                                stroke = accent,
-                                radiusDp = 15f,
-                                strokeDp = 1,
+                                stroke = Color.rgb(55, 67, 96),
+                                radiusDp = 19f,
                             )
                         }
                     }
                     else -> {
                         val bg = view.background
                         if (bg is ColorDrawable && isDark(bg.color)) {
-                            bg.color = Color.argb(34, 7, 13, 28)
+                            bg.color = Color.argb(24, 7, 13, 28)
                         }
                     }
                 }
@@ -257,7 +247,7 @@ object RealityOperatorSkin {
     private fun normalizeAccent(color: Int): Int {
         val hi = max(Color.red(color), max(Color.green(color), Color.blue(color)))
         val lo = min(Color.red(color), min(Color.green(color), Color.blue(color)))
-        return if (hi - lo < 35 && hi > 135) RealityVisuals.Colors.Border else color
+        return if (hi - lo < 35 && hi > 135) RealityVisuals.Colors.TextDim else color
     }
 
     private fun shouldRestyleTextPlate(view: TextView, bg: Drawable): Boolean {
@@ -292,26 +282,26 @@ object RealityOperatorSkin {
                 bounds.top.toFloat(),
                 bounds.right.toFloat(),
                 bounds.bottom.toFloat(),
-                intArrayOf(Color.rgb(5, 11, 25), Color.rgb(2, 7, 18), Color.rgb(1, 4, 12)),
-                floatArrayOf(0f, .54f, 1f),
+                intArrayOf(Color.rgb(6, 10, 22), Color.rgb(3, 7, 16), Color.rgb(2, 5, 12)),
+                floatArrayOf(0f, .57f, 1f),
                 Shader.TileMode.CLAMP,
             )
             paint.alpha = drawableAlpha
             canvas.drawRect(bounds, paint)
 
             val (firstTint, secondTint, intensity) = when (scene) {
-                Scene.IDLE -> Triple(RealityVisuals.Colors.Cyan, RealityVisuals.Colors.Lilac, 38)
-                Scene.CALL -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.Cyan, 45)
-                Scene.INCOMING -> Triple(RealityVisuals.Colors.Cyan, RealityVisuals.Colors.Lilac, 54)
-                Scene.SETTINGS -> Triple(RealityVisuals.Colors.CyanSoft, RealityVisuals.Colors.Lilac, 32)
-                Scene.SUMMARY -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.CyanSoft, 35)
-                Scene.MEMORY -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.Cyan, 40)
+                Scene.IDLE -> Triple(RealityVisuals.Colors.Cyan, RealityVisuals.Colors.Lilac, 26)
+                Scene.CALL -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.Cyan, 30)
+                Scene.INCOMING -> Triple(RealityVisuals.Colors.Cyan, RealityVisuals.Colors.Lilac, 38)
+                Scene.SETTINGS -> Triple(RealityVisuals.Colors.CyanSoft, RealityVisuals.Colors.Lilac, 22)
+                Scene.SUMMARY -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.CyanSoft, 24)
+                Scene.MEMORY -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.Cyan, 28)
             }
 
             paint.shader = RadialGradient(
-                bounds.left + w * .18f,
-                bounds.top + h * .12f,
-                max(w, h) * .68f,
+                bounds.left + w * .15f,
+                bounds.top + h * .10f,
+                max(w, h) * .74f,
                 intArrayOf(withAlpha(firstTint, intensity), Color.TRANSPARENT),
                 floatArrayOf(0f, 1f),
                 Shader.TileMode.CLAMP,
@@ -320,10 +310,10 @@ object RealityOperatorSkin {
             canvas.drawRect(bounds, paint)
 
             paint.shader = RadialGradient(
-                bounds.right - w * .10f,
-                bounds.bottom - h * .18f,
-                max(w, h) * .62f,
-                intArrayOf(withAlpha(secondTint, (intensity * .72f).toInt()), Color.TRANSPARENT),
+                bounds.right - w * .08f,
+                bounds.bottom - h * .15f,
+                max(w, h) * .68f,
+                intArrayOf(withAlpha(secondTint, (intensity * .58f).toInt()), Color.TRANSPARENT),
                 floatArrayOf(0f, 1f),
                 Shader.TileMode.CLAMP,
             )
@@ -336,8 +326,8 @@ object RealityOperatorSkin {
                 bounds.top.toFloat(),
                 intArrayOf(
                     Color.TRANSPARENT,
-                    withAlpha(RealityVisuals.Colors.CyanSoft, 10),
-                    withAlpha(RealityVisuals.Colors.Lilac, 15),
+                    withAlpha(RealityVisuals.Colors.CyanSoft, 5),
+                    withAlpha(RealityVisuals.Colors.Lilac, 8),
                     Color.TRANSPARENT,
                 ),
                 floatArrayOf(0f, .34f, .62f, 1f),
@@ -363,4 +353,7 @@ object RealityOperatorSkin {
         private fun withAlpha(color: Int, alpha: Int): Int =
             Color.argb(alpha.coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))
     }
+
+    private fun Int.dp(activity: Activity): Int =
+        (this * activity.resources.displayMetrics.density).toInt()
 }
