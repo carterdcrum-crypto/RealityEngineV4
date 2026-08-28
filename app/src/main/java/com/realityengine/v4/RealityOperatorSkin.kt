@@ -16,46 +16,84 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
+import java.util.Collections
+import java.util.WeakHashMap
 import kotlin.math.min
 
 /**
- * Asset-first visual shell for the existing V4 View hierarchy.
+ * Asset-first visual shell for the existing V4 hierarchy.
  *
- * This layer is deliberately fail-open: no visual asset or decoration failure is allowed to crash
- * the dialer. It never owns navigation, data, telephony, AI, audio, update, memory or soundboard
- * behavior.
+ * The observer never performs decoration inside layout. It merely queues a post-layout pass and
+ * de-bounces multiple layout notifications. That lets MainActivity swap Phone / Traffic / Intel /
+ * Index / Settings content while keeping the new skin, without the re-entrant layout behavior that
+ * caused the first operator build to crash.
  */
 object RealityOperatorSkin {
     enum class Scene(val frame: Int) {
-        IDLE(0),
-        CALL(1),
-        INCOMING(2),
-        SETTINGS(3),
-        SUMMARY(4),
-        MEMORY(5),
+        IDLE(0), CALL(1), INCOMING(2), SETTINGS(3), SUMMARY(4), MEMORY(5)
     }
+
+    private val listeners = Collections.synchronizedMap(
+        WeakHashMap<Activity, ViewTreeObserver.OnGlobalLayoutListener>()
+    )
+    private val passQueued = Collections.synchronizedMap(WeakHashMap<Activity, Boolean>())
 
     val callbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
         override fun onActivityStarted(activity: Activity) = Unit
         override fun onActivityResumed(activity: Activity) {
-            // Never decorate while Android is constructing or laying out the Activity. Waiting for
-            // the content root to post avoids re-entrant layout work on Samsung/One UI.
-            activity.findViewById<ViewGroup>(android.R.id.content)?.post {
-                applySafely(activity)
-            }
+            attach(activity)
+            queue(activity)
         }
         override fun onActivityPaused(activity: Activity) = Unit
         override fun onActivityStopped(activity: Activity) = Unit
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
-        override fun onActivityDestroyed(activity: Activity) = Unit
+        override fun onActivityDestroyed(activity: Activity) = detach(activity)
     }
 
     fun applySafely(activity: Activity) {
         runCatching { apply(activity) }
+    }
+
+    private fun attach(activity: Activity) {
+        if (listeners.containsKey(activity)) return
+        val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
+        val listener = ViewTreeObserver.OnGlobalLayoutListener {
+            // Important: no View mutation in the layout callback. Queue a later pass instead.
+            queue(activity)
+        }
+        listeners[activity] = listener
+        runCatching { content.viewTreeObserver.addOnGlobalLayoutListener(listener) }
+    }
+
+    private fun detach(activity: Activity) {
+        passQueued.remove(activity)
+        val listener = listeners.remove(activity) ?: return
+        val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
+        if (content.viewTreeObserver.isAlive) {
+            runCatching { content.viewTreeObserver.removeOnGlobalLayoutListener(listener) }
+        }
+    }
+
+    private fun queue(activity: Activity) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        synchronized(passQueued) {
+            if (passQueued[activity] == true) return
+            passQueued[activity] = true
+        }
+        val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: run {
+            passQueued.remove(activity)
+            return
+        }
+        content.post {
+            passQueued.remove(activity)
+            if (!activity.isFinishing && !activity.isDestroyed) applySafely(activity)
+        }
     }
 
     private fun apply(activity: Activity) {
@@ -64,53 +102,36 @@ object RealityOperatorSkin {
         val root = content.getChildAt(0)
         val scene = sceneFor(activity, root)
 
-        // Replacing a drawable is cheap and, unlike the old global-layout listener, cannot loop
-        // back into layout callbacks indefinitely.
-        root.background = OperatorSceneDrawable(activity, scene)
-
+        if (root.background !is OperatorSceneDrawable || (root.background as? OperatorSceneDrawable)?.scene != scene) {
+            root.background = OperatorSceneDrawable(activity, scene)
+        }
         activity.window.statusBarColor = Color.rgb(2, 7, 12)
         activity.window.navigationBarColor = Color.rgb(2, 7, 12)
-        softenTree(root, isRoot = true, depth = 0)
+        restyleTree(activity, root, isRoot = true, depth = 0)
     }
 
-    private fun sceneFor(activity: Activity, root: View): Scene {
-        return when (activity) {
-            is CallActivity -> {
-                val text = visibleText(root)
-                if (text.contains("● INCOMING") || text.contains("ANSWER")) Scene.INCOMING else Scene.CALL
-            }
-            is CallerMemoryActivity -> Scene.MEMORY
-            is PostCallReviewActivity,
-            is PostCallIntelligenceActivity,
-            is TranscriptLibraryActivity -> Scene.SUMMARY
-            is SoundboardSettingsActivity,
-            is SupabaseSetupActivity,
-            is CoachPersonaManagerActivity -> Scene.SETTINGS
-            is MainActivity -> mainScene(primaryMainText(root))
-            else -> Scene.IDLE
+    private fun sceneFor(activity: Activity, root: View): Scene = when (activity) {
+        is CallActivity -> {
+            val text = visibleText(root)
+            if (text.contains("● INCOMING") || text.contains("ANSWER")) Scene.INCOMING else Scene.CALL
         }
-    }
-
-    private fun mainScene(text: String): Scene = when {
-        text.contains("SYSTEM READINESS") ||
-            text.contains("AI ROUTING") ||
-            text.contains("PRIVATE UPDATE ACCESS") ||
-            text.contains("SETUP MODULE") -> Scene.SETTINGS
-
-        text.contains("CONVERSATION STYLE") ||
-            text.contains("RECENT TOPICS") ||
-            text.contains("IMPORTANT FACTS") ||
-            text.contains("CONTACT INDEX") -> Scene.MEMORY
-
-        text.contains("TRAFFIC") ||
-            text.contains("INTELLIGENCE HUB") ||
-            text.contains("CONVERSATION SEARCH") -> Scene.SUMMARY
-
+        is CallerMemoryActivity -> Scene.MEMORY
+        is PostCallReviewActivity, is PostCallIntelligenceActivity, is TranscriptLibraryActivity -> Scene.SUMMARY
+        is SoundboardSettingsActivity, is SupabaseSetupActivity, is CoachPersonaManagerActivity -> Scene.SETTINGS
+        is MainActivity -> mainScene(primaryMainText(root))
         else -> Scene.IDLE
     }
 
-    /** MainActivity's bottom nav always contains Settings/Traffic/Index labels. Read its scroll body
-     * instead so those persistent nav labels do not force the wrong scene. */
+    private fun mainScene(text: String): Scene = when {
+        text.contains("SYSTEM READINESS") || text.contains("AI ROUTING") ||
+            text.contains("PRIVATE UPDATE ACCESS") || text.contains("SETUP MODULE") -> Scene.SETTINGS
+        text.contains("CONVERSATION STYLE") || text.contains("RECENT TOPICS") ||
+            text.contains("IMPORTANT FACTS") || text.contains("CONTACT INDEX") -> Scene.MEMORY
+        text.contains("TRAFFIC") || text.contains("INTELLIGENCE HUB") ||
+            text.contains("CONVERSATION SEARCH") -> Scene.SUMMARY
+        else -> Scene.IDLE
+    }
+
     private fun primaryMainText(root: View): String {
         val scroll = firstScrollView(root, 0)
         return visibleText(scroll ?: root)
@@ -144,30 +165,40 @@ object RealityOperatorSkin {
         }
     }
 
-    /**
-     * Let the raster environment breathe through legacy opaque backgrounds without changing View
-     * structure or event handlers. Each individual decoration is isolated so an unusual Android
-     * drawable implementation cannot take down the Activity.
-     */
-    private fun softenTree(view: View, isRoot: Boolean = false, depth: Int) {
-        if (depth > 14) return
+    private fun restyleTree(activity: Activity, view: View, isRoot: Boolean, depth: Int) {
+        if (depth > 15) return
         if (!isRoot) {
             runCatching {
-                when (val bg = view.background) {
-                    is ColorDrawable -> {
-                        if (isDark(bg.color)) {
-                            val alpha = when (view) {
-                                is ScrollView, is ViewGroup -> 28
-                                else -> 70
-                            }
-                            bg.color = Color.argb(alpha, Color.red(bg.color), Color.green(bg.color), Color.blue(bg.color))
+                when (view) {
+                    is Button -> {
+                        val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 } ?: RealityVisuals.Colors.Cyan
+                        val destructive = accentRed(accent)
+                        view.background = RealityVisuals.panel(
+                            activity,
+                            fill = if (destructive) RealityVisuals.Colors.DangerFill else RealityVisuals.Colors.Panel,
+                            stroke = accent,
+                            radiusDp = 14f,
+                        )
+                        view.stateListAnimator = null
+                        view.elevation = 0f
+                    }
+                    is EditText -> Unit
+                    is TextView -> {
+                        val old = view.background
+                        if (old != null && shouldRestyleTextPlate(view, old)) {
+                            val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 } ?: RealityVisuals.Colors.Border
+                            view.background = RealityVisuals.panel(
+                                activity,
+                                fill = RealityVisuals.Colors.Panel,
+                                stroke = accent,
+                                radiusDp = 11f,
+                            )
                         }
                     }
-                    null -> Unit
                     else -> {
-                        // Buttons/cards get translucency; leave complex framework widgets alone.
-                        if (view is Button || view is TextView) {
-                            bg.mutate().alpha = if (view is Button) 232 else 220
+                        val bg = view.background
+                        if (bg is ColorDrawable && isDark(bg.color)) {
+                            bg.color = Color.argb(34, Color.red(bg.color), Color.green(bg.color), Color.blue(bg.color))
                         }
                     }
                 }
@@ -175,11 +206,20 @@ object RealityOperatorSkin {
         }
 
         if (view is ViewGroup) {
-            for (i in 0 until min(view.childCount, 120)) {
-                softenTree(view.getChildAt(i), depth = depth + 1)
+            for (i in 0 until min(view.childCount, 140)) {
+                restyleTree(activity, view.getChildAt(i), isRoot = false, depth = depth + 1)
             }
         }
     }
+
+    private fun shouldRestyleTextPlate(view: TextView, bg: Drawable): Boolean {
+        if (view.text.isNullOrBlank()) return false
+        if (view.height in 1..18 || view.width in 1..40) return false
+        return bg !is OperatorSceneDrawable
+    }
+
+    private fun accentRed(color: Int): Boolean =
+        Color.red(color) > 180 && Color.red(color) > Color.green(color) * 1.35f
 
     private fun isDark(color: Int): Boolean {
         val r = Color.red(color)
@@ -190,14 +230,12 @@ object RealityOperatorSkin {
 
     private class OperatorSceneDrawable(
         activity: Activity,
-        private val scene: Scene,
+        val scene: Scene,
     ) : Drawable() {
         private val bitmap = Atlas.bitmap(activity)
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.rgb(3, 7, 12)
-        }
+        private val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(3, 7, 12) }
 
         override fun draw(canvas: Canvas) {
             val source = bitmap
@@ -206,7 +244,6 @@ object RealityOperatorSkin {
                 canvas.drawRect(bounds, fallbackPaint)
                 return
             }
-
             val calculated = ((source.width * 13f) / 6f).toInt().coerceAtLeast(1)
             val frameHeight = if (calculated * 6 <= source.height) calculated else (source.height / 6).coerceAtLeast(1)
             val top = (scene.frame * frameHeight).coerceIn(0, (source.height - 1).coerceAtLeast(0))
@@ -215,21 +252,11 @@ object RealityOperatorSkin {
                 canvas.drawRect(bounds, fallbackPaint)
                 return
             }
-            val src = Rect(0, top, source.width, bottom)
-            canvas.drawBitmap(source, src, bounds, paint)
-
+            canvas.drawBitmap(source, Rect(0, top, source.width, bottom), bounds, paint)
             shadePaint.shader = LinearGradient(
-                0f,
-                bounds.top.toFloat(),
-                0f,
-                bounds.bottom.toFloat(),
-                intArrayOf(
-                    Color.argb(36, 0, 0, 0),
-                    Color.argb(8, 0, 0, 0),
-                    Color.argb(100, 0, 0, 0),
-                ),
-                floatArrayOf(0f, .48f, 1f),
-                Shader.TileMode.CLAMP,
+                0f, bounds.top.toFloat(), 0f, bounds.bottom.toFloat(),
+                intArrayOf(Color.argb(28, 0, 0, 0), Color.argb(4, 0, 0, 0), Color.argb(90, 0, 0, 0)),
+                floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP,
             )
             canvas.drawRect(bounds, shadePaint)
             shadePaint.shader = null
@@ -252,9 +279,8 @@ object RealityOperatorSkin {
                 cached?.let { return@synchronized it }
                 if (attempted) return@synchronized null
                 attempted = true
-                runCatching {
-                    BitmapFactory.decodeResource(activity.resources, R.drawable.re_operator_atlas)
-                }.getOrNull()?.also { cached = it }
+                runCatching { BitmapFactory.decodeResource(activity.resources, R.drawable.re_operator_atlas) }
+                    .getOrNull()?.also { cached = it }
             }
         }
     }
