@@ -1,0 +1,532 @@
+name: Product hardening finalizer
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply tolerant integration patches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          ROOT = Path('app/src/main/java/com/realityengine/v4')
+
+          def get(name):
+              return (ROOT / name).read_text()
+
+          def put(name, text):
+              (ROOT / name).write_text(text)
+
+          def required_replace(name, old, new, label):
+              text = get(name)
+              if old not in text:
+                  raise SystemExit(f'{label}: anchor not found in {name}')
+              put(name, text.replace(old, new, 1))
+
+          def required_regex(name, pattern, replacement, label, flags=0):
+              text = get(name)
+              text2, count = re.subn(pattern, replacement, text, count=1, flags=flags)
+              if count != 1:
+                  raise SystemExit(f'{label}: regex matched {count} times in {name}')
+              put(name, text2)
+
+          # CallerProfileStore: local profile enumeration for Intel search + restore normal formatting.
+          required_regex(
+              'CallerProfileStore.kt',
+              r'    @Synchronized\nfun save\(profile: CallerProfile\) \{',
+              '    @Synchronized\n    fun allProfiles(): List<CallerProfile> = prefs.all.mapNotNull { (key, raw) ->\n'
+              '        val value = raw as? String ?: return@mapNotNull null\n'
+              '        runCatching { fromJson(JSONObject(value), key) }.getOrNull()\n'
+              '    }.sortedByDescending { it.updatedAtMs }\n\n'
+              '    @Synchronized\n    fun save(profile: CallerProfile) {',
+              'caller profile enumeration',
+          )
+
+          # Live signal context for explainable cues.
+          required_replace(
+              'LiveSignalState.kt',
+              '        val elevatedStreams: Int = 0,\n        val updatedAtMs: Long = 0L\n    )',
+              '        val elevatedStreams: Int = 0,\n        val updatedAtMs: Long = 0L,\n        val context: String = "",\n        val cognitiveStress: Int = 0,\n    )',
+              'live signal fields',
+          )
+          required_replace(
+              'LiveSignalState.kt',
+              '            elevatedStreams = snapshot.elevatedStreams.coerceIn(0, 3),\n            updatedAtMs = snapshot.timestampMs\n        )',
+              '            elevatedStreams = snapshot.elevatedStreams.coerceIn(0, 3),\n            updatedAtMs = snapshot.timestampMs,\n            context = snapshot.context,\n            cognitiveStress = snapshot.cognitiveStress,\n        )',
+              'live signal publish',
+          )
+
+          required_replace(
+              'LiveEvidenceEngine.kt',
+              '        val logOdds: Double = 0.0,\n        val timestampMs: Long = System.currentTimeMillis()\n    )',
+              '        val logOdds: Double = 0.0,\n        val timestampMs: Long = System.currentTimeMillis(),\n        val context: String = "",\n    )',
+              'evidence snapshot context field',
+          )
+          required_replace(
+              'LiveEvidenceEngine.kt',
+              'val snapshot=Snapshot(cleanPhone,(result.acoustic*100).toInt(),(result.linguistic*100).toInt(),(result.factual*100).toInt(),(result.combined*100).toInt(),result.elevatedStreams,shouldPersist,(cognitiveStressScore.coerceIn(0f,1f)*100).toInt(),result.logOdds,now)',
+              'val snapshot=Snapshot(cleanPhone,(result.acoustic*100).toInt(),(result.linguistic*100).toInt(),(result.factual*100).toInt(),(result.combined*100).toInt(),result.elevatedStreams,shouldPersist,(cognitiveStressScore.coerceIn(0f,1f)*100).toInt(),result.logOdds,now,transcriptContext.trim().replace(Regex("\\\\s+"), " ").take(220))',
+              'evidence snapshot context population',
+          )
+
+          # Coach state: provider/latency telemetry and preserve usable cards on transient failures.
+          required_replace(
+              'ResponseCoachState.kt',
+              '        val groqModel: String = "",\n        val groqRemainingTokens: Int? = null,',
+              '        val groqModel: String = "",\n        val provider: String = "",\n        val coachLatencyMs: Long = 0L,\n        val groqRemainingTokens: Int? = null,',
+              'coach state telemetry fields',
+          )
+          required_replace(
+              'ResponseCoachState.kt',
+              '            groqModel = result.model,\n            updatedAt = System.currentTimeMillis(),',
+              '            groqModel = result.model,\n            provider = result.provider,\n            coachLatencyMs = result.latencyMs,\n            updatedAt = System.currentTimeMillis(),',
+              'coach state publish telemetry',
+          )
+          required_replace(
+              'ResponseCoachState.kt',
+              '    @Synchronized fun publishStatus(phase: Phase, message: String? = null, clearSuggestions: Boolean = false) {\n        snapshot = snapshot.copy(',
+              '    @Synchronized fun publishStatus(phase: Phase, message: String? = null, clearSuggestions: Boolean = false) {\n        if (phase == Phase.ANALYZING) CallSessionHealthState.markCoachAnalyzing()\n        snapshot = snapshot.copy(',
+              'coach analyzing health',
+          )
+          required_regex(
+              'ResponseCoachState.kt',
+              r'    @Synchronized fun publishError\(message: String\) \{\n        snapshot = snapshot.copy\(\n            best = null,\n            alternatives = emptyList\(\),',
+              '    @Synchronized fun publishError(message: String) {\n        CallSessionHealthState.markCoachError(message)\n        snapshot = snapshot.copy(',
+              'coach error preserve cards',
+          )
+
+          # LiveResponseEngine: adaptive thermal cadence, latency telemetry, usage, and non-blanking refreshes.
+          required_replace(
+              'LiveResponseEngine.kt',
+              '        val outputTokens: Int,\n        val model: String = SettingsStore.DEFAULT_GROQ_MODEL\n    )',
+              '        val outputTokens: Int,\n        val model: String = SettingsStore.DEFAULT_GROQ_MODEL,\n        val provider: String = "",\n        val latencyMs: Long = 0L,\n    )',
+              'coach result telemetry fields',
+          )
+          required_replace(
+              'LiveResponseEngine.kt',
+              '    private val providerPerformance = appContext?.applicationContext?.let(::CoachProviderPerformanceStore)\n    private val gemini',
+              '    private val providerPerformance = appContext?.applicationContext?.let(::CoachProviderPerformanceStore)\n    private val runtimeUsage = appContext?.applicationContext?.let(::RuntimeUsageStore)\n    private val thermalGuard = appContext?.applicationContext?.let(::ThermalGuard)\n    private val gemini',
+              'coach usage thermal fields',
+          )
+          required_replace(
+              'LiveResponseEngine.kt',
+              '        var status: Pair<ResponseCoachState.Phase, String>? = null\n        var shouldLaunch = false\n        synchronized(this) {\n            if (clean == lastCallerTurn) return',
+              '        var status: Pair<ResponseCoachState.Phase, String>? = null\n        var shouldLaunch = false\n        val requiredTurns = effectiveAnalysisFrequency()\n        synchronized(this) {\n            if (clean == lastCallerTurn) return',
+              'effective coach frequency declaration',
+          )
+          required_replace(
+              'LiveResponseEngine.kt',
+              '                callerTurnsSinceAnalysis < settings.analysisFrequencyTurns -> {\n                    status = ResponseCoachState.Phase.LISTENING to "Caller turn $callerTurnsSinceAnalysis/${settings.analysisFrequencyTurns}"',
+              '                callerTurnsSinceAnalysis < requiredTurns -> {\n                    status = ResponseCoachState.Phase.LISTENING to "Caller turn $callerTurnsSinceAnalysis/$requiredTurns"',
+              'effective coach frequency use',
+          )
+          text = get('LiveResponseEngine.kt')
+          text = text.replace('            clearSuggestions = true\n        )\n        executor.execute { executeAnalysis(ticket, callback) }', '            clearSuggestions = false\n        )\n        executor.execute { executeAnalysis(ticket, callback) }', 1)
+          text = text.replace('                clearSuggestions = true\n            )\n            executor.execute { executeAnalysis(nextTicket, {}) }', '                clearSuggestions = false\n            )\n            executor.execute { executeAnalysis(nextTicket, {}) }', 1)
+          put('LiveResponseEngine.kt', text)
+          required_replace(
+              'LiveResponseEngine.kt',
+              '            } else if (failure != null) {\n                ResponseCoachState.publishError(failure!!)\n            }',
+              '            } else if (failure != null) {\n                CallSessionHealthState.markCoachError(failure!!)\n                ResponseCoachState.publishError(failure!!)\n            }',
+              'coach health failure',
+          )
+          required_replace(
+              'LiveResponseEngine.kt',
+              '        return try {\n            val result = requestProvider(provider, snapshot, quickModeId)\n            providerPerformance?.recordSuccess(provider, elapsedMs(started))\n            result\n        } catch (t: Throwable) {',
+              '        return try {\n            val result = requestProvider(provider, snapshot, quickModeId)\n            val elapsed = elapsedMs(started)\n            providerPerformance?.recordSuccess(provider, elapsed)\n            runtimeUsage?.recordCoach(result.inputTokens, result.outputTokens)\n            CallSessionHealthState.markCoachReady(provider, elapsed)\n            result.copy(provider = provider, latencyMs = elapsed)\n        } catch (t: Throwable) {',
+              'measured provider telemetry',
+          )
+          required_replace(
+              'LiveResponseEngine.kt',
+              '    private fun elapsedMs(startedNanos: Long): Long =',
+              '    private fun effectiveAnalysisFrequency(): Int {\n        val base = settings.analysisFrequencyTurns.coerceAtLeast(1)\n        return if (thermalGuard?.snapshot()?.throttle == true) maxOf(base, 2) else base\n    }\n\n    private fun elapsedMs(startedNanos: Long): Long =',
+              'thermal analysis cadence',
+          )
+
+          # LiveTranscriptionPipeline: session health heartbeats and aggregate Deepgram usage.
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '    private val appContext = context.applicationContext\n    private val settings = SettingsStore(appContext)',
+              '    private val appContext = context.applicationContext\n    private val runtimeUsage = RuntimeUsageStore(appContext)\n    private val settings = SettingsStore(appContext)',
+              'transcription usage store',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '    @Volatile private var activeChannels = 0\n',
+              '    @Volatile private var activeChannels = 0\n    @Volatile private var deepgramStartedAtMs = 0L\n',
+              'deepgram timer field',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '                if (running.get() && !stopping.get()) {\n                    when (direction) {',
+              '                if (running.get() && !stopping.get()) {\n                    CallSessionHealthState.markAudioFrame(length)\n                    when (direction) {',
+              'native pcm heartbeat',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '        acousticScore = acoustic.analyze(frame.pcm16).score\n        recordAudio(frame.pcm16, frame.pcm16.size)',
+              '        acousticScore = acoustic.analyze(frame.pcm16).score\n        CallSessionHealthState.markAudioFrame(frame.pcm16.size)\n        recordAudio(frame.pcm16, frame.pcm16.size)',
+              'twilio pcm heartbeat',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '        conversation.bindActiveCaller()\n    }\n\n    private fun connectDeepgram',
+              '        conversation.bindActiveCaller()\n        deepgramStartedAtMs = 0L\n        CallSessionHealthState.beginSession()\n    }\n\n    private fun connectDeepgram',
+              'session health start',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '    private fun connectDeepgram(sampleRate: Int, channels: Int, multi: Boolean): Boolean {\n        multichannel = multi\n        return deepgram.connect(',
+              '    private fun connectDeepgram(sampleRate: Int, channels: Int, multi: Boolean): Boolean {\n        multichannel = multi\n        CallSessionHealthState.markSttConnecting()\n        return deepgram.connect(',
+              'stt connecting heartbeat',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '                val callerSide = isCaller != false\n                LiveTranscriptState.publish(result.text, result.isFinal, isCaller)',
+              '                val callerSide = isCaller != false\n                CallSessionHealthState.markTranscript(result.isFinal)\n                LiveTranscriptState.publish(result.text, result.isFinal, isCaller)',
+              'stt transcript heartbeat',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '            onSpeechEvent = { event -> handleSpeechEvent(event) },\n            onClosed = { reason -> finishShutdown(reason) },\n        ).also { started -> if (started) primeDeepgram(sampleRate, channels) }',
+              '            onSpeechEvent = { event -> handleSpeechEvent(event) },\n            onClosed = { reason ->\n                CallSessionHealthState.markSttClosed(reason)\n                finishShutdown(reason)\n            },\n        ).also { started ->\n            if (started) {\n                deepgramStartedAtMs = System.currentTimeMillis()\n                CallSessionHealthState.markSttReady()\n                primeDeepgram(sampleRate, channels)\n            }\n        }',
+              'stt connected close heartbeat',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '        if (text.isBlank()) return\n        if (isCaller) {',
+              '        if (text.isBlank()) return\n        CallSessionHealthState.markTurnDelivered(isCaller)\n        if (isCaller) {',
+              'turn delivery heartbeat',
+          )
+          required_replace(
+              'LiveTranscriptionPipeline.kt',
+              '        stopping.set(false)\n        val callback = stoppedCallback',
+              '        stopping.set(false)\n        val started = deepgramStartedAtMs\n        if (started > 0L) runtimeUsage.recordDeepgram(System.currentTimeMillis() - started)\n        deepgramStartedAtMs = 0L\n        CallSessionHealthState.finishSession()\n        val callback = stoppedCallback',
+              'deepgram usage finish',
+          )
+
+          # Post-call learned data becomes reviewable proposals; summary still updates automatically.
+          required_replace(
+              'CallSummaryBuilder.kt',
+              '    private val aiMemory = CallerMemoryAiExtractor(appContext)\n',
+              '    private val aiMemory = CallerMemoryAiExtractor(appContext)\n    private val proposals = MemoryProposalStore(appContext)\n',
+              'memory proposal store',
+          )
+          required_replace(
+              'CallSummaryBuilder.kt',
+              '                profiles.update(phoneNumber) { target -> merge(target, learned) }\n                cloud.pushAsync(phoneNumber)',
+              '                if (learned.summary.isNotBlank()) profiles.update(phoneNumber) { target -> target.lastCallSummary = learned.summary }\n                proposals.save(phoneNumber, learned)\n                cloud.pushAsync(phoneNumber)',
+              'automatic memory proposal',
+          )
+
+          # Caller memory review UI.
+          required_replace(
+              'CallerMemoryActivity.kt',
+              '    private lateinit var ai: CallerMemoryAiExtractor\n    private lateinit var root: LinearLayout',
+              '    private lateinit var ai: CallerMemoryAiExtractor\n    private lateinit var proposals: MemoryProposalStore\n    private lateinit var root: LinearLayout',
+              'proposal activity field',
+          )
+          required_replace(
+              'CallerMemoryActivity.kt',
+              '        ai = CallerMemoryAiExtractor(this)\n        phone =',
+              '        ai = CallerMemoryAiExtractor(this)\n        proposals = MemoryProposalStore(this)\n        phone =',
+              'proposal activity init',
+          )
+          required_replace(
+              'CallerMemoryActivity.kt',
+              '        root.addView(actionButton("SYNC MEMORY NOW", cyan) { syncNow() })\n\n        root.addView(TextView(this).apply {',
+              '        root.addView(actionButton("SYNC MEMORY NOW", cyan) { syncNow() })\n        proposals.load(phone)?.let { addProposalReview(it) }\n\n        root.addView(TextView(this).apply {',
+              'proposal card placement',
+          )
+          required_replace(
+              'CallerMemoryActivity.kt',
+              '    private fun addCategory(profile: CallerProfileStore.CallerProfile, kind: Kind) {',
+              '''    private fun addProposalReview(proposal: MemoryProposalStore.Proposal) {
+        val learned = proposal.learned
+        val lines = buildList {
+            learned.likes.forEach { add("LIKE · $it") }
+            learned.dislikes.forEach { add("DISLIKE · $it") }
+            learned.facts.forEach { add("FACT · $it") }
+            learned.topics.forEach { add("TOPIC · $it") }
+            learned.unresolved.forEach { add("FOLLOW UP · $it") }
+            learned.starters.forEach { add("STARTER · $it") }
+            if (learned.preferredStyle.isNotBlank()) add("STYLE · ${learned.preferredStyle}")
+        }
+        root.addView(TextView(this).apply {
+            text = "NEW MEMORY TO REVIEW · ${proposals.itemCount(proposal)}"
+            setTextColor(green)
+            setPadding(dp(3), dp(14), 0, dp(5))
+            RealityTypography.displayMedium(this, 13f)
+        })
+        root.addView(TextView(this).apply {
+            text = if (lines.isEmpty()) "No permanent facts proposed; only the call summary changed." else lines.joinToString("\\n")
+            setTextColor(primaryText)
+            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = green, radiusDp = 10f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            RealityTypography.display(this, 11.5f)
+        })
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actions.addView(Button(this).apply {
+            text = "SAVE"
+            setTextColor(green)
+            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = green, radiusDp = 10f)
+            setOnClickListener {
+                profiles.update(phone) { CallSummaryBuilder.merge(it, learned) }
+                proposals.clear(phone)
+                pushAndRefresh()
+            }
+        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(0, dp(4), dp(3), dp(3)) })
+        actions.addView(Button(this).apply {
+            text = "IGNORE"
+            setTextColor(magenta)
+            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = magenta, radiusDp = 10f)
+            setOnClickListener { proposals.clear(phone); build() }
+        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(3), dp(4), 0, dp(3)) })
+        root.addView(actions)
+    }
+
+    private fun addCategory(profile: CallerProfileStore.CallerProfile, kind: Kind) {''',
+              'proposal review block',
+          )
+          required_regex(
+              'CallerMemoryActivity.kt',
+              r'                profiles.update\(phone\) \{ CallSummaryBuilder.merge\(it, learned\) \}\n                status.text = "LEARNED WITH \$\{learned.provider\} · SYNCING…"\n                cloud.pushAsync\(phone\) \{ result ->\n                    runOnUiThread \{\n                        build\(\)\n                        status.text = "MEMORY UPDATED · \$\{result.detail.ifBlank \{ result.status.name \}\}"\n                    \}\n                \}',
+              '                if (learned.summary.isNotBlank()) profiles.update(phone) { it.lastCallSummary = learned.summary }\n                proposals.save(phone, learned)\n                cloud.pushAsync(phone)\n                build()\n                status.text = "NEW MEMORY READY · REVIEW SAVE / IGNORE"',
+              'manual memory proposal behavior',
+          )
+
+          # Post-call navigation now opens the intelligence summary first.
+          required_replace(
+              'PostCallProfileState.kt',
+              '        context.startActivity(Intent(context, CallerMemoryActivity::class.java).apply {\n            putExtra(CallerMemoryActivity.EXTRA_PHONE, item.phoneNumber)\n            putExtra(CallerMemoryActivity.EXTRA_NAME, item.displayName)',
+              '        context.startActivity(Intent(context, PostCallIntelligenceActivity::class.java).apply {\n            putExtra(PostCallIntelligenceActivity.EXTRA_PHONE, item.phoneNumber)\n            putExtra(PostCallIntelligenceActivity.EXTRA_NAME, item.displayName)',
+              'post call intelligence destination',
+          )
+
+          # MainActivity Intel tab + caller-memory shortcut.
+          required_replace(
+              'MainActivity.kt',
+              '            if (screen == "SETTINGS" && ::content.isInitialized) showSettings()\n        }',
+              '            if (screen == "SETTINGS" && ::content.isInitialized) showSettings()\n            if (screen == "INTEL" && ::content.isInitialized) showIntel()\n        }',
+              'intel resume refresh',
+          )
+          required_replace(
+              'MainActivity.kt',
+              '        nav.addView(navItem("⌁", "Phone", "DIAL") { showPhone() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))\n        nav.addView(navItem("◴", "Traffic", "TRAFFIC") { showRecents() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))\n        nav.addView(navItem("▣", "Index", "INDEX") { showContacts() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))\n        nav.addView(navItem("⚙", "Settings", "SETTINGS") { showSettings() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))',
+              '        nav.addView(navItem("⌁", "Phone", "DIAL") { showPhone() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))\n        nav.addView(navItem("◴", "Traffic", "TRAFFIC") { showRecents() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))\n        nav.addView(navItem("◇", "Intel", "INTEL") { showIntel() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))\n        nav.addView(navItem("▣", "Index", "INDEX") { showContacts() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))\n        nav.addView(navItem("⚙", "Settings", "SETTINGS") { showSettings() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))',
+              'intel nav item',
+          )
+          required_replace(
+              'MainActivity.kt',
+              '    private fun showSettings() {',
+              '    private fun showIntel() {\n        stopRecordingPlayback()\n        screen = "INTEL"\n        content.gravity = Gravity.TOP\n        content.removeAllViews()\n        content.addView(IntelligenceHubScreen(this).build(), LinearLayout.LayoutParams(-1, -2))\n        refreshNav()\n    }\n\n    private fun showSettings() {',
+              'show intel screen',
+          )
+          required_replace(
+              'MainActivity.kt',
+              '        showSavedRecordings(phone, name)\n\n        content.addView(cyberButton("Call $label")',
+              '        showSavedRecordings(phone, name)\n        content.addView(cyberButton("Open Reality memory") {\n            startActivity(Intent(this, CallerMemoryActivity::class.java).apply {\n                putExtra(CallerMemoryActivity.EXTRA_PHONE, phone)\n                putExtra(CallerMemoryActivity.EXTRA_NAME, label)\n            })\n        }, LinearLayout.LayoutParams(-1, 48.dp()).apply { setMargins(0, 8.dp(), 0, 2.dp()) })\n\n        content.addView(cyberButton("Call $label")',
+              'caller memory shortcut',
+          )
+
+          # CallActivity health, briefing, transcript bubbles, generic provider telemetry, explainable signals.
+          required_replace(
+              'CallActivity.kt',
+              '    private lateinit var transcript: TextView\n',
+              '    private lateinit var transcript: LiveTranscriptPanelView\n    private lateinit var healthStrip: TextView\n    private lateinit var preCallBriefing: PreCallBriefingView\n',
+              'call transcript view fields',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '    private var lastRenderedCallState: Int? = null\n',
+              '    private var lastRenderedCallState: Int? = null\n    private var usageRecorded = false\n',
+              'call usage field',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '    private val transcriptListener: (LiveTranscriptState.State) -> Unit = { snapshot -> runOnUiThread { renderTranscript(snapshot) } }\n',
+              '    private val transcriptListener: (LiveTranscriptState.State) -> Unit = { snapshot -> runOnUiThread { renderTranscript(snapshot) } }\n    private val healthListener: (CallSessionHealthState.Snapshot) -> Unit = { snapshot -> runOnUiThread { renderHealth(snapshot) } }\n',
+              'call health listener field',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '            refreshRecordingUi()\n            handler.postDelayed(this, 500L)',
+              '            refreshRecordingUi()\n            renderHealth(CallSessionHealthState.snapshot())\n            handler.postDelayed(this, 500L)',
+              'call health timer',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '        LiveTranscriptState.addListener(transcriptListener)\n',
+              '        LiveTranscriptState.addListener(transcriptListener)\n        CallSessionHealthState.addListener(healthListener)\n',
+              'call health listener add',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '        LiveTranscriptState.removeListener(transcriptListener)\n',
+              '        LiveTranscriptState.removeListener(transcriptListener)\n        CallSessionHealthState.removeListener(healthListener)\n',
+              'call health listener remove',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '        root.addView(identity, LinearLayout.LayoutParams(-1, 66.dp()).apply { setMargins(0, 0, 0, 8.dp()) })\n',
+              '''        root.addView(identity, LinearLayout.LayoutParams(-1, 66.dp()).apply { setMargins(0, 0, 0, 8.dp()) })
+
+        healthStrip = TextView(this).apply {
+            text = "AUDIO ○  STT ○  COACH ○"
+            setTextColor(cyan)
+            textSize = 9f
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.CENTER
+            background = neon(RealityVisuals.Colors.BackgroundRaised, RealityVisuals.Colors.Border, 9f)
+            setOnClickListener {
+                AlertDialog.Builder(this@CallActivity)
+                    .setTitle("Call session diagnostics")
+                    .setMessage(CallSessionHealthState.diagnosticText())
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+        root.addView(healthStrip, LinearLayout.LayoutParams(-1, 28.dp()).apply { setMargins(0, 0, 0, 6.dp()) })
+''',
+              'call health strip',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '        root.addView(incomingHeroAvatar, LinearLayout.LayoutParams(118.dp(), 118.dp()).apply { setMargins(0, 3.dp(), 0, 8.dp()) })\n',
+              '''        root.addView(incomingHeroAvatar, LinearLayout.LayoutParams(118.dp(), 118.dp()).apply { setMargins(0, 3.dp(), 0, 8.dp()) })
+        preCallBriefing = PreCallBriefingView(this).apply { visibility = View.GONE }
+        root.addView(preCallBriefing, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, 7.dp()) })
+''',
+              'pre call briefing placement',
+          )
+          text = get('CallActivity.kt')
+          start = text.find('        val transcriptHeader = LinearLayout(this).apply')
+          end = text.find('        val coachPanel = LinearLayout(this).apply', start)
+          if start < 0 or end < 0:
+              raise SystemExit('live transcript block boundaries missing')
+          new_block = '''        val transcriptHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        transcriptHeader.addView(TextView(this).apply {
+            text = "LIVE TRANSCRIPT"
+            RealityVisuals.styleMicroLabel(this, magenta)
+        }, LinearLayout.LayoutParams(0, 22.dp(), 1f))
+        transcriptHeader.addView(TextView(this).apply {
+            text = "SEARCH · HOLD TO BOOKMARK"
+            RealityVisuals.styleMicroLabel(this, muted)
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        })
+        workspace.addView(transcriptHeader)
+        transcript = LiveTranscriptPanelView(this)
+        workspace.addView(transcript, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(0, 3.dp(), 0, 7.dp()) })
+
+'''
+          text = text[:start] + new_block + text[end:]
+          put('CallActivity.kt', text)
+          required_regex(
+              'CallActivity.kt',
+              r'    private fun renderTranscript\(snapshot: LiveTranscriptState\.State\) \{.*?\n    \}\n\n    private fun renderCoach',
+              '    private fun renderTranscript(snapshot: LiveTranscriptState.State) {\n        if (!::transcript.isInitialized) return\n        transcript.render(snapshot)\n    }\n\n    private fun renderCoach',
+              'render bubble transcript',
+              re.S,
+          )
+          text = get('CallActivity.kt')
+          text = text.replace('ResponseCoachState.Phase.KEY_REQUIRED -> "GROQ KEY REQUIRED\\nOpen Settings → Groq"', 'ResponseCoachState.Phase.KEY_REQUIRED -> "AI PROVIDER REQUIRED\\nOpen Settings → Coach provider"', 1)
+          put('CallActivity.kt', text)
+          required_regex(
+              'CallActivity.kt',
+              r'    private fun renderGroqUsage\(snapshot: ResponseCoachState\.Snapshot\) \{.*?\n    \}\n\n    private fun shortGroqModel',
+              '''    private fun renderGroqUsage(snapshot: ResponseCoachState.Snapshot) {
+        if (!::groqUsage.isInitialized) return
+        val provider = snapshot.provider.ifBlank { CallSessionHealthState.snapshot().coachProvider }.ifBlank { "WAITING" }
+        val model = shortGroqModel(snapshot.groqModel)
+        val latency = snapshot.coachLatencyMs.takeIf { it > 0 }?.let { " · ${it}ms" }.orEmpty()
+        val rate = if (provider.equals("GROQ", true) && snapshot.groqRemainingTokens != null && snapshot.groqLimitTokens != null) " · TPM ${compactTokens(snapshot.groqRemainingTokens)}/${compactTokens(snapshot.groqLimitTokens)}" else ""
+        groqUsage.text = "COACH // $provider · $model$latency$rate · CALL ${compactTokens(snapshot.callTotalTokens)}"
+    }
+
+    private fun shortGroqModel''',
+              'generic provider usage strip',
+              re.S,
+          )
+          required_replace(
+              'CallActivity.kt',
+              '    private fun renderLiveSignals() {',
+              '''    private fun renderHealth(snapshot: CallSessionHealthState.Snapshot) {
+        if (!::healthStrip.isInitialized) return
+        healthStrip.text = snapshot.compact()
+        val accent = when {
+            snapshot.lastError.isNotBlank() -> magenta
+            snapshot.audio == CallSessionHealthState.Level.GOOD && snapshot.stt == CallSessionHealthState.Level.GOOD && snapshot.coach != CallSessionHealthState.Level.ERROR -> green
+            else -> cyan
+        }
+        healthStrip.setTextColor(accent)
+        healthStrip.background = neon(RealityVisuals.Colors.BackgroundRaised, accent, 9f)
+    }
+
+    private fun showSignalExplanation() {
+        AlertDialog.Builder(this)
+            .setTitle("Live signal explanation")
+            .setMessage(SignalExplanation.lines(LiveSignalState.snapshot()).joinToString("\\n\\n"))
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    private fun renderLiveSignals() {''',
+              'call health and signal explanation methods',
+          )
+          # Make the live signal card tappable without depending on a fragile block-wide replacement.
+          text = get('CallActivity.kt')
+          signal_anchor = '            setPadding(10.dp(), 6.dp(), 10.dp(), 5.dp())\n        }\n        signals.addView'
+          if signal_anchor in text:
+              text = text.replace(signal_anchor, '            setPadding(10.dp(), 6.dp(), 10.dp(), 5.dp())\n            isClickable = true\n            setOnClickListener { showSignalExplanation() }\n        }\n        signals.addView', 1)
+          put('CallActivity.kt', text)
+          required_replace(
+              'CallActivity.kt',
+              '            RealityVisuals.reveal(callerAvatar)\n        }',
+              '            RealityVisuals.reveal(callerAvatar)\n            transcript.bindPhone(number)\n            preCallBriefing.bind(number, label)\n        }',
+              'call bind briefing and transcript phone',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '        if (current.state == Call.STATE_DISCONNECTED) { connectedStartedAt = null; scheduleFinish() } else finishScheduled = false',
+              '        if (current.state == Call.STATE_DISCONNECTED) {\n            if (!usageRecorded) {\n                connectedStartedAt?.let { RuntimeUsageStore(this).recordCall(SystemClock.elapsedRealtime() - it) }\n                usageRecorded = true\n            }\n            connectedStartedAt = null\n            scheduleFinish()\n        } else finishScheduled = false',
+              'record call usage',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '        val ringing = current.state == Call.STATE_RINGING\n',
+              '        val ringing = current.state == Call.STATE_RINGING\n        val preConnect = ringing || current.state == Call.STATE_DIALING || current.state == Call.STATE_CONNECTING\n        preCallBriefing.visibility = if (preConnect) View.VISIBLE else View.GONE\n',
+              'briefing visibility',
+          )
+          required_replace(
+              'CallActivity.kt',
+              '        updateTimer(); renderLiveSignals(); renderTranscript(LiveTranscriptState.snapshot()); renderGroqUsage(ResponseCoachState.current())',
+              '        updateTimer(); renderLiveSignals(); renderTranscript(LiveTranscriptState.snapshot()); renderGroqUsage(ResponseCoachState.current()); renderHealth(CallSessionHealthState.snapshot())',
+              'call health initial render',
+          )
+
+          # Register post-call intelligence screen.
+          manifest = Path('app/src/main/AndroidManifest.xml')
+          m = manifest.read_text()
+          old = '        <activity android:name=".PostCallReviewActivity" android:exported="false" android:excludeFromRecents="true" />'
+          if old not in m:
+              raise SystemExit('manifest post-call review anchor missing')
+          m = m.replace(old, old + '\n        <activity android:name=".PostCallIntelligenceActivity" android:exported="false" />', 1)
+          manifest.write_text(m)
+          PY
+
+          rm -f .github/workflows/product-hardening-once.yml .github/workflows/product-hardening-finalize.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Integrate full product hardening pass"
+          git push
