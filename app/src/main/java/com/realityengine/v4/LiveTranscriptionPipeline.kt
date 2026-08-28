@@ -49,11 +49,17 @@ class LiveTranscriptionPipeline(context: Context) {
     private val turnLock = Any()
     private val callerTurn = StringBuilder()
     private val userTurn = StringBuilder()
+    private var callerInterim = ""
+    private var userInterim = ""
     private val turnScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "reality-turn-finalizer").apply { isDaemon = true }
     }
     private var callerFlushFuture: ScheduledFuture<*>? = null
     private var userFlushFuture: ScheduledFuture<*>? = null
+    private var callerHardFlushFuture: ScheduledFuture<*>? = null
+    private var userHardFlushFuture: ScheduledFuture<*>? = null
+    private var callerInterimFuture: ScheduledFuture<*>? = null
+    private var userInterimFuture: ScheduledFuture<*>? = null
 
     private val recordingLock = Any()
     @Volatile private var recordingRequest: RecordingRequest? = null
@@ -202,22 +208,27 @@ class LiveTranscriptionPipeline(context: Context) {
                     if (callerSpeaker == null && speaker != null) callerSpeaker = speaker
                     speaker?.let { it == callerSpeaker }
                 }
+                val callerSide = isCaller != false
                 LiveTranscriptState.publish(result.text, result.isFinal, isCaller)
                 interimCallback?.invoke(result.text)
-                if (result.isFinal && result.text.isNotBlank()) {
-                    val callerSide = isCaller != false
-                    appendFinalTurn(result.text, callerSide)
-                    if (result.speechFinal) {
-                        cancelTurnFlush(callerSide)
-                        flushTurn(callerSide)
+
+                if (result.text.isNotBlank()) {
+                    if (result.isFinal) {
+                        clearInterim(callerSide)
+                        appendFinalTurn(result.text, callerSide)
+                        ensureHardTurnFlush(callerSide)
                     } else {
-                        scheduleTurnFlush(callerSide)
+                        updateInterim(result.text, callerSide)
                     }
-                } else if (result.speechFinal) {
-                    val callerSide = isCaller != false
-                    cancelTurnFlush(callerSide)
-                    flushTurn(callerSide)
                 }
+
+                if (result.speechFinal) {
+                    promoteInterim(callerSide)
+                    flushTurnNow(callerSide)
+                } else if (result.isFinal && result.text.isNotBlank()) {
+                    scheduleTurnFlush(callerSide)
+                }
+
                 if (result.speechFinal) {
                     if (isCaller == true) callerSpeaking = false else if (isCaller == false) userSpeaking = false
                 }
@@ -228,43 +239,144 @@ class LiveTranscriptionPipeline(context: Context) {
     }
 
     private fun appendFinalTurn(text: String, isCaller: Boolean) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
         synchronized(turnLock) {
             val target = if (isCaller) callerTurn else userTurn
-            if (target.isNotEmpty()) target.append(' ')
-            target.append(text.trim())
+            appendUniqueLocked(target, clean)
         }
+    }
+
+    private fun appendUniqueLocked(target: StringBuilder, clean: String) {
+        val existing = target.toString().trim()
+        if (existing.equals(clean, ignoreCase = true) || existing.endsWith(clean, ignoreCase = true)) return
+        if (target.isNotEmpty()) target.append(' ')
+        target.append(clean)
+    }
+
+    private fun updateInterim(text: String, isCaller: Boolean) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        synchronized(turnLock) {
+            if (isCaller) {
+                callerInterim = clean
+                callerInterimFuture?.cancel(false)
+                callerInterimFuture = turnScheduler.schedule(
+                    { promoteInterimAndFlush(true) },
+                    INTERIM_RESCUE_DELAY_MS,
+                    TimeUnit.MILLISECONDS,
+                )
+            } else {
+                userInterim = clean
+                userInterimFuture?.cancel(false)
+                userInterimFuture = turnScheduler.schedule(
+                    { promoteInterimAndFlush(false) },
+                    INTERIM_RESCUE_DELAY_MS,
+                    TimeUnit.MILLISECONDS,
+                )
+            }
+        }
+    }
+
+    private fun clearInterim(isCaller: Boolean) {
+        synchronized(turnLock) {
+            if (isCaller) {
+                callerInterim = ""
+                callerInterimFuture?.cancel(false)
+                callerInterimFuture = null
+            } else {
+                userInterim = ""
+                userInterimFuture?.cancel(false)
+                userInterimFuture = null
+            }
+        }
+    }
+
+    private fun promoteInterim(isCaller: Boolean) {
+        synchronized(turnLock) {
+            val target = if (isCaller) callerTurn else userTurn
+            val interim = if (isCaller) callerInterim else userInterim
+            if (interim.isNotBlank()) appendUniqueLocked(target, interim)
+            if (isCaller) {
+                callerInterim = ""
+                callerInterimFuture?.cancel(false)
+                callerInterimFuture = null
+            } else {
+                userInterim = ""
+                userInterimFuture?.cancel(false)
+                userInterimFuture = null
+            }
+        }
+    }
+
+    private fun promoteInterimAndFlush(isCaller: Boolean) {
+        promoteInterim(isCaller)
+        flushTurnNow(isCaller)
     }
 
     private fun scheduleTurnFlush(isCaller: Boolean) {
         synchronized(turnLock) {
             if (isCaller) {
                 callerFlushFuture?.cancel(false)
-                callerFlushFuture = turnScheduler.schedule({ flushTurn(true) }, TURN_FINALIZE_DELAY_MS, TimeUnit.MILLISECONDS)
+                callerFlushFuture = turnScheduler.schedule({ flushTurnNow(true) }, TURN_FINALIZE_DELAY_MS, TimeUnit.MILLISECONDS)
             } else {
                 userFlushFuture?.cancel(false)
-                userFlushFuture = turnScheduler.schedule({ flushTurn(false) }, TURN_FINALIZE_DELAY_MS, TimeUnit.MILLISECONDS)
+                userFlushFuture = turnScheduler.schedule({ flushTurnNow(false) }, TURN_FINALIZE_DELAY_MS, TimeUnit.MILLISECONDS)
             }
         }
     }
 
-    private fun cancelTurnFlush(isCaller: Boolean) {
+    private fun ensureHardTurnFlush(isCaller: Boolean) {
+        synchronized(turnLock) {
+            if (isCaller) {
+                if (callerHardFlushFuture == null) {
+                    callerHardFlushFuture = turnScheduler.schedule(
+                        { promoteInterimAndFlush(true) },
+                        TURN_HARD_DEADLINE_MS,
+                        TimeUnit.MILLISECONDS,
+                    )
+                }
+            } else if (userHardFlushFuture == null) {
+                userHardFlushFuture = turnScheduler.schedule(
+                    { promoteInterimAndFlush(false) },
+                    TURN_HARD_DEADLINE_MS,
+                    TimeUnit.MILLISECONDS,
+                )
+            }
+        }
+    }
+
+    private fun cancelTurnTimers(isCaller: Boolean) {
         synchronized(turnLock) {
             if (isCaller) {
                 callerFlushFuture?.cancel(false)
                 callerFlushFuture = null
+                callerHardFlushFuture?.cancel(false)
+                callerHardFlushFuture = null
+                callerInterimFuture?.cancel(false)
+                callerInterimFuture = null
             } else {
                 userFlushFuture?.cancel(false)
                 userFlushFuture = null
+                userHardFlushFuture?.cancel(false)
+                userHardFlushFuture = null
+                userInterimFuture?.cancel(false)
+                userInterimFuture = null
             }
         }
     }
 
+    private fun flushTurnNow(isCaller: Boolean) {
+        cancelTurnTimers(isCaller)
+        flushTurn(isCaller)
+    }
+
     private fun flushTurn(isCaller: Boolean) {
         val text = synchronized(turnLock) {
-            if (isCaller) callerFlushFuture = null else userFlushFuture = null
             val target = if (isCaller) callerTurn else userTurn
             val value = target.toString().trim()
             target.setLength(0)
+            if (isCaller) callerInterim = "" else userInterim = ""
             value
         }
         if (text.isBlank()) return
@@ -285,18 +397,20 @@ class LiveTranscriptionPipeline(context: Context) {
     }
 
     private fun flushTurns() {
-        cancelTurnFlush(true)
-        cancelTurnFlush(false)
-        flushTurn(true)
-        flushTurn(false)
+        promoteInterim(true)
+        promoteInterim(false)
+        flushTurnNow(true)
+        flushTurnNow(false)
     }
 
     private fun clearTurns() {
-        cancelTurnFlush(true)
-        cancelTurnFlush(false)
+        cancelTurnTimers(true)
+        cancelTurnTimers(false)
         synchronized(turnLock) {
             callerTurn.setLength(0)
             userTurn.setLength(0)
+            callerInterim = ""
+            userInterim = ""
         }
     }
 
@@ -310,13 +424,13 @@ class LiveTranscriptionPipeline(context: Context) {
             is DeepgramStreamingClient.SpeechEvent.Ended -> when (event.channel) {
                 0 -> if (callerSpeechStartedAt < 0.0 || event.lastWordEndSeconds >= callerSpeechStartedAt) {
                     callerSpeaking = false
-                    cancelTurnFlush(true)
-                    flushTurn(true)
+                    promoteInterim(true)
+                    flushTurnNow(true)
                 }
                 1 -> if (userSpeechStartedAt < 0.0 || event.lastWordEndSeconds >= userSpeechStartedAt) {
                     userSpeaking = false
-                    cancelTurnFlush(false)
-                    flushTurn(false)
+                    promoteInterim(false)
+                    flushTurnNow(false)
                 }
             }
         }
@@ -448,5 +562,7 @@ class LiveTranscriptionPipeline(context: Context) {
         private const val STEREO_FRAME_MONO_BYTES = 3_200
         private const val FIRST_AUDIO_DEADLINE_MS = 5_000L
         private const val TURN_FINALIZE_DELAY_MS = 850L
+        private const val INTERIM_RESCUE_DELAY_MS = 1_800L
+        private const val TURN_HARD_DEADLINE_MS = 4_500L
     }
 }
