@@ -5,16 +5,21 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.ContactsContract
 import android.text.InputType
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.Toast
 
-/** UI bridge for contact CRUD, caller memory, native ringtones, and saved/unsaved number blocking. */
+/** UI bridge for modern contact actions plus Reality Engine caller memory. */
 class ContactActionsDialog(
     private val activity: Activity,
     private val manager: ContactManager
 ) {
+    private val lists = ContactListsStore(activity)
+    private val duplicates = ContactDuplicateManager(activity)
+
     fun add(phone: String = "", onDone: () -> Unit) {
         if (!canWrite()) return
         editFields("Add contact", "", phone) { name, number ->
@@ -25,7 +30,10 @@ class ContactActionsDialog(
     fun manage(contact: ContactResolver.Contact, onDone: () -> Unit) {
         val blocked = manager.isBlocked(contact.number)
         val options = arrayOf(
+            "Message",
+            "Share contact",
             "Edit contact",
+            "Lists / labels",
             "Change ringtone",
             "Reality memory",
             "Delete contact",
@@ -33,25 +41,184 @@ class ContactActionsDialog(
         )
         AlertDialog.Builder(activity).setTitle(contact.name).setItems(options) { _, which ->
             when (which) {
-                0 -> edit(contact, onDone)
-                1 -> chooseRingtone(contact, onDone)
-                2 -> openMemory(contact.number, contact.name)
-                3 -> confirmDelete(contact, onDone)
-                4 -> report(if (blocked) manager.unblock(contact.number) else manager.block(contact.number), onDone)
+                0 -> message(contact.number)
+                1 -> share(contact)
+                2 -> edit(contact, onDone)
+                3 -> manageListsForContact(contact, onDone)
+                4 -> chooseRingtone(contact, onDone)
+                5 -> openMemory(contact.number, contact.name)
+                6 -> confirmDelete(contact, onDone)
+                7 -> report(if (blocked) manager.unblock(contact.number) else manager.block(contact.number), onDone)
             }
         }.show()
     }
 
     fun manageUnsaved(phone: String, onDone: () -> Unit) {
         val blocked = manager.isBlocked(phone)
-        val options = arrayOf("Add contact", "Reality memory", if (blocked) "Unblock number" else "Block number")
+        val options = arrayOf(
+            "Message",
+            "Add contact",
+            "Reality memory",
+            if (blocked) "Unblock number" else "Block number",
+        )
         AlertDialog.Builder(activity).setTitle(phone).setItems(options) { _, which ->
             when (which) {
-                0 -> add(phone, onDone)
-                1 -> openMemory(phone, phone)
+                0 -> message(phone)
+                1 -> add(phone, onDone)
+                2 -> openMemory(phone, phone)
                 else -> report(if (blocked) manager.unblock(phone) else manager.block(phone), onDone)
             }
         }.show()
+    }
+
+    fun manageLists(contacts: List<ContactResolver.Contact>, onDone: () -> Unit) {
+        val names = lists.names()
+        val options = arrayOf("+ Create list", *names.toTypedArray())
+        AlertDialog.Builder(activity)
+            .setTitle("Contact lists")
+            .setItems(options) { _, which ->
+                if (which == 0) promptCreateList(null, onDone)
+                else editListMembers(names[which - 1], contacts, onDone)
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    fun mergeDuplicates(contacts: List<ContactResolver.Contact>, onDone: () -> Unit) {
+        if (!canWrite()) return
+        val groups = duplicates.findDuplicateGroups(contacts)
+        if (groups.isEmpty()) {
+            Toast.makeText(activity, "No same-number duplicate contacts found", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = groups.map { group ->
+            val first = group.first()
+            "${first.name} · ${first.number} · ${group.size} copies"
+        }.toTypedArray()
+        AlertDialog.Builder(activity)
+            .setTitle("Merge duplicates")
+            .setItems(labels) { _, which -> confirmMerge(groups[which], onDone) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmMerge(group: List<ContactResolver.Contact>, onDone: () -> Unit) {
+        val summary = group.joinToString("\n") { "• ${it.name}  ${it.number}" }
+        AlertDialog.Builder(activity)
+            .setTitle("Merge these contacts?")
+            .setMessage("Reality Engine found the same normalized phone number on these Android contacts:\n\n$summary")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Merge") { _, _ ->
+                val result = duplicates.merge(group)
+                Toast.makeText(activity, if (result.success) "Contacts merged" else result.message, Toast.LENGTH_SHORT).show()
+                if (result.success) onDone()
+            }
+            .show()
+    }
+
+    private fun manageListsForContact(contact: ContactResolver.Contact, onDone: () -> Unit) {
+        val names = lists.names()
+        if (names.isEmpty()) {
+            promptCreateList(contact, onDone)
+            return
+        }
+        val checked = BooleanArray(names.size) { index -> lists.contains(names[index], contact.number) }
+        AlertDialog.Builder(activity)
+            .setTitle("Lists for ${contact.name}")
+            .setMultiChoiceItems(names.toTypedArray(), checked) { _, which, value -> checked[which] = value }
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("New list") { _, _ -> promptCreateList(contact, onDone) }
+            .setPositiveButton("Save") { _, _ ->
+                names.forEachIndexed { index, name -> lists.setMember(name, contact.number, checked[index]) }
+                onDone()
+            }
+            .show()
+    }
+
+    private fun promptCreateList(contact: ContactResolver.Contact?, onDone: () -> Unit) {
+        val input = EditText(activity).apply {
+            hint = "List name"
+            isSingleLine = true
+            setPadding(36, 8, 36, 8)
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("Create contact list")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Create") { _, _ ->
+                val name = input.text.toString().trim()
+                if (!lists.create(name)) {
+                    Toast.makeText(activity, "Use a unique non-empty list name", Toast.LENGTH_SHORT).show()
+                } else {
+                    contact?.let { lists.setMember(name, it.number, true) }
+                    Toast.makeText(activity, "List created", Toast.LENGTH_SHORT).show()
+                    onDone()
+                }
+            }
+            .show()
+    }
+
+    private fun editListMembers(name: String, contacts: List<ContactResolver.Contact>, onDone: () -> Unit) {
+        val sorted = contacts.sortedBy { it.name.lowercase() }
+        val labels = sorted.map { "${it.name}  ·  ${it.number}" }.toTypedArray()
+        val checked = BooleanArray(sorted.size) { index -> lists.contains(name, sorted[index].number) }
+        AlertDialog.Builder(activity)
+            .setTitle(name)
+            .setMultiChoiceItems(labels, checked) { _, which, value -> checked[which] = value }
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Delete list") { _, _ ->
+                lists.delete(name)
+                Toast.makeText(activity, "List deleted", Toast.LENGTH_SHORT).show()
+                onDone()
+            }
+            .setPositiveButton("Save members") { _, _ ->
+                sorted.forEachIndexed { index, contact -> lists.setMember(name, contact.number, checked[index]) }
+                onDone()
+            }
+            .show()
+    }
+
+    private fun message(phone: String) {
+        val intent = Intent(Intent.ACTION_SENDTO, Uri.fromParts("smsto", phone, null))
+        runCatching { activity.startActivity(intent) }
+            .onFailure { Toast.makeText(activity, "No messaging app available", Toast.LENGTH_SHORT).show() }
+    }
+
+    private fun share(contact: ContactResolver.Contact) {
+        val vcardUri = contactVcardUri(contact.contactId)
+        val intent = if (vcardUri != null) {
+            Intent(Intent.ACTION_SEND).apply {
+                type = ContactsContract.Contacts.CONTENT_VCARD_TYPE
+                putExtra(Intent.EXTRA_STREAM, vcardUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } else {
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "${contact.name}\n${contact.number}")
+            }
+        }
+        runCatching { activity.startActivity(Intent.createChooser(intent, "Share contact")) }
+            .onFailure { Toast.makeText(activity, "Could not share contact", Toast.LENGTH_SHORT).show() }
+    }
+
+    private fun contactVcardUri(contactId: Long): Uri? {
+        if (contactId < 0L) return null
+        return runCatching {
+            var lookup: String? = null
+            activity.contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                arrayOf(ContactsContract.Contacts.LOOKUP_KEY),
+                "${ContactsContract.Contacts._ID}=?",
+                arrayOf(contactId.toString()),
+                null,
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) lookup = cursor.getString(0)
+            }
+            lookup?.takeIf { it.isNotBlank() }?.let {
+                Uri.withAppendedPath(ContactsContract.Contacts.CONTENT_VCARD_URI, it)
+            }
+        }.getOrNull()
     }
 
     private fun openMemory(phone: String, name: String) {
