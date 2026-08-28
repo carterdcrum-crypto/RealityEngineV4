@@ -9,6 +9,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
@@ -189,8 +190,11 @@ object RealityVisuals {
 
             asset?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 }?.let { bitmap ->
                 texturePaint.alpha = (drawableAlpha * 0.78f).toInt().coerceIn(0, 255)
+                val clip = Path().apply {
+                    addRoundRect(rect, radiusPx, radiusPx, Path.Direction.CW)
+                }
                 canvas.save()
-                canvas.clipRoundRect(rect, radiusPx, radiusPx)
+                canvas.clipPath(clip)
                 canvas.drawBitmap(bitmap, Rect(0, 0, bitmap.width, bitmap.height), bounds, texturePaint)
                 canvas.restore()
             }
