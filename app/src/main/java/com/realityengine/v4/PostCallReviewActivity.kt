@@ -19,6 +19,7 @@ class PostCallReviewActivity : Activity() {
         super.onCreate(savedInstanceState)
         pending = CallRecordingState.peek()
         if (pending == null) {
+            PostCallProfileState.launchIfPending(this)
             finish()
             return
         }
@@ -129,6 +130,7 @@ class PostCallReviewActivity : Activity() {
         CallRecordingState.clear(recording)
         pending = null
         Toast.makeText(this, "Recording saved privately", Toast.LENGTH_SHORT).show()
+        PostCallProfileState.launchIfPending(this)
         finish()
     }
 
@@ -143,6 +145,7 @@ class PostCallReviewActivity : Activity() {
                 CallRecordingState.clear(recording)
                 pending = null
                 Toast.makeText(this, "Recording permanently deleted", Toast.LENGTH_SHORT).show()
+                PostCallProfileState.launchIfPending(this)
                 finish()
             }
             .show()
