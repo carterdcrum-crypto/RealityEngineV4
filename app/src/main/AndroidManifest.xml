@@ -24,7 +24,6 @@
         <activity android:name=".CoachPersonaManagerActivity" android:exported="false" />
         <activity android:name=".SupabaseSetupActivity" android:exported="false" />
         <activity android:name=".CallerMemoryActivity" android:exported="false" />
-        <activity android:name=".SoundboardSettingsActivity" android:exported="false" />
         <activity android:name=".TranscriptLibraryActivity" android:exported="false" />
         <activity android:name=".CallActivity" android:exported="false" android:launchMode="singleTask" android:excludeFromRecents="true" android:showWhenLocked="true" android:turnScreenOn="true" />
         <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.DIAL" /><category android:name="android.intent.category.DEFAULT" /></intent-filter><intent-filter><action android:name="android.intent.action.DIAL" /><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="tel" /></intent-filter></activity>
