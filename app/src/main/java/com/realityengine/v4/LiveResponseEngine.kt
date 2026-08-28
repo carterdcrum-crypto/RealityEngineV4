@@ -34,6 +34,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
     private val main = Handler(Looper.getMainLooper())
     private val profileSession = appContext?.let { CallerProfileSession(it.applicationContext) }
     private val providerPerformance = appContext?.applicationContext?.let(::CoachProviderPerformanceStore)
+    private val routingPreference = appContext?.applicationContext?.let(::CoachRoutingPreferenceStore)
     private val runtimeUsage = appContext?.applicationContext?.let(::RuntimeUsageStore)
     private val thermalGuard = appContext?.applicationContext?.let(::ThermalGuard)
     private val gemini = GeminiCoachClient(settings)
@@ -238,7 +239,10 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
     private fun requestAuto(snapshot: ConversationContext.Snapshot, quickModeId: String?): Result {
         val configured = SettingsStore.COACH_FALLBACK_ORDER.filter(settings::providerConfigured)
         if (configured.isEmpty()) throw IllegalStateException("NO RESPONSE COACH PROVIDER CONFIGURED")
-        val ordered = providerPerformance?.rankedProviders(configured) ?: configured
+        val adaptive = providerPerformance?.rankedProviders(configured) ?: configured
+        val preferred = routingPreference?.preferredProvider ?: CoachRoutingPreferenceStore.BEST
+        val preferredCooldown = if (preferred == CoachRoutingPreferenceStore.BEST) 0L else providerPerformance?.stats(preferred)?.cooldownUntilMs ?: 0L
+        val ordered = CoachRoutingPreferenceStore.applyPreference(adaptive, preferred, preferredCooldown)
         val failures = mutableListOf<String>()
         for (provider in ordered) {
             try {
