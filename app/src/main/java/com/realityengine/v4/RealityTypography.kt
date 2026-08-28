@@ -2,12 +2,36 @@ package com.realityengine.v4
 
 import android.graphics.Typeface
 import android.widget.TextView
+import java.io.File
 
 /** Central typography primitives for the Lucid Prism visual system. */
 object RealityTypography {
-    private val displayTypeface by lazy { Typeface.create("sans-serif", Typeface.NORMAL) }
-    private val displayMediumTypeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }
-    private val technicalTypeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+    // Samsung font themes can remap generic family names. Prefer the actual platform font files so
+    // Reality Engine keeps its intended clean UI typography, then fall back safely on other devices.
+    private val displayTypeface by lazy {
+        platformTypeface(
+            paths = listOf(
+                "/system/fonts/Roboto-Regular.ttf",
+                "/system/fonts/RobotoFlex-Regular.ttf",
+                "/system/fonts/NotoSans-Regular.ttf",
+            ),
+            fallbackFamily = "sans-serif",
+            fallbackStyle = Typeface.NORMAL,
+        )
+    }
+    private val displayMediumTypeface by lazy {
+        platformTypeface(
+            paths = listOf(
+                "/system/fonts/Roboto-Medium.ttf",
+                "/system/fonts/RobotoFlex-Regular.ttf",
+                "/system/fonts/NotoSans-Medium.ttf",
+                "/system/fonts/NotoSans-Regular.ttf",
+            ),
+            fallbackFamily = "sans-serif-medium",
+            fallbackStyle = Typeface.NORMAL,
+        )
+    }
+    private val technicalTypeface by lazy { displayMediumTypeface }
 
     fun display(view: TextView, sizeSp: Float? = null) = view.apply {
         typeface = displayTypeface
@@ -47,5 +71,18 @@ object RealityTypography {
         includeFontPadding = false
         isAllCaps = false
         letterSpacing = if (technical) 0.075f else 0f
+    }
+
+    private fun platformTypeface(
+        paths: List<String>,
+        fallbackFamily: String,
+        fallbackStyle: Int,
+    ): Typeface {
+        for (path in paths) {
+            val file = File(path)
+            if (!file.isFile || !file.canRead()) continue
+            runCatching { Typeface.createFromFile(file) }.getOrNull()?.let { return it }
+        }
+        return Typeface.create(fallbackFamily, fallbackStyle)
     }
 }
