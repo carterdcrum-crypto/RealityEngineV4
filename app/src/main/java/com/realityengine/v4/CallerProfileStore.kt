@@ -58,7 +58,7 @@ class CallerProfileStore(context: Context) {
     }
 
     @Synchronized
-    fun save(profile: CallerProfile) {
+fun save(profile: CallerProfile) {
         write(profile, touch = true)
         tombstones.edit().remove(normalize(profile.phoneNumber)).apply()
     }
