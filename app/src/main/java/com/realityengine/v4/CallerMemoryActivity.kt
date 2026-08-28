@@ -137,47 +137,129 @@ class CallerMemoryActivity : Activity() {
     }
 
     private fun addProposalReview(proposal: MemoryProposalStore.Proposal) {
-        val learned = proposal.learned
-        val lines = buildList {
-            learned.likes.forEach { add("LIKE · $it") }
-            learned.dislikes.forEach { add("DISLIKE · $it") }
-            learned.facts.forEach { add("FACT · $it") }
-            learned.topics.forEach { add("TOPIC · $it") }
-            learned.unresolved.forEach { add("FOLLOW UP · $it") }
-            learned.starters.forEach { add("STARTER · $it") }
-            if (learned.preferredStyle.isNotBlank()) add("STYLE · ${learned.preferredStyle}")
-        }
+        val items = MemoryProposalReview.items(proposal.learned)
         root.addView(TextView(this).apply {
-            text = "NEW MEMORY TO REVIEW · ${proposals.itemCount(proposal)}"
+            text = "NEW MEMORY TO REVIEW · ${items.size}"
             setTextColor(green)
             setPadding(dp(3), dp(14), 0, dp(5))
             RealityTypography.displayMedium(this, 13f)
         })
+
+        if (items.isEmpty()) {
+            proposals.clear(phone)
+            root.addView(TextView(this).apply {
+                text = "No permanent memory items are waiting for review. The call summary is stored separately."
+                setTextColor(muted)
+                background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = RealityVisuals.Colors.Border, radiusDp = 10f)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                RealityTypography.display(this, 11.5f)
+            })
+            return
+        }
+
         root.addView(TextView(this).apply {
-            text = if (lines.isEmpty()) "No permanent facts proposed; only the call summary changed." else lines.joinToString("\n")
-            setTextColor(primaryText)
-            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = green, radiusDp = 10f)
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            RealityTypography.display(this, 11.5f)
+            text = "Approve, edit, or ignore each item independently. Nothing here becomes permanent caller memory until you save that specific item."
+            setTextColor(muted)
+            setPadding(dp(4), dp(2), dp(4), dp(7))
+            RealityTypography.display(this, 10.5f)
         })
-        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        actions.addView(Button(this).apply {
-            text = "SAVE"
-            setTextColor(green)
-            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = green, radiusDp = 10f)
-            setOnClickListener {
-                profiles.update(phone) { CallSummaryBuilder.merge(it, learned) }
-                proposals.clear(phone)
-                pushAndRefresh()
+
+        items.forEach { item ->
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(11), dp(9), dp(11), dp(9))
+                background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = green, radiusDp = 10f)
             }
-        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(0, dp(4), dp(3), dp(3)) })
-        actions.addView(Button(this).apply {
-            text = "IGNORE"
-            setTextColor(magenta)
-            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = magenta, radiusDp = 10f)
-            setOnClickListener { proposals.clear(phone); build() }
-        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(3), dp(4), 0, dp(3)) })
-        root.addView(actions)
+            card.addView(TextView(this).apply {
+                text = item.kind.label
+                setTextColor(green)
+                RealityTypography.displayMedium(this, 10f)
+            })
+            card.addView(TextView(this).apply {
+                text = item.value
+                setTextColor(primaryText)
+                setPadding(0, dp(4), 0, dp(7))
+                RealityTypography.display(this, 12f)
+            })
+
+            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            actions.addView(reviewButton("SAVE", green) { saveProposalItem(proposal.learned, item, item.value) }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { setMargins(0, 0, dp(2), 0) })
+            actions.addView(reviewButton("EDIT", cyan) { editProposalItem(proposal.learned, item) }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+            actions.addView(reviewButton("IGNORE", magenta) { ignoreProposalItem(proposal.learned, item) }, LinearLayout.LayoutParams(0, dp(40), 1f).apply { setMargins(dp(2), 0, 0, 0) })
+            card.addView(actions)
+            root.addView(card, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dp(3), 0, dp(4)) })
+        }
+    }
+
+    private fun saveProposalItem(
+        learned: CallerMemoryAiExtractor.Learned,
+        item: MemoryProposalReview.Item,
+        value: String,
+    ) {
+        val clean = value.trim().replace(Regex("\\s+"), " ")
+        if (clean.isBlank()) return
+        val kind = proposalKind(item.kind)
+        profiles.update(phone) { profile -> replace(profile, kind, "", clean) }
+        persistRemainingProposal(MemoryProposalReview.remove(learned, item))
+        build()
+        status.text = "MEMORY ITEM SAVED · ${item.kind.label}"
+        cloud.pushAsync(phone) { result ->
+            runOnUiThread {
+                if (::status.isInitialized) status.text = "MEMORY SAVED · ${result.detail.ifBlank { result.status.name }}"
+            }
+        }
+    }
+
+    private fun editProposalItem(
+        learned: CallerMemoryAiExtractor.Learned,
+        item: MemoryProposalReview.Item,
+    ) {
+        val input = EditText(this).apply {
+            setText(item.value)
+            setSelection(text.length)
+            hint = item.kind.label
+            setSingleLine(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Edit proposed ${item.kind.label.lowercase()}")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Save") { _, _ ->
+                saveProposalItem(learned, item, input.text.toString())
+            }
+            .show()
+    }
+
+    private fun ignoreProposalItem(
+        learned: CallerMemoryAiExtractor.Learned,
+        item: MemoryProposalReview.Item,
+    ) {
+        persistRemainingProposal(MemoryProposalReview.remove(learned, item))
+        build()
+        status.text = "IGNORED · ${item.kind.label}"
+    }
+
+    private fun persistRemainingProposal(learned: CallerMemoryAiExtractor.Learned) {
+        if (MemoryProposalReview.isEmpty(learned)) proposals.clear(phone) else proposals.save(phone, learned)
+    }
+
+    private fun proposalKind(kind: MemoryProposalReview.Kind): Kind = when (kind) {
+        MemoryProposalReview.Kind.LIKE -> Kind.LIKE
+        MemoryProposalReview.Kind.DISLIKE -> Kind.DISLIKE
+        MemoryProposalReview.Kind.FACT -> Kind.FACT
+        MemoryProposalReview.Kind.TOPIC -> Kind.TOPIC
+        MemoryProposalReview.Kind.STARTER -> Kind.STARTER
+        MemoryProposalReview.Kind.FOLLOW_UP -> Kind.OPEN
+        MemoryProposalReview.Kind.STYLE -> Kind.STYLE
+    }
+
+    private fun reviewButton(label: String, stroke: Int, click: () -> Unit) = Button(this).apply {
+        text = label
+        setTextColor(stroke)
+        background = RealityVisuals.panel(this@CallerMemoryActivity, fill = RealityVisuals.Colors.BackgroundRaised, stroke = stroke, radiusDp = 9f)
+        RealityTypography.displayMedium(this, 9.5f)
+        setPadding(dp(2), 0, dp(2), 0)
+        setOnClickListener { click() }
     }
 
     private fun addCategory(profile: CallerProfileStore.CallerProfile, kind: Kind) {
@@ -343,10 +425,14 @@ class CallerMemoryActivity : Activity() {
                     return@runOnUiThread
                 }
                 if (learned.summary.isNotBlank()) profiles.update(phone) { it.lastCallSummary = learned.summary }
-                proposals.save(phone, learned)
+                if (MemoryProposalReview.isEmpty(learned)) proposals.clear(phone) else proposals.save(phone, learned)
                 cloud.pushAsync(phone)
                 build()
-                status.text = "NEW MEMORY READY · REVIEW SAVE / IGNORE"
+                status.text = if (MemoryProposalReview.isEmpty(learned)) {
+                    "NO NEW PERMANENT MEMORY ITEMS"
+                } else {
+                    "NEW MEMORY READY · REVIEW EACH ITEM"
+                }
             }
         }
     }
