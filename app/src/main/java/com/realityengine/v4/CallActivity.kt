@@ -50,6 +50,7 @@ class CallActivity : Activity(), SensorEventListener {
     private lateinit var holdButton: Button
     private lateinit var unhingedButton: Button
     private lateinit var flirtButton: Button
+    private lateinit var soundboardButton: Button
     private lateinit var recordButton: Button
     private lateinit var keypadButton: Button
     private lateinit var endButton: Button
@@ -64,6 +65,8 @@ class CallActivity : Activity(), SensorEventListener {
     private lateinit var acousticBar: ProgressBar
     private lateinit var linguisticBar: ProgressBar
     private lateinit var factualBar: ProgressBar
+    private lateinit var soundboardStore: SoundboardStore
+    private lateinit var soundboardPlayer: CallSoundboardPlayer
 
     private val handler = Handler(Looper.getMainLooper())
     private var connectedStartedAt: Long? = null
@@ -104,6 +107,8 @@ class CallActivity : Activity(), SensorEventListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         proximitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+        soundboardStore = SoundboardStore(this)
+        soundboardPlayer = CallSoundboardPlayer(this)
         createdAtElapsed = SystemClock.elapsedRealtime()
         connectedStartedAt = savedInstanceState?.getLong(KEY_CONNECTED_AT)?.takeIf { it > 0 }
         restoreKeypadOpen = savedInstanceState?.getBoolean(KEY_KEYPAD_OPEN, false) == true
@@ -142,6 +147,7 @@ class CallActivity : Activity(), SensorEventListener {
     }
 
     override fun onDestroy() {
+        if (::soundboardPlayer.isInitialized) soundboardPlayer.stop()
         super.onDestroy()
     }
 
@@ -412,7 +418,8 @@ class CallActivity : Activity(), SensorEventListener {
         val quickActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         unhingedButton = control("Unhinged", R.drawable.ic_re_star, magenta) { requestQuickCoach(CoachQuickModeCatalog.UNHINGED) }
         flirtButton = control("Flirt", R.drawable.ic_re_star, cyan) { requestQuickCoach(CoachQuickModeCatalog.FLIRT) }
-        quickActions.addView(unhingedButton, buttonLayout(48)); quickActions.addView(flirtButton, buttonLayout(48)); root.addView(quickActions)
+        soundboardButton = control("Sounds", R.drawable.ic_re_speaker, green) { showSoundboard() }
+        quickActions.addView(unhingedButton, buttonLayout(48)); quickActions.addView(flirtButton, buttonLayout(48)); quickActions.addView(soundboardButton, buttonLayout(48)); root.addView(quickActions)
 
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         recordButton = control("Record", R.drawable.ic_re_record, magenta) { requestRecording() }
@@ -574,6 +581,61 @@ class CallActivity : Activity(), SensorEventListener {
         }
     }
 
+    private fun showSoundboard() {
+        val current = call
+        if (current?.state != Call.STATE_ACTIVE) {
+            Toast.makeText(this, "Soundboard is available during an active call", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val entries = soundboardStore.all()
+        if (entries.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Soundboard is empty")
+                .setMessage("Add audio in Settings → Call soundboard.")
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Open soundboard settings") { _, _ ->
+                    startActivity(Intent(this, SoundboardSettingsActivity::class.java))
+                }
+                .show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(if (soundboardPlayer.isPlaying()) "Soundboard · playing" else "Soundboard")
+            .setItems(entries.map { it.name }.toTypedArray()) { _, which ->
+                val entry = entries[which]
+                if (RealityInCallService.instance?.isMutedNow() == true) {
+                    Toast.makeText(this, "Unmute first if you want the caller to hear speaker-coupled playback", Toast.LENGTH_LONG).show()
+                    return@setItems
+                }
+                if (soundboardPlayer.play(entry) {
+                        runOnUiThread {
+                            soundboardButton.text = "Sounds"
+                            refreshAudioButtons()
+                            updateProximityRegistration()
+                        }
+                    }) {
+                    soundboardButton.text = "■ ${entry.name.take(8)}"
+                    RealityVisuals.pulseOnce(soundboardButton)
+                    refreshAudioButtons()
+                    updateProximityRegistration()
+                } else {
+                    Toast.makeText(this, "Could not play ${entry.name}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNeutralButton(if (soundboardPlayer.isPlaying()) "Stop" else "Manage") { _, _ ->
+                if (soundboardPlayer.isPlaying()) {
+                    soundboardPlayer.stop()
+                    soundboardButton.text = "Sounds"
+                    refreshAudioButtons()
+                    updateProximityRegistration()
+                } else {
+                    startActivity(Intent(this, SoundboardSettingsActivity::class.java))
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
     private fun requestRecording() {
         val service = RealityInCallService.instance ?: return
         if (service.recordingActive()) {
@@ -658,8 +720,8 @@ class CallActivity : Activity(), SensorEventListener {
 
         val interactive = current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING
         muteButton.isEnabled = interactive; speakerButton.isEnabled = interactive; keypadButton.isEnabled = interactive; holdButton.isEnabled = interactive
-        unhingedButton.isEnabled = interactive; flirtButton.isEnabled = interactive
-        unhingedButton.alpha = if (interactive) 1f else .42f; flirtButton.alpha = if (interactive) 1f else .42f
+        unhingedButton.isEnabled = interactive; flirtButton.isEnabled = interactive; soundboardButton.isEnabled = current.state == Call.STATE_ACTIVE
+        unhingedButton.alpha = if (interactive) 1f else .42f; flirtButton.alpha = if (interactive) 1f else .42f; soundboardButton.alpha = if (soundboardButton.isEnabled) 1f else .42f
         recordButton.isEnabled = current.state == Call.STATE_ACTIVE || RealityInCallService.instance?.recordingActive() == true
         if (!interactive) keypadContainer.visibility = View.GONE
         holdButton.text = if (current.state == Call.STATE_HOLDING) "Resume" else "Hold"; setControlActive(holdButton, current.state == Call.STATE_HOLDING)
