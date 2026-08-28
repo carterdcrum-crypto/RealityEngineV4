@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.util.Collections
@@ -14,9 +15,8 @@ import java.util.WeakHashMap
 /**
  * Keeps the live transcript readable after Conversation OS adds radar/intelligence surfaces.
  *
- * The call screen defaults to Transcript Focus: the transcript owns the majority of the flexible
- * workspace, while coach/radar remain useful and redundant telemetry collapses. Tapping the small
- * transcript-header control restores the full intelligence stack on demand.
+ * Transcript Focus is intentionally quiet: transcript, compact radar/coach, essential call controls.
+ * Secondary coaching modes and Conversation OS tools return when the user expands INTEL.
  */
 object LiveTranscriptLayoutOverlay {
     private const val CONTROL_TAG = "reality.transcript.layout.control"
@@ -88,8 +88,9 @@ object LiveTranscriptLayoutOverlay {
             val transcript = findTranscript(workspace) ?: return
 
             installToggle(header, title)
+            compactEssentialButtons(root)
 
-            transcript.minimumHeight = dp(if (focusMode) 238 else 112)
+            transcript.minimumHeight = dp(if (focusMode) 278 else 112)
             transcript.layoutParams = (transcript.layoutParams as? LinearLayout.LayoutParams
                 ?: LinearLayout.LayoutParams(-1, 0, 1f)).apply {
                 width = -1
@@ -99,20 +100,28 @@ object LiveTranscriptLayoutOverlay {
             }
 
             workspace.findViewWithTag<View>(RADAR_TAG)?.let { view ->
-                setHeight(view, if (focusMode) 44 else 68)
+                setHeight(view, if (focusMode) 42 else 68)
             }
             workspace.findViewWithTag<View>(TRANSLATION_TAG)?.let { view ->
-                if (view.visibility != View.GONE) setHeight(view, if (focusMode) 38 else 46)
+                if (view.visibility != View.GONE) setHeight(view, if (focusMode) 36 else 46)
             }
 
+            val coachSnapshot = ResponseCoachState.current()
             val coachLabel = findExactText(workspace, "RESPONSE COACH")
             val coachHeader = coachLabel?.parent as? ViewGroup
             val coachPanel = coachHeader?.parent as? View
             if (coachPanel != null) {
-                setHeight(coachPanel, if (focusMode) 108 else 184)
+                val compactCoachHeight = if (coachSnapshot.phase == ResponseCoachState.Phase.ERROR) 66 else 96
+                setHeight(coachPanel, if (focusMode) compactCoachHeight else 184)
                 val cards = findCoachCards(coachPanel)
                 if (cards != null) {
-                    cards.visibility = if (!focusMode && ResponseCoachState.current().alternatives.isNotEmpty()) View.VISIBLE else View.GONE
+                    cards.visibility = if (!focusMode && coachSnapshot.alternatives.isNotEmpty()) View.VISIBLE else View.GONE
+                }
+                if (coachSnapshot.phase == ResponseCoachState.Phase.ERROR) {
+                    findTextStarting(coachPanel, "COACH ERROR")?.apply {
+                        text = "COACH PAUSED\nAI response format was rejected. The next caller turn will retry."
+                        RealityTypography.display(this, 10f)
+                    }
                 }
             }
 
@@ -127,7 +136,26 @@ object LiveTranscriptLayoutOverlay {
                 if (!focusMode) setHeight(signals, 96)
             }
 
-            findTextStarting(workspace, "NEXT ACTION")?.let { setHeight(it, if (focusMode) 36 else 40) }
+            findTextStarting(workspace, "NEXT ACTION")?.let { setHeight(it, if (focusMode) 34 else 40) }
+
+            // These are useful tools, but they should not permanently crowd the live transcript.
+            setRowVisible(findButton(root, "Unhinged")?.parent as? View, !focusMode)
+            setRowVisible(findButton(root, "Objective")?.parent as? View, !focusMode)
+        }
+
+        private fun compactEssentialButtons(root: View) {
+            val labels = setOf("Mute", "Unmute", "Speaker", "Earpiece", "Bluetooth", "BT", "BT off", "Hold", "Resume")
+            walkButtons(root) { button ->
+                val label = button.text?.toString().orEmpty()
+                if (label !in labels) return@walkButtons
+                when (label) {
+                    "Bluetooth" -> button.text = "BT"
+                    "Earpiece" -> button.text = "Ear"
+                }
+                button.maxLines = 1
+                button.textSize = 9.5f
+                button.setPadding(dp(4), 0, dp(4), 0)
+            }
         }
 
         private fun installToggle(header: LinearLayout, title: TextView) {
@@ -137,7 +165,6 @@ object LiveTranscriptLayoutOverlay {
                 return
             }
 
-            // Reuse the existing secondary header label so we do not steal any extra vertical space.
             val control = (0 until header.childCount)
                 .map { header.getChildAt(it) }
                 .filterIsInstance<TextView>()
@@ -165,6 +192,12 @@ object LiveTranscriptLayoutOverlay {
                 control,
                 if (focusMode) RealityVisuals.Colors.Lilac else RealityVisuals.Colors.CyanSoft,
             )
+        }
+
+        private fun setRowVisible(view: View?, visible: Boolean) {
+            view ?: return
+            val target = if (visible) View.VISIBLE else View.GONE
+            if (view.visibility != target) view.visibility = target
         }
 
         private fun setHeight(view: View, heightDp: Int) {
@@ -195,6 +228,23 @@ object LiveTranscriptLayoutOverlay {
             }
         }
         return null
+    }
+
+    private fun findButton(root: View, exact: String): Button? {
+        if (root is Button && root.text?.toString() == exact) return root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                findButton(root.getChildAt(i), exact)?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun walkButtons(root: View, action: (Button) -> Unit) {
+        if (root is Button) action(root)
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) walkButtons(root.getChildAt(i), action)
+        }
     }
 
     private fun findExactText(root: View, exact: String): TextView? {
