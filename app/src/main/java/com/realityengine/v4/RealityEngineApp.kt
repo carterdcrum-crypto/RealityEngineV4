@@ -3,16 +3,15 @@ package com.realityengine.v4
 import android.app.Application
 
 /**
- * Application entry point for the Reality Engine V4 presentation layer.
- *
- * Feature behavior stays in the existing Activities, services, stores and engines. The lifecycle
- * observers only apply the operator skin and guarantee that functional iconography uses packaged
- * vector drawables rather than OEM-dependent Unicode/emoji glyphs.
+ * Application entry point for Reality Engine V4.
+ * Presentation observers stay behavior-safe while keeping the visual system, vector icon guard,
+ * and Conversation OS intelligence layer available across the app.
  */
 class RealityEngineApp : Application() {
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(RealityOperatorSkin.callbacks)
         registerActivityLifecycleCallbacks(RealityVectorIconGuard.callbacks)
+        registerActivityLifecycleCallbacks(ConversationOSOverlay.callbacks)
     }
 }
