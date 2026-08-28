@@ -71,6 +71,22 @@ class PostCallIntelligenceActivity : Activity() {
             root.addView(card("No elevated signal moments were saved for this completed call.", RealityVisuals.Colors.Border))
         } else {
             val base = callStartedAtMs ?: callEvents.first().timestampMs
+            root.addView(SignalTimelineGraphView(this).apply {
+                setData(callEvents, base)
+                background = RealityVisuals.panel(
+                    this@PostCallIntelligenceActivity,
+                    RealityVisuals.Colors.Panel,
+                    RealityVisuals.Colors.Border,
+                    12f,
+                )
+            }, LinearLayout.LayoutParams(-1, dp(230)).apply { setMargins(0, dp(3), 0, dp(5)) })
+            root.addView(TextView(this).apply {
+                text = "GRAPH · persisted meaningful samples only · white = fused signal"
+                setTextColor(RealityVisuals.Colors.TextDim)
+                RealityTypography.technical(this, 9f)
+                setPadding(dp(4), dp(2), dp(4), dp(5))
+            })
+
             callEvents.forEach { event ->
                 val seconds = ((event.timestampMs - base).coerceAtLeast(0L) / 1000L)
                 val marker = "%d:%02d".format(seconds / 60, seconds % 60)
