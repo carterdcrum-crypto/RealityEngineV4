@@ -10,7 +10,9 @@ object LiveSignalState {
         val factual: Int = 0,
         val combined: Int = 0,
         val elevatedStreams: Int = 0,
-        val updatedAtMs: Long = 0L
+        val updatedAtMs: Long = 0L,
+        val context: String = "",
+        val cognitiveStress: Int = 0,
     )
 
     @Volatile private var current = State()
@@ -29,7 +31,9 @@ object LiveSignalState {
             factual = snapshot.factual.coerceIn(0, 100),
             combined = snapshot.combined.coerceIn(0, 100),
             elevatedStreams = snapshot.elevatedStreams.coerceIn(0, 3),
-            updatedAtMs = snapshot.timestampMs
+            updatedAtMs = snapshot.timestampMs,
+            context = snapshot.context,
+            cognitiveStress = snapshot.cognitiveStress,
         )
         current = state
         haptics?.update(state.acoustic, state.linguistic, state.factual)

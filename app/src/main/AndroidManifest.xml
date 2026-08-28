@@ -22,6 +22,7 @@
         <provider android:name=".RealityFileProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
         <activity android:name=".SplashActivity" android:exported="true" android:noHistory="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
         <activity android:name=".PostCallReviewActivity" android:exported="false" android:excludeFromRecents="true" />
+        <activity android:name=".PostCallIntelligenceActivity" android:exported="false" />
         <activity android:name=".CoachPersonaManagerActivity" android:exported="false" />
         <activity android:name=".SupabaseSetupActivity" android:exported="false" />
         <activity android:name=".CallerMemoryActivity" android:exported="false" />

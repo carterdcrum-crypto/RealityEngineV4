@@ -9,6 +9,7 @@ class CallSummaryBuilder(context: Context) {
     private val profiles = CallerProfileStore(appContext)
     private val cloud = SupabaseCallerMemorySync(appContext)
     private val aiMemory = CallerMemoryAiExtractor(appContext)
+    private val proposals = MemoryProposalStore(appContext)
 
     fun finalize(phoneNumber: String, transcript: String = ""): String {
         if (phoneNumber.isBlank()) return ""
@@ -22,7 +23,8 @@ class CallSummaryBuilder(context: Context) {
         if (transcript.isNotBlank() && aiMemory.configured()) {
             aiMemory.extractAsync(phoneNumber, transcript) { learned ->
                 if (learned == null) return@extractAsync
-                profiles.update(phoneNumber) { target -> merge(target, learned) }
+                if (learned.summary.isNotBlank()) profiles.update(phoneNumber) { target -> target.lastCallSummary = learned.summary }
+                proposals.save(phoneNumber, learned)
                 cloud.pushAsync(phoneNumber)
             }
         }

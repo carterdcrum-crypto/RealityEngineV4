@@ -34,6 +34,7 @@ class CallerMemoryActivity : Activity() {
     private lateinit var profiles: CallerProfileStore
     private lateinit var cloud: SupabaseCallerMemorySync
     private lateinit var ai: CallerMemoryAiExtractor
+    private lateinit var proposals: MemoryProposalStore
     private lateinit var root: LinearLayout
     private lateinit var status: TextView
     private var phone = ""
@@ -52,6 +53,7 @@ class CallerMemoryActivity : Activity() {
         profiles = CallerProfileStore(this)
         cloud = SupabaseCallerMemorySync(this)
         ai = CallerMemoryAiExtractor(this)
+        proposals = MemoryProposalStore(this)
         phone = intent.getStringExtra(EXTRA_PHONE).orEmpty().trim()
         fallbackName = intent.getStringExtra(EXTRA_NAME).orEmpty().trim()
         if (phone.isBlank()) {
@@ -109,6 +111,7 @@ class CallerMemoryActivity : Activity() {
 
         root.addView(actionButton("LEARN FROM LAST TRANSCRIPT", magenta) { relearnLastTranscript() })
         root.addView(actionButton("SYNC MEMORY NOW", cyan) { syncNow() })
+        proposals.load(phone)?.let { addProposalReview(it) }
 
         root.addView(TextView(this).apply {
             text = "AI learns explicit everyday preferences, facts, topics and follow-ups from completed caller speech. Empty categories stay visible so you can tell what has and has not been learned."
@@ -131,6 +134,50 @@ class CallerMemoryActivity : Activity() {
                 }
                 .show()
         }.apply { setTextColor(Color.WHITE) })
+    }
+
+    private fun addProposalReview(proposal: MemoryProposalStore.Proposal) {
+        val learned = proposal.learned
+        val lines = buildList {
+            learned.likes.forEach { add("LIKE · $it") }
+            learned.dislikes.forEach { add("DISLIKE · $it") }
+            learned.facts.forEach { add("FACT · $it") }
+            learned.topics.forEach { add("TOPIC · $it") }
+            learned.unresolved.forEach { add("FOLLOW UP · $it") }
+            learned.starters.forEach { add("STARTER · $it") }
+            if (learned.preferredStyle.isNotBlank()) add("STYLE · ${learned.preferredStyle}")
+        }
+        root.addView(TextView(this).apply {
+            text = "NEW MEMORY TO REVIEW · ${proposals.itemCount(proposal)}"
+            setTextColor(green)
+            setPadding(dp(3), dp(14), 0, dp(5))
+            RealityTypography.displayMedium(this, 13f)
+        })
+        root.addView(TextView(this).apply {
+            text = if (lines.isEmpty()) "No permanent facts proposed; only the call summary changed." else lines.joinToString("\n")
+            setTextColor(primaryText)
+            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = green, radiusDp = 10f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            RealityTypography.display(this, 11.5f)
+        })
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actions.addView(Button(this).apply {
+            text = "SAVE"
+            setTextColor(green)
+            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = green, radiusDp = 10f)
+            setOnClickListener {
+                profiles.update(phone) { CallSummaryBuilder.merge(it, learned) }
+                proposals.clear(phone)
+                pushAndRefresh()
+            }
+        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(0, dp(4), dp(3), dp(3)) })
+        actions.addView(Button(this).apply {
+            text = "IGNORE"
+            setTextColor(magenta)
+            background = RealityVisuals.panel(this@CallerMemoryActivity, fill = panel, stroke = magenta, radiusDp = 10f)
+            setOnClickListener { proposals.clear(phone); build() }
+        }, LinearLayout.LayoutParams(0, dp(44), 1f).apply { setMargins(dp(3), dp(4), 0, dp(3)) })
+        root.addView(actions)
     }
 
     private fun addCategory(profile: CallerProfileStore.CallerProfile, kind: Kind) {
@@ -295,14 +342,11 @@ class CallerMemoryActivity : Activity() {
                     status.text = "AI MEMORY UPDATE FAILED"
                     return@runOnUiThread
                 }
-                profiles.update(phone) { CallSummaryBuilder.merge(it, learned) }
-                status.text = "LEARNED WITH ${learned.provider} · SYNCING…"
-                cloud.pushAsync(phone) { result ->
-                    runOnUiThread {
-                        build()
-                        status.text = "MEMORY UPDATED · ${result.detail.ifBlank { result.status.name }}"
-                    }
-                }
+                if (learned.summary.isNotBlank()) profiles.update(phone) { it.lastCallSummary = learned.summary }
+                proposals.save(phone, learned)
+                cloud.pushAsync(phone)
+                build()
+                status.text = "NEW MEMORY READY · REVIEW SAVE / IGNORE"
             }
         }
     }

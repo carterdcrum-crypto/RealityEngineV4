@@ -93,6 +93,7 @@ class MainActivity : Activity() {
             updateShizukuStatus()
             updateAudioStatus()
             if (screen == "SETTINGS" && ::content.isInitialized) showSettings()
+            if (screen == "INTEL" && ::content.isInitialized) showIntel()
         }
     }
 
@@ -171,6 +172,7 @@ class MainActivity : Activity() {
         nav.removeAllViews()
         nav.addView(navItem("⌁", "Phone", "DIAL") { showPhone() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
         nav.addView(navItem("◴", "Traffic", "TRAFFIC") { showRecents() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
+        nav.addView(navItem("◇", "Intel", "INTEL") { showIntel() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
         nav.addView(navItem("▣", "Index", "INDEX") { showContacts() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
         nav.addView(navItem("⚙", "Settings", "SETTINGS") { showSettings() }, LinearLayout.LayoutParams(0, 54.dp(), 1f))
     }
@@ -429,6 +431,12 @@ class MainActivity : Activity() {
         }
 
         showSavedRecordings(phone, name)
+        content.addView(cyberButton("Open Reality memory") {
+            startActivity(Intent(this, CallerMemoryActivity::class.java).apply {
+                putExtra(CallerMemoryActivity.EXTRA_PHONE, phone)
+                putExtra(CallerMemoryActivity.EXTRA_NAME, label)
+            })
+        }, LinearLayout.LayoutParams(-1, 48.dp()).apply { setMargins(0, 8.dp(), 0, 2.dp()) })
 
         content.addView(cyberButton("Call $label") { placeCall(phone) }, LinearLayout.LayoutParams(-1, 50.dp()).apply { setMargins(0, 10.dp(), 0, 4.dp()) })
         content.addView(contactPanel.blockButton(phone) { showCallerProfile(phone, name) })
@@ -581,6 +589,15 @@ class MainActivity : Activity() {
             },
         )
         content.addView(contactsScreen.build(initialQuery = query), LinearLayout.LayoutParams(-1, -2))
+        refreshNav()
+    }
+
+    private fun showIntel() {
+        stopRecordingPlayback()
+        screen = "INTEL"
+        content.gravity = Gravity.TOP
+        content.removeAllViews()
+        content.addView(IntelligenceHubScreen(this).build(), LinearLayout.LayoutParams(-1, -2))
         refreshNav()
     }
 

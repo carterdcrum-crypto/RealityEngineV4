@@ -54,7 +54,9 @@ class CallActivity : Activity(), SensorEventListener {
     private lateinit var keypadButton: Button
     private lateinit var endButton: Button
     private lateinit var keypadContainer: LinearLayout
-    private lateinit var transcript: TextView
+    private lateinit var transcript: LiveTranscriptPanelView
+    private lateinit var healthStrip: TextView
+    private lateinit var preCallBriefing: PreCallBriefingView
     private lateinit var analysis: TextView
     private lateinit var responseCoach: TextView
     private lateinit var responseCoachCards: ResponseCoachCardsView
@@ -72,6 +74,7 @@ class CallActivity : Activity(), SensorEventListener {
     private var lastCoachPhase: ResponseCoachState.Phase? = null
     private var lastBestSuggestion: String? = null
     private var lastRenderedCallState: Int? = null
+    private var usageRecorded = false
 
     private val bg = RealityVisuals.Colors.Background
     private val panel = RealityVisuals.Colors.Panel
@@ -83,11 +86,13 @@ class CallActivity : Activity(), SensorEventListener {
     private val registryListener: () -> Unit = { runOnUiThread { refresh() } }
     private val coachListener: (ResponseCoachState.Snapshot) -> Unit = { snapshot -> runOnUiThread { renderCoach(snapshot) } }
     private val transcriptListener: (LiveTranscriptState.State) -> Unit = { snapshot -> runOnUiThread { renderTranscript(snapshot) } }
+    private val healthListener: (CallSessionHealthState.Snapshot) -> Unit = { snapshot -> runOnUiThread { renderHealth(snapshot) } }
     private val timerTick = object : Runnable {
         override fun run() {
             updateTimer()
             renderLiveSignals()
             refreshRecordingUi()
+            renderHealth(CallSessionHealthState.snapshot())
             handler.postDelayed(this, 500L)
         }
     }
@@ -117,6 +122,7 @@ class CallActivity : Activity(), SensorEventListener {
         CallSessionRegistry.addListener(registryListener)
         ResponseCoachState.addListener(coachListener)
         LiveTranscriptState.addListener(transcriptListener)
+        CallSessionHealthState.addListener(healthListener)
         refresh()
         handler.removeCallbacks(timerTick)
         handler.post(timerTick)
@@ -131,6 +137,7 @@ class CallActivity : Activity(), SensorEventListener {
         CallSessionRegistry.removeListener(registryListener)
         ResponseCoachState.removeListener(coachListener)
         LiveTranscriptState.removeListener(transcriptListener)
+        CallSessionHealthState.removeListener(healthListener)
         super.onPause()
     }
 
@@ -272,11 +279,30 @@ class CallActivity : Activity(), SensorEventListener {
         identity.addView(telemetry, LinearLayout.LayoutParams(118.dp(), 52.dp()))
         root.addView(identity, LinearLayout.LayoutParams(-1, 66.dp()).apply { setMargins(0, 0, 0, 8.dp()) })
 
+        healthStrip = TextView(this).apply {
+            text = "AUDIO ○  STT ○  COACH ○"
+            setTextColor(cyan)
+            textSize = 9f
+            typeface = Typeface.MONOSPACE
+            gravity = Gravity.CENTER
+            background = neon(RealityVisuals.Colors.BackgroundRaised, RealityVisuals.Colors.Border, 9f)
+            setOnClickListener {
+                AlertDialog.Builder(this@CallActivity)
+                    .setTitle("Call session diagnostics")
+                    .setMessage(CallSessionHealthState.diagnosticText())
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
+        root.addView(healthStrip, LinearLayout.LayoutParams(-1, 28.dp()).apply { setMargins(0, 0, 0, 6.dp()) })
+
         incomingHeroAvatar = ContactAvatarView(this).apply {
             bind(-1L, "?", cyan)
             visibility = View.GONE
         }
         root.addView(incomingHeroAvatar, LinearLayout.LayoutParams(118.dp(), 118.dp()).apply { setMargins(0, 3.dp(), 0, 8.dp()) })
+        preCallBriefing = PreCallBriefingView(this).apply { visibility = View.GONE }
+        root.addView(preCallBriefing, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, 7.dp()) })
 
         val workspace = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val transcriptHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -285,25 +311,13 @@ class CallActivity : Activity(), SensorEventListener {
             RealityVisuals.styleMicroLabel(this, magenta)
         }, LinearLayout.LayoutParams(0, 22.dp(), 1f))
         transcriptHeader.addView(TextView(this).apply {
-            text = "● AUDIO FEED"
-            RealityVisuals.styleMicroLabel(this, green)
+            text = "SEARCH · HOLD TO BOOKMARK"
+            RealityVisuals.styleMicroLabel(this, muted)
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-        }, LinearLayout.LayoutParams(100.dp(), 22.dp()))
+        })
         workspace.addView(transcriptHeader)
-
-        val transcriptScroll = ScrollView(this).apply {
-            background = neon(RealityVisuals.Colors.BackgroundRaised, Color.rgb(15, 65, 80), 10f)
-            setPadding(11.dp(), 9.dp(), 11.dp(), 9.dp())
-        }
-        transcript = TextView(this).apply {
-            text = "AWAITING AUDIO STREAM…"
-            textSize = 12f
-            setTextColor(Color.rgb(184, 219, 227))
-            typeface = Typeface.MONOSPACE
-            setLineSpacing(2f, 1.08f)
-        }
-        transcriptScroll.addView(transcript)
-        workspace.addView(transcriptScroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(0, 3.dp(), 0, 7.dp()) })
+        transcript = LiveTranscriptPanelView(this)
+        workspace.addView(transcript, LinearLayout.LayoutParams(-1, 0, 1f).apply { setMargins(0, 3.dp(), 0, 7.dp()) })
 
         val coachPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -353,6 +367,8 @@ class CallActivity : Activity(), SensorEventListener {
             orientation = LinearLayout.VERTICAL
             background = neon(RealityVisuals.Colors.Panel, RealityVisuals.Colors.Border, 10f)
             setPadding(10.dp(), 6.dp(), 10.dp(), 5.dp())
+            isClickable = true
+            setOnClickListener { showSignalExplanation() }
         }
         signals.addView(TextView(this).apply {
             text = "LIVE SIGNALS"
@@ -443,9 +459,7 @@ class CallActivity : Activity(), SensorEventListener {
 
     private fun renderTranscript(snapshot: LiveTranscriptState.State) {
         if (!::transcript.isInitialized) return
-        transcript.text = TranscriptPresenter.render(snapshot, AudioRouteState.snapshot())
-        transcript.setTextColor(if (snapshot.text.isNotBlank() && !snapshot.isFinal) Color.rgb(128, 185, 198) else Color.rgb(214, 244, 248))
-        if (snapshot.text.isNotBlank() && snapshot.isFinal) RealityVisuals.reveal(transcript)
+        transcript.render(snapshot)
     }
 
     private fun renderCoach(snapshot: ResponseCoachState.Snapshot) {
@@ -459,7 +473,7 @@ class CallActivity : Activity(), SensorEventListener {
             responseCoach.text = when (snapshot.phase) {
                 ResponseCoachState.Phase.ANALYZING -> "ANALYZING\n${snapshot.message ?: "Generating replies…"}"
                 ResponseCoachState.Phase.LISTENING -> "LISTENING\n${snapshot.message ?: "Waiting for the next caller turn"}"
-                ResponseCoachState.Phase.KEY_REQUIRED -> "GROQ KEY REQUIRED\nOpen Settings → Groq"
+                ResponseCoachState.Phase.KEY_REQUIRED -> "AI PROVIDER REQUIRED\nOpen Settings → Coach provider"
                 ResponseCoachState.Phase.DISABLED -> "COACH DISABLED\nEnable Response Coach in Settings"
                 ResponseCoachState.Phase.ERROR -> "COACH ERROR\n${snapshot.message ?: "Suggestion request failed"}"
                 else -> if (chosen?.suggestion != null) "LAST // ${chosen.classification} · ${chosen.suggestion.mode}\n${chosen.suggestion.text}" else "STANDBY\nListening for the next caller turn."
@@ -482,10 +496,11 @@ class CallActivity : Activity(), SensorEventListener {
 
     private fun renderGroqUsage(snapshot: ResponseCoachState.Snapshot) {
         if (!::groqUsage.isInitialized) return
+        val provider = snapshot.provider.ifBlank { CallSessionHealthState.snapshot().coachProvider }.ifBlank { "WAITING" }
         val model = shortGroqModel(snapshot.groqModel)
-        val rate = if (snapshot.groqRemainingTokens != null && snapshot.groqLimitTokens != null) "TPM LEFT ${compactTokens(snapshot.groqRemainingTokens)}/${compactTokens(snapshot.groqLimitTokens)}" else "TPM LEFT —"
-        val reset = snapshot.groqResetTokens?.takeIf { it.isNotBlank() }?.let { " · RESET $it" }.orEmpty()
-        groqUsage.text = "GROQ // $model · $rate$reset · CALL ${compactTokens(snapshot.callTotalTokens)}"
+        val latency = snapshot.coachLatencyMs.takeIf { it > 0 }?.let { " · ${it}ms" }.orEmpty()
+        val rate = if (provider.equals("GROQ", true) && snapshot.groqRemainingTokens != null && snapshot.groqLimitTokens != null) " · TPM ${compactTokens(snapshot.groqRemainingTokens)}/${compactTokens(snapshot.groqLimitTokens)}" else ""
+        groqUsage.text = "COACH // $provider · $model$latency$rate · CALL ${compactTokens(snapshot.callTotalTokens)}"
     }
 
     private fun shortGroqModel(model: String) = when (model) {
@@ -500,6 +515,26 @@ class CallActivity : Activity(), SensorEventListener {
         value >= 1_000_000 -> String.format("%.1fM", value / 1_000_000f)
         value >= 1_000 -> String.format("%.1fK", value / 1_000f)
         else -> value.toString()
+    }
+
+    private fun renderHealth(snapshot: CallSessionHealthState.Snapshot) {
+        if (!::healthStrip.isInitialized) return
+        healthStrip.text = snapshot.compact()
+        val accent = when {
+            snapshot.lastError.isNotBlank() -> magenta
+            snapshot.audio == CallSessionHealthState.Level.GOOD && snapshot.stt == CallSessionHealthState.Level.GOOD && snapshot.coach != CallSessionHealthState.Level.ERROR -> green
+            else -> cyan
+        }
+        healthStrip.setTextColor(accent)
+        healthStrip.background = neon(RealityVisuals.Colors.BackgroundRaised, accent, 9f)
+    }
+
+    private fun showSignalExplanation() {
+        AlertDialog.Builder(this)
+            .setTitle("Live signal explanation")
+            .setMessage(SignalExplanation.lines(LiveSignalState.snapshot()).joinToString("\n\n"))
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun renderLiveSignals() {
@@ -599,12 +634,23 @@ class CallActivity : Activity(), SensorEventListener {
             callerAvatar.bind(match?.contactId ?: -1L, label, cyan)
             incomingHeroAvatar.bind(match?.contactId ?: -1L, label, cyan)
             RealityVisuals.reveal(callerAvatar)
+            transcript.bindPhone(number)
+            preCallBriefing.bind(number, label)
         }
 
         if (lastRenderedCallState != current.state) { lastRenderedCallState = current.state; RealityVisuals.pulseOnce(state) }
-        if (current.state == Call.STATE_DISCONNECTED) { connectedStartedAt = null; scheduleFinish() } else finishScheduled = false
+        if (current.state == Call.STATE_DISCONNECTED) {
+            if (!usageRecorded) {
+                connectedStartedAt?.let { RuntimeUsageStore(this).recordCall(SystemClock.elapsedRealtime() - it) }
+                usageRecorded = true
+            }
+            connectedStartedAt = null
+            scheduleFinish()
+        } else finishScheduled = false
 
         val ringing = current.state == Call.STATE_RINGING
+        val preConnect = ringing || current.state == Call.STATE_DIALING || current.state == Call.STATE_CONNECTING
+        preCallBriefing.visibility = if (preConnect) View.VISIBLE else View.GONE
         incomingHeroAvatar.visibility = if (ringing) View.VISIBLE else View.GONE
         answerButton.visibility = if (ringing) View.VISIBLE else View.GONE
         rejectButton.visibility = if (ringing) View.VISIBLE else View.GONE
@@ -620,7 +666,7 @@ class CallActivity : Activity(), SensorEventListener {
         endButton.isEnabled = current.state != Call.STATE_DISCONNECTED
 
         if ((current.state == Call.STATE_ACTIVE || current.state == Call.STATE_HOLDING) && connectedStartedAt == null) connectedStartedAt = SystemClock.elapsedRealtime()
-        updateTimer(); renderLiveSignals(); renderTranscript(LiveTranscriptState.snapshot()); renderGroqUsage(ResponseCoachState.current())
+        updateTimer(); renderLiveSignals(); renderTranscript(LiveTranscriptState.snapshot()); renderGroqUsage(ResponseCoachState.current()); renderHealth(CallSessionHealthState.snapshot())
         val service = RealityInCallService.instance
         val mutedNow = service?.isMutedNow() == true
         muteButton.text = if (mutedNow) "Unmute" else "Mute"; setControlActive(muteButton, mutedNow)

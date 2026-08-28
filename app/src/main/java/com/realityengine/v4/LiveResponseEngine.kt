@@ -22,7 +22,9 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         val alternatives: List<Suggestion>,
         val inputTokens: Int,
         val outputTokens: Int,
-        val model: String = SettingsStore.DEFAULT_GROQ_MODEL
+        val model: String = SettingsStore.DEFAULT_GROQ_MODEL,
+        val provider: String = "",
+        val latencyMs: Long = 0L,
     )
     data class ChosenResponse(val suggestion: Suggestion?, val confidence: Float, val classification: String)
     private data class RequestTicket(val generation: Long, val phoneNumber: String, val quickModeId: String? = null)
@@ -32,6 +34,8 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
     private val main = Handler(Looper.getMainLooper())
     private val profileSession = appContext?.let { CallerProfileSession(it.applicationContext) }
     private val providerPerformance = appContext?.applicationContext?.let(::CoachProviderPerformanceStore)
+    private val runtimeUsage = appContext?.applicationContext?.let(::RuntimeUsageStore)
+    private val thermalGuard = appContext?.applicationContext?.let(::ThermalGuard)
     private val gemini = GeminiCoachClient(settings)
     private val compatible = OpenAiCompatibleCoachClient(settings)
 
@@ -79,6 +83,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         if (clean.length < 4) return
         var status: Pair<ResponseCoachState.Phase, String>? = null
         var shouldLaunch = false
+        val requiredTurns = effectiveAnalysisFrequency()
         synchronized(this) {
             if (clean == lastCallerTurn) return
             lastCallerTurn = clean
@@ -93,8 +98,8 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
                     callerTurnsSinceAnalysis = 0
                     status = ResponseCoachState.Phase.KEY_REQUIRED to missingProviderMessage()
                 }
-                callerTurnsSinceAnalysis < settings.analysisFrequencyTurns -> {
-                    status = ResponseCoachState.Phase.LISTENING to "Caller turn $callerTurnsSinceAnalysis/${settings.analysisFrequencyTurns}"
+                callerTurnsSinceAnalysis < requiredTurns -> {
+                    status = ResponseCoachState.Phase.LISTENING to "Caller turn $callerTurnsSinceAnalysis/$requiredTurns"
                 }
                 inFlight -> {
                     callerTurnsSinceAnalysis = 0
@@ -167,7 +172,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         ResponseCoachState.publishStatus(
             ResponseCoachState.Phase.ANALYZING,
             quick?.let { "Generating ${it.label.lowercase()} replies…" } ?: "Generating strategy replies…",
-            clearSuggestions = true
+            clearSuggestions = false
         )
         executor.execute { executeAnalysis(ticket, callback) }
     }
@@ -188,6 +193,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
                 activeSuggestions = listOf(result!!.best) + result!!.alternatives
                 ResponseCoachState.publish(result!!)
             } else if (failure != null) {
+                CallSessionHealthState.markCoachError(failure!!)
                 ResponseCoachState.publishError(failure!!)
             }
             main.post { callback(result) }
@@ -210,7 +216,7 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
             ResponseCoachState.publishStatus(
                 ResponseCoachState.Phase.ANALYZING,
                 quick?.let { "Refreshing ${it.label.lowercase()} replies…" } ?: "Refreshing for latest caller turn…",
-                clearSuggestions = true
+                clearSuggestions = false
             )
             executor.execute { executeAnalysis(nextTicket, {}) }
         }
@@ -252,8 +258,11 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         val started = System.nanoTime()
         return try {
             val result = requestProvider(provider, snapshot, quickModeId)
-            providerPerformance?.recordSuccess(provider, elapsedMs(started))
-            result
+            val elapsed = elapsedMs(started)
+            providerPerformance?.recordSuccess(provider, elapsed)
+            runtimeUsage?.recordCoach(result.inputTokens, result.outputTokens)
+            CallSessionHealthState.markCoachReady(provider, elapsed)
+            result.copy(provider = provider, latencyMs = elapsed)
         } catch (t: Throwable) {
             providerPerformance?.recordFailure(provider, t, elapsedMs(started))
             throw t
@@ -271,6 +280,11 @@ class LiveResponseEngine(private val settings: SettingsStore, private val contex
         SettingsStore.COACH_PROVIDER_MISTRAL -> compatible.request(OpenAiCompatibleCoachClient.mistral(settings), snapshot, quickModeId)
         SettingsStore.COACH_PROVIDER_OPENROUTER -> compatible.request(OpenAiCompatibleCoachClient.openRouter(settings), snapshot, quickModeId)
         else -> throw IllegalStateException("UNKNOWN RESPONSE COACH PROVIDER // $provider")
+    }
+
+    private fun effectiveAnalysisFrequency(): Int {
+        val base = settings.analysisFrequencyTurns.coerceAtLeast(1)
+        return if (thermalGuard?.snapshot()?.throttle == true) maxOf(base, 2) else base
     }
 
     private fun elapsedMs(startedNanos: Long): Long =

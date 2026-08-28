@@ -17,6 +17,8 @@ object ResponseCoachState {
         val callInputTokens: Int = 0,
         val callOutputTokens: Int = 0,
         val groqModel: String = "",
+        val provider: String = "",
+        val coachLatencyMs: Long = 0L,
         val groqRemainingTokens: Int? = null,
         val groqLimitTokens: Int? = null,
         val groqResetTokens: String? = null,
@@ -39,6 +41,8 @@ object ResponseCoachState {
             callInputTokens = snapshot.callInputTokens + result.inputTokens,
             callOutputTokens = snapshot.callOutputTokens + result.outputTokens,
             groqModel = result.model,
+            provider = result.provider,
+            coachLatencyMs = result.latencyMs,
             updatedAt = System.currentTimeMillis(),
             phase = Phase.READY,
             message = null
@@ -59,6 +63,7 @@ object ResponseCoachState {
     }
 
     @Synchronized fun publishStatus(phase: Phase, message: String? = null, clearSuggestions: Boolean = false) {
+        if (phase == Phase.ANALYZING) CallSessionHealthState.markCoachAnalyzing()
         snapshot = snapshot.copy(
             best = if (clearSuggestions) null else snapshot.best,
             alternatives = if (clearSuggestions) emptyList() else snapshot.alternatives,
@@ -70,9 +75,8 @@ object ResponseCoachState {
     }
 
     @Synchronized fun publishError(message: String) {
+        CallSessionHealthState.markCoachError(message)
         snapshot = snapshot.copy(
-            best = null,
-            alternatives = emptyList(),
             updatedAt = System.currentTimeMillis(),
             phase = Phase.ERROR,
             message = message.take(180)

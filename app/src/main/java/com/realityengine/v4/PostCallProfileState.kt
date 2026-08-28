@@ -30,9 +30,9 @@ object PostCallProfileState {
             pending = null
             value
         }
-        context.startActivity(Intent(context, CallerMemoryActivity::class.java).apply {
-            putExtra(CallerMemoryActivity.EXTRA_PHONE, item.phoneNumber)
-            putExtra(CallerMemoryActivity.EXTRA_NAME, item.displayName)
+        context.startActivity(Intent(context, PostCallIntelligenceActivity::class.java).apply {
+            putExtra(PostCallIntelligenceActivity.EXTRA_PHONE, item.phoneNumber)
+            putExtra(PostCallIntelligenceActivity.EXTRA_NAME, item.displayName)
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         })

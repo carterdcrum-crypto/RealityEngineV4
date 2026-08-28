@@ -15,7 +15,8 @@ class LiveEvidenceEngine(context: Context) {
         val persisted: Boolean,
         val cognitiveStress: Int = 0,
         val logOdds: Double = 0.0,
-        val timestampMs: Long = System.currentTimeMillis()
+        val timestampMs: Long = System.currentTimeMillis(),
+        val context: String = "",
     )
 
     private val fusion = EvidenceFusionEngine()
@@ -38,7 +39,7 @@ class LiveEvidenceEngine(context: Context) {
         val changed=lastPersistedCombined<0f||abs(result.combined-lastPersistedCombined)>=0.12f
         val shouldPersist=cleanPhone.isNotBlank()&&cleanPhone!="UNKNOWN CALLER"&&meaningful&&changed&&now-lastPersistAt>=15_000L
         if(shouldPersist){profiles.recordEvidence(cleanPhone,fusion.toProfileEvent(result,transcriptContext));lastPersistAt=now;lastPersistedCombined=result.combined}
-        val snapshot=Snapshot(cleanPhone,(result.acoustic*100).toInt(),(result.linguistic*100).toInt(),(result.factual*100).toInt(),(result.combined*100).toInt(),result.elevatedStreams,shouldPersist,(cognitiveStressScore.coerceIn(0f,1f)*100).toInt(),result.logOdds,now)
+        val snapshot=Snapshot(cleanPhone,(result.acoustic*100).toInt(),(result.linguistic*100).toInt(),(result.factual*100).toInt(),(result.combined*100).toInt(),result.elevatedStreams,shouldPersist,(cognitiveStressScore.coerceIn(0f,1f)*100).toInt(),result.logOdds,now,transcriptContext.trim().replace(Regex("\\s+"), " ").take(220))
         LiveSignalState.publish(snapshot)
         return snapshot
     }

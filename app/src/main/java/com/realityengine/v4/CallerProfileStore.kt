@@ -58,7 +58,13 @@ class CallerProfileStore(context: Context) {
     }
 
     @Synchronized
-fun save(profile: CallerProfile) {
+    fun allProfiles(): List<CallerProfile> = prefs.all.mapNotNull { (key, raw) ->
+        val value = raw as? String ?: return@mapNotNull null
+        runCatching { fromJson(JSONObject(value), key) }.getOrNull()
+    }.sortedByDescending { it.updatedAtMs }
+
+    @Synchronized
+    fun save(profile: CallerProfile) {
         write(profile, touch = true)
         tombstones.edit().remove(normalize(profile.phoneNumber)).apply()
     }

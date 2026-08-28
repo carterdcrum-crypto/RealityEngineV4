@@ -18,6 +18,7 @@ class LiveTranscriptionPipeline(context: Context) {
     private data class RecordingRequest(val phoneNumber: String, val displayName: String)
 
     private val appContext = context.applicationContext
+    private val runtimeUsage = RuntimeUsageStore(appContext)
     private val settings = SettingsStore(appContext)
     private val capture = VoiceCallPcmCapture(appContext)
     private val deepgram = DeepgramStreamingClient(settings)
@@ -40,6 +41,7 @@ class LiveTranscriptionPipeline(context: Context) {
     @Volatile private var userSpeechStartedAt = -1.0
     @Volatile private var activeSampleRate = 0
     @Volatile private var activeChannels = 0
+    @Volatile private var deepgramStartedAtMs = 0L
 
     private val pendingLock = Any()
     private val pendingPcm = ByteArrayOutputStream(MAX_PENDING_PCM)
@@ -73,6 +75,7 @@ class LiveTranscriptionPipeline(context: Context) {
         val result = capture.start(
             onFrame = { bytes, length, direction ->
                 if (running.get() && !stopping.get()) {
+                    CallSessionHealthState.markAudioFrame(length)
                     when (direction) {
                         VoiceCallPcmCapture.Direction.DOWNLINK -> acceptDirectional(bytes, length, true)
                         VoiceCallPcmCapture.Direction.UPLINK -> acceptDirectional(bytes, length, false)
@@ -122,6 +125,7 @@ class LiveTranscriptionPipeline(context: Context) {
         if (!running.get() || stopping.get()) return false
         val frame = TwilioMediaStreamDecoder.decode(message) ?: return false
         acousticScore = acoustic.analyze(frame.pcm16).score
+        CallSessionHealthState.markAudioFrame(frame.pcm16.size)
         recordAudio(frame.pcm16, frame.pcm16.size)
         return deepgram.sendPcm(frame.pcm16)
     }
@@ -192,10 +196,13 @@ class LiveTranscriptionPipeline(context: Context) {
         interimCallback = onInterim
         stoppedCallback = onStopped
         conversation.bindActiveCaller()
+        deepgramStartedAtMs = 0L
+        CallSessionHealthState.beginSession()
     }
 
     private fun connectDeepgram(sampleRate: Int, channels: Int, multi: Boolean): Boolean {
         multichannel = multi
+        CallSessionHealthState.markSttConnecting()
         return deepgram.connect(
             sampleRate = sampleRate,
             channels = channels,
@@ -209,6 +216,7 @@ class LiveTranscriptionPipeline(context: Context) {
                     speaker?.let { it == callerSpeaker }
                 }
                 val callerSide = isCaller != false
+                CallSessionHealthState.markTranscript(result.isFinal)
                 LiveTranscriptState.publish(result.text, result.isFinal, isCaller)
                 interimCallback?.invoke(result.text)
 
@@ -234,8 +242,17 @@ class LiveTranscriptionPipeline(context: Context) {
                 }
             },
             onSpeechEvent = { event -> handleSpeechEvent(event) },
-            onClosed = { reason -> finishShutdown(reason) },
-        ).also { started -> if (started) primeDeepgram(sampleRate, channels) }
+            onClosed = { reason ->
+                CallSessionHealthState.markSttClosed(reason)
+                finishShutdown(reason)
+            },
+        ).also { started ->
+            if (started) {
+                deepgramStartedAtMs = System.currentTimeMillis()
+                CallSessionHealthState.markSttReady()
+                primeDeepgram(sampleRate, channels)
+            }
+        }
     }
 
     private fun appendFinalTurn(text: String, isCaller: Boolean) {
@@ -380,6 +397,7 @@ class LiveTranscriptionPipeline(context: Context) {
             value
         }
         if (text.isBlank()) return
+        CallSessionHealthState.markTurnDelivered(isCaller)
         if (isCaller) {
             conversation.onCallerTurn(text)
             val phone = CallSessionRegistry.primaryNumber().orEmpty()
@@ -539,6 +557,10 @@ class LiveTranscriptionPipeline(context: Context) {
         callerSpeaker = null
         multichannel = false
         stopping.set(false)
+        val started = deepgramStartedAtMs
+        if (started > 0L) runtimeUsage.recordDeepgram(System.currentTimeMillis() - started)
+        deepgramStartedAtMs = 0L
+        CallSessionHealthState.finishSession()
         val callback = stoppedCallback
         interimCallback = null
         stoppedCallback = null
