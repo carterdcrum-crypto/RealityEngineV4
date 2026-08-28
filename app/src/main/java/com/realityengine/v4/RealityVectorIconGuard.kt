@@ -18,12 +18,11 @@ import kotlin.math.abs
 import kotlin.math.min
 
 /**
- * Makes functional iconography structurally incapable of becoming OEM emoji.
+ * Makes functional iconography structurally incapable of becoming OEM emoji and applies the
+ * Lucid Prism navigation treatment.
  *
- * The bottom dock used to keep a TextView as its icon slot. Even when a vector drawable was attached
- * to that TextView, another visual pass could still write a Unicode telephone symbol back into it.
- * This guard now physically replaces each dock icon TextView with an ImageView. Once converted, there
- * is no text/glyph path left for Samsung or any other OEM emoji font to render.
+ * Dock icon slots are real ImageViews, not text pretending to be an icon. That guarantee remains
+ * in place while the old green/cyan tactical dock is replaced by a softer blue/lilac glass dock.
  */
 object RealityVectorIconGuard {
     private val listeners = Collections.synchronizedMap(
@@ -33,9 +32,6 @@ object RealityVectorIconGuard {
 
     val callbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
-            // Activity.onCreate has completed at this point, so setContentView has normally happened,
-            // while the first frame has not yet been drawn. Sanitize immediately to prevent even a
-            // one-frame Unicode/emoji flash.
             sanitizeNow(activity)
             attach(activity)
         }
@@ -102,15 +98,14 @@ object RealityVectorIconGuard {
 
         if (view is LinearLayout && convertDockItem(activity, view)) return
 
-        // Backspace is still a TextView control elsewhere in the legacy dialer, but its text itself
-        // is removed and the packaged vector is used. Telephone/navigation icon slots are stricter:
-        // they are converted to ImageView above.
+        // Legacy backspace text is still sanitized as a safety net. New screens use ImageButton
+        // directly, but this ensures an older call/dial surface can never regress into a glyph.
         if (view is TextView && view.text?.toString() == "⌫") {
             view.tag = RealityVisuals.HUD_OWNED_TAG
             view.text = ""
             view.gravity = Gravity.CENTER
             view.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_re_backspace, 0, 0, 0)
-            view.compoundDrawableTintList = ColorStateList.valueOf(RealityVisuals.Colors.Cyan)
+            view.compoundDrawableTintList = ColorStateList.valueOf(RealityVisuals.Colors.CyanSoft)
             view.compoundDrawablePadding = 0
         }
 
@@ -134,19 +129,18 @@ object RealityVectorIconGuard {
             else -> return false
         }
 
-        val active = colorDistance(label.currentTextColor, RealityVisuals.Colors.Cyan) < 115 ||
-            colorDistance(label.currentTextColor, RealityVisuals.Colors.Green) < 115
-        val accent = if (active) RealityVisuals.Colors.Green else Color.rgb(155, 196, 226)
-        val fill = if (active) Color.rgb(0, 34, 20) else Color.rgb(2, 12, 23)
-        val stroke = if (active) RealityVisuals.Colors.Green else Color.rgb(0, 67, 94)
+        val active = isActiveColor(label.currentTextColor)
+        val accent = if (active) RealityVisuals.Colors.Lilac else Color.rgb(143, 157, 188)
+        val fill = if (active) Color.rgb(25, 26, 57) else Color.rgb(7, 12, 27)
+        val stroke = if (active) RealityVisuals.Colors.Lilac else Color.rgb(61, 78, 118)
 
         item.tag = RealityVisuals.HUD_OWNED_TAG
         item.background = RealityVisuals.panel(
             activity,
             fill = fill,
             stroke = stroke,
-            radiusDp = 7f,
-            strokeDp = if (active) 2 else 1,
+            radiusDp = 18f,
+            strokeDp = 1,
         )
 
         val first = item.getChildAt(0)
@@ -166,12 +160,19 @@ object RealityVectorIconGuard {
         iconView.setImageResource(iconRes)
         iconView.imageTintList = ColorStateList.valueOf(accent)
         iconView.background = null
-        iconView.setPadding(9.dp(activity), 4.dp(activity), 9.dp(activity), 4.dp(activity))
+        iconView.setPadding(10.dp(activity), 5.dp(activity), 10.dp(activity), 5.dp(activity))
         iconView.contentDescription = labelText
 
         label.setTextColor(accent)
+        RealityTypography.displayMedium(label, 9f)
         return true
     }
+
+    private fun isActiveColor(color: Int): Boolean =
+        colorDistance(color, RealityVisuals.Colors.Cyan) < 120 ||
+            colorDistance(color, RealityVisuals.Colors.CyanSoft) < 120 ||
+            colorDistance(color, RealityVisuals.Colors.Lilac) < 120 ||
+            colorDistance(color, RealityVisuals.Colors.Green) < 95
 
     private fun colorDistance(a: Int, b: Int): Int =
         abs(Color.red(a) - Color.red(b)) +
