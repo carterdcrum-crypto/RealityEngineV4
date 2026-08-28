@@ -3,16 +3,16 @@ package com.realityengine.v4
 import android.graphics.Typeface
 import android.widget.TextView
 
-/** Central typography primitives for the modern Reality Engine visual system. */
+/** Central typography primitives for the Lucid Prism visual system. */
 object RealityTypography {
     private val displayTypeface by lazy { Typeface.create("sans-serif", Typeface.NORMAL) }
     private val displayMediumTypeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }
-    private val technicalTypeface by lazy { Typeface.create("sans-serif-condensed", Typeface.NORMAL) }
+    private val technicalTypeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }
 
     fun display(view: TextView, sizeSp: Float? = null) = view.apply {
         typeface = displayTypeface
         sizeSp?.let { textSize = it }
-        letterSpacing = -0.015f
+        letterSpacing = -0.008f
         includeFontPadding = false
         isAllCaps = false
     }
@@ -28,7 +28,7 @@ object RealityTypography {
     fun technical(view: TextView, sizeSp: Float? = null) = view.apply {
         typeface = technicalTypeface
         sizeSp?.let { textSize = it }
-        letterSpacing = 0.055f
+        letterSpacing = 0.075f
         includeFontPadding = false
         isAllCaps = false
     }
@@ -36,7 +36,7 @@ object RealityTypography {
     fun signal(view: TextView, sizeSp: Float? = null) = view.apply {
         typeface = displayMediumTypeface
         sizeSp?.let { textSize = it }
-        letterSpacing = 0.09f
+        letterSpacing = 0.055f
         includeFontPadding = false
         isAllCaps = false
     }
@@ -46,6 +46,6 @@ object RealityTypography {
         typeface = if (technical) technicalTypeface else displayMediumTypeface
         includeFontPadding = false
         isAllCaps = false
-        letterSpacing = if (technical) 0.055f else 0f
+        letterSpacing = if (technical) 0.075f else 0f
     }
 }
