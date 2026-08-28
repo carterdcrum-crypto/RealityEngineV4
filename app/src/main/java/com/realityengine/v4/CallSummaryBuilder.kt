@@ -14,7 +14,10 @@ class CallSummaryBuilder(context: Context) {
     fun finalize(phoneNumber: String, transcript: String = ""): String {
         if (phoneNumber.isBlank()) return ""
         val profile = profiles.load(phoneNumber)
-        val summary = buildSummary(profile)
+        val callStartedAtMs = if (transcript.isNotBlank()) {
+            CallTranscriptStore.savedFor(appContext, phoneNumber).firstOrNull()?.timestampMs
+        } else null
+        val summary = buildSummary(profile, callStartedAtMs)
         if (summary.isNotBlank()) profiles.update(phoneNumber) { it.lastCallSummary = summary }
 
         // Persist the immediate local result first. AI enrichment is deliberately background-only so
@@ -51,10 +54,19 @@ class CallSummaryBuilder(context: Context) {
             if (learned.summary.isNotBlank()) profile.lastCallSummary = learned.summary
         }
 
-        internal fun buildSummary(profile: CallerProfileStore.CallerProfile): String {
-            val recentEvents = profile.evidenceEvents.takeLast(12)
+        internal fun buildSummary(
+            profile: CallerProfileStore.CallerProfile,
+            callStartedAtMs: Long? = null,
+        ): String {
+            val recentEvents = if (callStartedAtMs != null && callStartedAtMs > 0L) {
+                profile.evidenceEvents
+                    .filter { it.timestampMs >= callStartedAtMs - 3_000L }
+                    .takeLast(12)
+            } else {
+                emptyList()
+            }
             val peak = recentEvents.maxByOrNull { it.combined }
-            val firstTs = recentEvents.minOfOrNull { it.timestampMs }
+            val firstTs = callStartedAtMs ?: recentEvents.minOfOrNull { it.timestampMs }
             val timeline = if (firstTs == null) emptyList() else recentEvents
                 .filter { it.combined >= .55f }
                 .sortedWith(compareByDescending<CallerProfileStore.EvidenceEvent> { it.combined }.thenByDescending { it.timestampMs })
