@@ -24,28 +24,36 @@ class DialScreen(
     val error = TextView(context)
 
     private val ice = RealityVisuals.Colors.Cyan
-    private val iceSoft = RealityVisuals.Colors.CyanSoft
     private val lilac = RealityVisuals.Colors.Lilac
     private val green = RealityVisuals.Colors.Green
     private val primaryText = RealityVisuals.Colors.Text
     private val muted = RealityVisuals.Colors.TextDim
-    private val keyFill = Color.rgb(11, 19, 39)
+    private val keyFill = Color.rgb(10, 16, 29)
 
     fun build(): View {
         val root = LinearLayout(context).apply {
             tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            setPadding(dp(12), dp(4), dp(12), dp(6))
+            setPadding(dp(16), dp(6), dp(16), dp(8))
         }
 
-        root.addView(TextView(context).apply {
-            text = "SECURE DIAL // NATIVE CELLULAR"
-            gravity = Gravity.CENTER
-            setTextColor(iceSoft)
-            RealityTypography.technical(this, 9.5f)
-        }, LinearLayout.LayoutParams(-1, dp(34)).apply {
-            setMargins(dp(14), 0, dp(14), dp(9))
+        val dialMeta = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(TextView(context).apply {
+                text = "Dial"
+                setTextColor(primaryText)
+                RealityTypography.displayMedium(this, 18f)
+            }, LinearLayout.LayoutParams(0, dp(30), 1f))
+            addView(TextView(context).apply {
+                text = "NATIVE CELLULAR"
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                RealityVisuals.styleMicroLabel(this, muted)
+            }, LinearLayout.LayoutParams(-2, dp(30)))
+        }
+        root.addView(dialMeta, LinearLayout.LayoutParams(-1, dp(34)).apply {
+            setMargins(dp(4), 0, dp(4), dp(8))
         })
 
         val numberPlate = LinearLayout(context).apply {
@@ -54,38 +62,37 @@ class DialScreen(
             gravity = Gravity.CENTER
             background = RealityVisuals.panel(
                 context,
-                fill = RealityVisuals.Colors.PanelStrong,
-                stroke = iceSoft,
-                radiusDp = 23f,
-                strokeDp = 1,
+                fill = RealityVisuals.Colors.BackgroundRaised,
+                stroke = RealityVisuals.Colors.Border,
+                radiusDp = 28f,
             )
-            setPadding(dp(20), dp(9), dp(20), dp(9))
+            setPadding(dp(20), dp(10), dp(20), dp(9))
         }
 
         number.apply {
             hint = "Enter number"
-            setHintTextColor(Color.rgb(101, 115, 150))
+            setHintTextColor(Color.rgb(105, 115, 141))
             setTextColor(primaryText)
             gravity = Gravity.CENTER
             background = null
             inputType = android.text.InputType.TYPE_CLASS_PHONE
             isSingleLine = true
             includeFontPadding = false
-            letterSpacing = .025f
-            RealityTypography.displayMedium(this, 31f)
+            letterSpacing = .015f
+            RealityTypography.displayMedium(this, 32f)
         }
-        numberPlate.addView(number, LinearLayout.LayoutParams(-1, dp(66)))
+        numberPlate.addView(number, LinearLayout.LayoutParams(-1, dp(64)))
 
         contactMatch.apply {
             setTextColor(lilac)
             gravity = Gravity.CENTER
             visibility = View.INVISIBLE
             includeFontPadding = false
-            RealityTypography.displayMedium(this, 10.5f)
+            RealityTypography.displayMedium(this, 11f)
         }
         numberPlate.addView(contactMatch, LinearLayout.LayoutParams(-1, dp(22)))
-        root.addView(numberPlate, LinearLayout.LayoutParams(-1, dp(104)).apply {
-            setMargins(dp(3), 0, dp(3), dp(14))
+        root.addView(numberPlate, LinearLayout.LayoutParams(-1, dp(102)).apply {
+            setMargins(dp(2), 0, dp(2), dp(16))
         })
 
         number.addTextChangedListener(object : TextWatcher {
@@ -121,9 +128,8 @@ class DialScreen(
                 background = RealityVisuals.panel(
                     context,
                     fill = keyFill,
-                    stroke = Color.rgb(92, 113, 168),
-                    radiusDp = 24f,
-                    strokeDp = 1,
+                    stroke = RealityVisuals.Colors.Border,
+                    radiusDp = 30f,
                 )
                 isClickable = true
                 isFocusable = true
@@ -132,16 +138,16 @@ class DialScreen(
                     setTextColor(primaryText)
                     gravity = Gravity.CENTER
                     includeFontPadding = false
-                    RealityTypography.displayMedium(this, 27f)
-                }, LinearLayout.LayoutParams(-1, dp(36)))
+                    RealityTypography.displayMedium(this, 28f)
+                }, LinearLayout.LayoutParams(-1, dp(35)))
                 if (letters.isNotEmpty()) addView(TextView(context).apply {
                     text = letters
-                    setTextColor(iceSoft)
+                    setTextColor(muted)
                     gravity = Gravity.CENTER
                     includeFontPadding = false
-                    letterSpacing = .11f
-                    RealityTypography.technical(this, 9f)
-                }, LinearLayout.LayoutParams(-1, dp(17)))
+                    letterSpacing = .08f
+                    RealityTypography.displayMedium(this, 8.5f)
+                }, LinearLayout.LayoutParams(-1, dp(15)))
                 setOnClickListener {
                     RealityVisuals.pulseOnce(this)
                     number.append(digit)
@@ -149,9 +155,9 @@ class DialScreen(
             }
             grid.addView(key, GridLayout.LayoutParams().apply {
                 width = 0
-                height = dp(78)
+                height = dp(72)
                 columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setMargins(dp(6), dp(6), dp(6), dp(6))
+                setMargins(dp(7), dp(6), dp(7), dp(6))
             })
         }
         root.addView(grid, LinearLayout.LayoutParams(-1, -2))
@@ -160,23 +166,22 @@ class DialScreen(
             tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(6), dp(8), dp(6), 0)
+            setPadding(dp(7), dp(10), dp(7), 0)
         }
 
         val backspace = ImageButton(context).apply {
             tag = RealityVisuals.HUD_OWNED_TAG
             contentDescription = "Backspace"
             setImageResource(R.drawable.ic_re_backspace)
-            imageTintList = ColorStateList.valueOf(iceSoft)
+            imageTintList = ColorStateList.valueOf(RealityVisuals.Colors.CyanSoft)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = RealityVisuals.panel(
                 context,
-                fill = Color.rgb(10, 18, 37),
-                stroke = lilac,
-                radiusDp = 22f,
-                strokeDp = 1,
+                fill = RealityVisuals.Colors.Panel,
+                stroke = RealityVisuals.Colors.Border,
+                radiusDp = 30f,
             )
-            setPadding(dp(17), dp(17), dp(17), dp(17))
+            setPadding(dp(18), dp(18), dp(18), dp(18))
             minimumWidth = 0
             minimumHeight = 0
             setOnClickListener {
@@ -189,8 +194,8 @@ class DialScreen(
                 true
             }
         }
-        actions.addView(backspace, LinearLayout.LayoutParams(0, dp(64), .30f).apply {
-            setMargins(0, dp(4), dp(8), dp(4))
+        actions.addView(backspace, LinearLayout.LayoutParams(0, dp(60), .28f).apply {
+            setMargins(0, 0, dp(9), 0)
         })
 
         val connect = LinearLayout(context).apply {
@@ -201,40 +206,39 @@ class DialScreen(
             isFocusable = true
             background = RealityVisuals.panel(
                 context,
-                fill = Color.rgb(18, 83, 52),
-                stroke = green,
-                radiusDp = 24f,
-                strokeDp = 1,
+                fill = Color.rgb(17, 68, 44),
+                stroke = Color.rgb(79, 176, 113),
+                radiusDp = 30f,
             )
             addView(ImageView(context).apply {
                 setImageResource(R.drawable.ic_re_call)
                 imageTintList = ColorStateList.valueOf(Color.rgb(239, 255, 245))
                 scaleType = ImageView.ScaleType.CENTER_INSIDE
                 contentDescription = null
-            }, LinearLayout.LayoutParams(dp(25), dp(25)).apply { setMargins(0, 0, dp(9), 0) })
+            }, LinearLayout.LayoutParams(dp(23), dp(23)).apply { setMargins(0, 0, dp(9), 0) })
             addView(TextView(context).apply {
-                text = "CONNECT"
-                setTextColor(Color.rgb(239, 255, 245))
+                text = "Call"
+                setTextColor(Color.rgb(241, 255, 246))
                 gravity = Gravity.CENTER
-                RealityTypography.technical(this, 13f)
+                RealityTypography.displayMedium(this, 14f)
             })
             setOnClickListener {
                 RealityVisuals.pulseOnce(this)
                 onCall(number.text.toString().trim())
             }
         }
-        actions.addView(connect, LinearLayout.LayoutParams(0, dp(64), .70f).apply {
-            setMargins(dp(8), dp(4), 0, dp(4))
+        actions.addView(connect, LinearLayout.LayoutParams(0, dp(60), .72f).apply {
+            setMargins(dp(9), 0, 0, 0)
         })
         root.addView(actions, LinearLayout.LayoutParams(-1, -2))
 
         error.apply {
-            setTextColor(Color.rgb(255, 122, 154))
+            setTextColor(Color.rgb(255, 137, 163))
             gravity = Gravity.CENTER
             includeFontPadding = false
             RealityTypography.displayMedium(this, 10f)
         }
-        root.addView(error, LinearLayout.LayoutParams(-1, dp(18)))
+        root.addView(error, LinearLayout.LayoutParams(-1, dp(20)))
         return root
     }
 
