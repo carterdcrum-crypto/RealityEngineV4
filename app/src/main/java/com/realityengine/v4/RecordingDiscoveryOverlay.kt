@@ -121,7 +121,7 @@ object RecordingDiscoveryOverlay {
                     text = "Call transcripts · $transcriptCount"
                     gravity = Gravity.CENTER
                     contentDescription = "Open $transcriptCount saved transcript${if (transcriptCount == 1) "" else "s"} for this caller"
-                    RealityVisuals.styleControl(this, R.drawable.ic_re_intel, RealityVisuals.Colors.IceBlue, radiusDp = 20f)
+                    RealityVisuals.styleControl(this, R.drawable.ic_re_intel, RealityVisuals.Colors.Cyan, radiusDp = 20f)
                     setOnClickListener { openTranscripts(phone, name) }
                 }
                 parent.addView(transcriptButton, insertIndex, LinearLayout.LayoutParams(-1, dp(52)).apply {
