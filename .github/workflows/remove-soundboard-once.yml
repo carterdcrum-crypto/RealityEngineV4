@@ -9,20 +9,21 @@ permissions:
 
 jobs:
   cleanup:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Remove soundboard feature
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
           import re
 
           call = Path('app/src/main/java/com/realityengine/v4/CallActivity.kt')
           text = call.read_text()
-          for line in [
+
+          exact_lines = [
               '    private lateinit var soundboardButton: Button\n',
               '    private lateinit var soundboardStore: SoundboardStore\n',
               '    private lateinit var soundboardPlayer: CallSoundboardPlayer\n',
@@ -32,43 +33,45 @@ jobs:
               '        soundboardButton = control("Sounds", R.drawable.ic_re_speaker, green) { showSoundboard() }\n',
               '        soundboardButton.isEnabled = current.state == Call.STATE_ACTIVE\n',
               '        soundboardButton.alpha = if (soundboardButton.isEnabled) 1f else .42f\n',
-          ]:
+          ]
+          for line in exact_lines:
               text = text.replace(line, '')
+
           text = text.replace(
-              '        quickActions.addView(unhingedButton, buttonLayout(48)); quickActions.addView(flirtButton, buttonLayout(48)); quickActions.addView(soundboardButton, buttonLayout(48)); root.addView(quickActions)\n',
-              '        quickActions.addView(unhingedButton, buttonLayout(48)); quickActions.addView(flirtButton, buttonLayout(48)); root.addView(quickActions)\n'
+              '; quickActions.addView(soundboardButton, buttonLayout(48))',
+              ''
           )
+
           text, count = re.subn(
-              r'\n    private fun showSoundboard\(\) \{.*?\n    \}\n\n    private fun requestRecording',
-              '\n    private fun requestRecording',
+              r'\n    private fun showSoundboard\(\) \{.*?\n    \}\n\n    private fun requestRecording\(\)',
+              '\n    private fun requestRecording()',
               text,
               flags=re.S,
           )
           if count != 1:
-              raise SystemExit(f'Expected one showSoundboard block, removed {count}')
+              raise SystemExit(f'Expected one showSoundboard function, removed {count}')
           call.write_text(text)
 
           settings = Path('app/src/main/java/com/realityengine/v4/SettingsDashboardScreen.kt')
           text = settings.read_text()
-          block = '''        val soundCount = SoundboardStore(activity).count()
-          root.addView(row(
-              "Call soundboard",
-              "Import audio from Downloads, preview it, rename sounds, and manage the in-call library",
-              if (soundCount == 0) "SETUP" else "$soundCount",
-              if (soundCount == 0) amber else green,
-          ) { activity.startActivity(Intent(activity, SoundboardSettingsActivity::class.java)) })
-'''
-          if block not in text:
-              raise SystemExit('Soundboard settings block not found')
-          settings.write_text(text.replace(block, ''))
+          start = text.find('        val soundCount = SoundboardStore(activity).count()')
+          if start < 0:
+              raise SystemExit('Soundboard settings start not found')
+          end_marker = '        ) { activity.startActivity(Intent(activity, SoundboardSettingsActivity::class.java)) })\n'
+          end = text.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('Soundboard settings end not found')
+          end += len(end_marker)
+          settings.write_text(text[:start] + text[end:])
 
           manifest = Path('app/src/main/AndroidManifest.xml')
           text = manifest.read_text()
           text = text.replace('        <activity android:name=".SoundboardSettingsActivity" android:exported="false" />\n', '')
           manifest.write_text(text)
 
-          for name in ['CallSoundboardPlayer.kt', 'SoundboardSettingsActivity.kt', 'SoundboardStore.kt']:
-              path = Path('app/src/main/java/com/realityengine/v4') / name
+          source_dir = Path('app/src/main/java/com/realityengine/v4')
+          for name in ('CallSoundboardPlayer.kt', 'SoundboardSettingsActivity.kt', 'SoundboardStore.kt'):
+              path = source_dir / name
               if path.exists():
                   path.unlink()
 
