@@ -22,6 +22,7 @@ object LiveTranscriptLayoutOverlay {
     private const val CONTROL_TAG = "reality.transcript.layout.control"
     private const val RADAR_TAG = "reality.conversation.radar"
     private const val TRANSLATION_TAG = "reality.conversation.translation"
+    private const val SIGNAL_VISUAL_TAG = "reality.signal.visual.pulse"
 
     private val sessions = Collections.synchronizedMap(WeakHashMap<Activity, Session>())
 
@@ -102,6 +103,9 @@ object LiveTranscriptLayoutOverlay {
             workspace.findViewWithTag<View>(RADAR_TAG)?.let { view ->
                 setHeight(view, if (focusMode) 42 else 68)
             }
+            workspace.findViewWithTag<View>(SIGNAL_VISUAL_TAG)?.let { view ->
+                setHeight(view, if (focusMode) 92 else 176)
+            }
             workspace.findViewWithTag<View>(TRANSLATION_TAG)?.let { view ->
                 if (view.visibility != View.GONE) setHeight(view, if (focusMode) 36 else 46)
             }
@@ -129,12 +133,11 @@ object LiveTranscriptLayoutOverlay {
                 ?.also { it.visibility = if (focusMode) View.GONE else View.VISIBLE }
                 ?: findTextStarting(workspace, "GROQ //")?.also { it.visibility = if (focusMode) View.GONE else View.VISIBLE }
 
+            // Pulse Spectrum is now the live signal surface in both layouts. Keep the original
+            // progress-bar panel hidden so INTEL does not show two competing representations.
             val signalsLabel = findExactText(workspace, "LIVE SIGNALS")
             val signals = signalsLabel?.parent as? View
-            if (signals != null) {
-                signals.visibility = if (focusMode) View.GONE else View.VISIBLE
-                if (!focusMode) setHeight(signals, 96)
-            }
+            if (signals != null) signals.visibility = View.GONE
 
             findTextStarting(workspace, "NEXT ACTION")?.let { setHeight(it, if (focusMode) 34 else 40) }
 
