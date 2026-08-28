@@ -2,14 +2,13 @@ package com.realityengine.v4
 
 import android.app.Activity
 import android.app.Application
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorFilter
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PixelFormat
-import android.graphics.Rect
+import android.graphics.RadialGradient
 import android.graphics.Shader
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
@@ -24,12 +23,19 @@ import android.widget.ScrollView
 import android.widget.TextView
 import java.util.Collections
 import java.util.WeakHashMap
+import kotlin.math.max
 import kotlin.math.min
 
-/** Global operator skin for V4. Feature behavior remains owned by the original screens. */
+/**
+ * Global Lucid Prism shell for V4.
+ *
+ * This layer deliberately stays presentation-only. Activities, click handlers, telephony, audio,
+ * AI, stores and navigation remain owned by the original V4 code. The shell supplies the shared
+ * midnight atmosphere and catches older dark widgets that do not already use RealityVisuals.
+ */
 object RealityOperatorSkin {
-    enum class Scene(val frame: Int) {
-        IDLE(0), CALL(1), INCOMING(2), SETTINGS(3), SUMMARY(4), MEMORY(5)
+    enum class Scene {
+        IDLE, CALL, INCOMING, SETTINGS, SUMMARY, MEMORY
     }
 
     private val listeners = Collections.synchronizedMap(
@@ -93,18 +99,21 @@ object RealityOperatorSkin {
         val root = content.getChildAt(0)
         val scene = sceneFor(activity, root)
 
-        if (root.background !is OperatorSceneDrawable || (root.background as? OperatorSceneDrawable)?.scene != scene) {
-            root.background = OperatorSceneDrawable(activity, scene)
+        if (root.background !is LucidPrismSceneDrawable ||
+            (root.background as? LucidPrismSceneDrawable)?.scene != scene
+        ) {
+            root.background = LucidPrismSceneDrawable(scene)
         }
-        activity.window.statusBarColor = Color.rgb(1, 4, 9)
-        activity.window.navigationBarColor = Color.rgb(1, 4, 9)
+
+        activity.window.statusBarColor = RealityVisuals.Colors.Background
+        activity.window.navigationBarColor = RealityVisuals.Colors.Background
         restyleTree(activity, root, isRoot = true, depth = 0)
     }
 
     private fun sceneFor(activity: Activity, root: View): Scene = when (activity) {
         is CallActivity -> {
             val text = visibleText(root)
-            if (text.contains("● INCOMING") || text.contains("ANSWER")) Scene.INCOMING else Scene.CALL
+            if (text.contains("INCOMING") || text.contains("ANSWER")) Scene.INCOMING else Scene.CALL
         }
         is CallerMemoryActivity -> Scene.MEMORY
         is PostCallReviewActivity, is PostCallIntelligenceActivity, is TranscriptLibraryActivity -> Scene.SUMMARY
@@ -159,50 +168,59 @@ object RealityOperatorSkin {
     private fun restyleTree(activity: Activity, view: View, isRoot: Boolean, depth: Int) {
         if (depth > 15) return
 
-        // Screens/components that explicitly own their HUD appearance must never be flattened by
-        // the broad fallback skin. This is what was dimming the dialer and CONNECT button before.
+        // Explicitly designed components own their appearance. This keeps the global compatibility
+        // pass from flattening the Lucid dialer, vector dock, transcript cards or bespoke controls.
         if (view.tag == RealityVisuals.HUD_OWNED_TAG) return
 
         if (view is LinearLayout && isBottomNavContainer(view)) {
             view.background = RealityVisuals.panel(
                 activity,
-                fill = Color.rgb(1, 10, 20),
-                stroke = Color.rgb(0, 91, 125),
-                radiusDp = 7f,
+                fill = Color.rgb(7, 12, 27),
+                stroke = Color.rgb(74, 91, 139),
+                radiusDp = 20f,
                 strokeDp = 1,
             )
         }
-
-        if (view is LinearLayout && styleBottomNavItem(activity, view)) return
 
         if (!isRoot) {
             runCatching {
                 when (view) {
                     is Button -> {
-                        val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 }
-                            ?: RealityVisuals.Colors.Cyan
-                        val destructive = accentRed(accent)
+                        val rawAccent = view.currentTextColor.takeIf { Color.alpha(it) > 100 }
+                            ?: RealityVisuals.Colors.CyanSoft
+                        val accent = normalizeAccent(rawAccent)
+                        val destructive = accentRed(rawAccent)
                         view.background = RealityVisuals.panel(
                             activity,
                             fill = if (destructive) RealityVisuals.Colors.DangerFill else RealityVisuals.Colors.Panel,
                             stroke = accent,
-                            radiusDp = 10f,
-                            strokeDp = 2,
+                            radiusDp = 17f,
+                            strokeDp = 1,
                         )
                         view.stateListAnimator = null
                         view.elevation = 0f
                     }
-                    is EditText -> Unit
+                    is EditText -> {
+                        val old = view.background
+                        if (old is ColorDrawable && isDark(old.color)) {
+                            view.background = RealityVisuals.panel(
+                                activity,
+                                fill = RealityVisuals.Colors.BackgroundRaised,
+                                stroke = RealityVisuals.Colors.Border,
+                                radiusDp = 17f,
+                                strokeDp = 1,
+                            )
+                        }
+                    }
                     is TextView -> {
                         val old = view.background
                         if (old != null && shouldRestyleTextPlate(view, old)) {
-                            val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 }
-                                ?: RealityVisuals.Colors.Border
+                            val accent = normalizeAccent(view.currentTextColor)
                             view.background = RealityVisuals.panel(
                                 activity,
                                 fill = RealityVisuals.Colors.Panel,
                                 stroke = accent,
-                                radiusDp = 9f,
+                                radiusDp = 15f,
                                 strokeDp = 1,
                             )
                         }
@@ -210,7 +228,7 @@ object RealityOperatorSkin {
                     else -> {
                         val bg = view.background
                         if (bg is ColorDrawable && isDark(bg.color)) {
-                            bg.color = Color.argb(25, Color.red(bg.color), Color.green(bg.color), Color.blue(bg.color))
+                            bg.color = Color.argb(34, 7, 13, 28)
                         }
                     }
                 }
@@ -233,115 +251,116 @@ object RealityOperatorSkin {
         return labels.toSet().containsAll(setOf("Phone", "Traffic", "Intel", "Index", "Settings"))
     }
 
-    private fun styleBottomNavItem(activity: Activity, view: LinearLayout): Boolean {
-        if (view.childCount != 2) return false
-        val icon = view.getChildAt(0) as? TextView ?: return false
-        val label = view.getChildAt(1) as? TextView ?: return false
-        val name = label.text?.toString().orEmpty()
-        if (name !in setOf("Phone", "Traffic", "Intel", "Index", "Settings")) return false
-
-        val active = colorDistance(label.currentTextColor, RealityVisuals.Colors.Cyan) < 95
-        val accent = if (active) RealityVisuals.Colors.Green else Color.rgb(145, 188, 226)
-        val fill = if (active) Color.rgb(0, 35, 20) else Color.rgb(2, 12, 23)
-        val stroke = if (active) RealityVisuals.Colors.Green else Color.rgb(0, 62, 88)
-
-        view.tag = RealityVisuals.HUD_OWNED_TAG
-        view.background = RealityVisuals.panel(activity, fill, stroke, 7f, if (active) 2 else 1)
-        icon.text = when (name) {
-            "Phone" -> "☎"
-            "Traffic" -> "≋"
-            "Intel" -> "◇"
-            "Index" -> "▤"
-            else -> "⚙"
-        }
-        icon.background = null
-        icon.setTextColor(accent)
-        label.setTextColor(accent)
-        return true
-    }
-
     private fun ViewGroup.getChildAtOrNull(index: Int): View? =
         if (index in 0 until childCount) getChildAt(index) else null
 
-    private fun colorDistance(a: Int, b: Int): Int =
-        kotlin.math.abs(Color.red(a) - Color.red(b)) +
-            kotlin.math.abs(Color.green(a) - Color.green(b)) +
-            kotlin.math.abs(Color.blue(a) - Color.blue(b))
+    private fun normalizeAccent(color: Int): Int {
+        val hi = max(Color.red(color), max(Color.green(color), Color.blue(color)))
+        val lo = min(Color.red(color), min(Color.green(color), Color.blue(color)))
+        return if (hi - lo < 35 && hi > 135) RealityVisuals.Colors.Border else color
+    }
 
     private fun shouldRestyleTextPlate(view: TextView, bg: Drawable): Boolean {
         if (view.text.isNullOrBlank()) return false
         if (view.height in 1..18 || view.width in 1..40) return false
-        return bg !is OperatorSceneDrawable
+        return bg !is LucidPrismSceneDrawable
     }
 
     private fun accentRed(color: Int): Boolean =
-        Color.red(color) > 180 && Color.red(color) > Color.green(color) * 1.35f
+        Color.red(color) > 175 && Color.red(color) > Color.green(color) * 1.32f
 
     private fun isDark(color: Int): Boolean {
         val r = Color.red(color)
         val g = Color.green(color)
         val b = Color.blue(color)
-        return Color.alpha(color) > 180 && r < 45 && g < 55 && b < 70
+        return Color.alpha(color) > 150 && r < 55 && g < 62 && b < 82
     }
 
-    private class OperatorSceneDrawable(
-        activity: Activity,
+    private class LucidPrismSceneDrawable(
         val scene: Scene,
     ) : Drawable() {
-        private val bitmap = Atlas.bitmap(activity)
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(1, 4, 9) }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private var drawableAlpha = 255
 
         override fun draw(canvas: Canvas) {
-            val source = bitmap
             if (bounds.isEmpty) return
-            if (source == null || source.width <= 0 || source.height <= 0) {
-                canvas.drawRect(bounds, fallbackPaint)
-                return
-            }
-            val calculated = ((source.width * 13f) / 6f).toInt().coerceAtLeast(1)
-            val frameHeight = if (calculated * 6 <= source.height) calculated else (source.height / 6).coerceAtLeast(1)
-            val top = (scene.frame * frameHeight).coerceIn(0, (source.height - 1).coerceAtLeast(0))
-            val bottom = (top + frameHeight).coerceAtMost(source.height)
-            if (bottom <= top) {
-                canvas.drawRect(bounds, fallbackPaint)
-                return
-            }
-            canvas.drawBitmap(source, Rect(0, top, source.width, bottom), bounds, paint)
-            shadePaint.shader = LinearGradient(
-                0f,
+            val w = bounds.width().toFloat().coerceAtLeast(1f)
+            val h = bounds.height().toFloat().coerceAtLeast(1f)
+
+            paint.shader = LinearGradient(
+                bounds.left.toFloat(),
                 bounds.top.toFloat(),
-                0f,
+                bounds.right.toFloat(),
                 bounds.bottom.toFloat(),
-                intArrayOf(Color.argb(10, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(48, 0, 0, 0)),
-                floatArrayOf(0f, .5f, 1f),
+                intArrayOf(Color.rgb(5, 11, 25), Color.rgb(2, 7, 18), Color.rgb(1, 4, 12)),
+                floatArrayOf(0f, .54f, 1f),
                 Shader.TileMode.CLAMP,
             )
-            canvas.drawRect(bounds, shadePaint)
-            shadePaint.shader = null
+            paint.alpha = drawableAlpha
+            canvas.drawRect(bounds, paint)
+
+            val (firstTint, secondTint, intensity) = when (scene) {
+                Scene.IDLE -> Triple(RealityVisuals.Colors.Cyan, RealityVisuals.Colors.Lilac, 38)
+                Scene.CALL -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.Cyan, 45)
+                Scene.INCOMING -> Triple(RealityVisuals.Colors.Cyan, RealityVisuals.Colors.Lilac, 54)
+                Scene.SETTINGS -> Triple(RealityVisuals.Colors.CyanSoft, RealityVisuals.Colors.Lilac, 32)
+                Scene.SUMMARY -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.CyanSoft, 35)
+                Scene.MEMORY -> Triple(RealityVisuals.Colors.Lilac, RealityVisuals.Colors.Cyan, 40)
+            }
+
+            paint.shader = RadialGradient(
+                bounds.left + w * .18f,
+                bounds.top + h * .12f,
+                max(w, h) * .68f,
+                intArrayOf(withAlpha(firstTint, intensity), Color.TRANSPARENT),
+                floatArrayOf(0f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            paint.alpha = drawableAlpha
+            canvas.drawRect(bounds, paint)
+
+            paint.shader = RadialGradient(
+                bounds.right - w * .10f,
+                bounds.bottom - h * .18f,
+                max(w, h) * .62f,
+                intArrayOf(withAlpha(secondTint, (intensity * .72f).toInt()), Color.TRANSPARENT),
+                floatArrayOf(0f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            canvas.drawRect(bounds, paint)
+
+            paint.shader = LinearGradient(
+                bounds.left.toFloat(),
+                bounds.bottom.toFloat(),
+                bounds.right.toFloat(),
+                bounds.top.toFloat(),
+                intArrayOf(
+                    Color.TRANSPARENT,
+                    withAlpha(RealityVisuals.Colors.CyanSoft, 10),
+                    withAlpha(RealityVisuals.Colors.Lilac, 15),
+                    Color.TRANSPARENT,
+                ),
+                floatArrayOf(0f, .34f, .62f, 1f),
+                Shader.TileMode.CLAMP,
+            )
+            canvas.drawRect(bounds, paint)
+            paint.shader = null
         }
 
-        override fun setAlpha(alpha: Int) { paint.alpha = alpha }
-        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) { paint.colorFilter = colorFilter }
+        override fun setAlpha(alpha: Int) {
+            drawableAlpha = alpha.coerceIn(0, 255)
+            invalidateSelf()
+        }
+
+        override fun setColorFilter(colorFilter: ColorFilter?) {
+            paint.colorFilter = colorFilter
+            invalidateSelf()
+        }
+
         @Deprecated("Deprecated in Android")
         override fun getOpacity(): Int = PixelFormat.OPAQUE
-    }
 
-    private object Atlas {
-        @Volatile private var cached: Bitmap? = null
-        @Volatile private var attempted = false
-
-        fun bitmap(activity: Activity): Bitmap? {
-            cached?.let { return it }
-            if (attempted) return null
-            return synchronized(this) {
-                cached?.let { return@synchronized it }
-                if (attempted) return@synchronized null
-                attempted = true
-                runCatching { BitmapFactory.decodeResource(activity.resources, R.drawable.re_operator_atlas) }
-                    .getOrNull()?.also { cached = it }
-            }
-        }
+        private fun withAlpha(color: Int, alpha: Int): Int =
+            Color.argb(alpha.coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))
     }
 }
