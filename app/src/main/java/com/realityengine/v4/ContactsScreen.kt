@@ -5,7 +5,6 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.Typeface
 import android.net.Uri
 import android.text.Editable
 import android.text.TextWatcher
@@ -20,7 +19,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 
-/** Modern contact Index UI with search, favorites, recent contacts, lists, messaging and merge tools. */
+/** Modern Lucid Prism contact Index with search, favorites, recent contacts, lists, messaging and merge tools. */
 class ContactsScreen(
     private val activity: Activity,
     private val index: ContactIndex,
@@ -32,8 +31,9 @@ class ContactsScreen(
 ) {
     enum class Filter { ALL, FAVORITES, RECENT, LIST }
 
-    private val cyan = RealityVisuals.Colors.Cyan
-    private val magenta = RealityVisuals.Colors.Magenta
+    private val ice = RealityVisuals.Colors.Cyan
+    private val iceSoft = RealityVisuals.Colors.CyanSoft
+    private val lilac = RealityVisuals.Colors.Lilac
     private val green = RealityVisuals.Colors.Green
     private val muted = RealityVisuals.Colors.TextDim
     private val panel = RealityVisuals.Colors.Panel
@@ -53,26 +53,28 @@ class ContactsScreen(
         filter = initialFilter
 
         val root = LinearLayout(activity).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
-            setPadding(0, 8.dp(), 0, 16.dp())
+            setPadding(2.dp(), 9.dp(), 2.dp(), 18.dp())
         }
 
         root.addView(header())
-        root.addView(searchField(initialQuery), LinearLayout.LayoutParams(-1, 54.dp()).apply {
-            setMargins(0, 8.dp(), 0, 8.dp())
+        root.addView(searchField(initialQuery), LinearLayout.LayoutParams(-1, 56.dp()).apply {
+            setMargins(0, 10.dp(), 0, 10.dp())
         })
         root.addView(filterRow(), LinearLayout.LayoutParams(-1, 44.dp()).apply {
-            setMargins(0, 0, 0, 8.dp())
+            setMargins(0, 0, 0, 10.dp())
         })
 
         val utilityRow = LinearLayout(activity).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         val addButton = management.addContactButton { renderList() }.apply {
             text = "ADD"
-            RealityVisuals.styleControl(this, R.drawable.ic_re_person_add, accent = cyan, radiusDp = 12f)
+            RealityVisuals.styleControl(this, R.drawable.ic_re_person_add, accent = ice, radiusDp = 18f)
         }
         utilityRow.addView(addButton, utilityLayout())
 
@@ -85,13 +87,13 @@ class ContactsScreen(
             renderList()
         }.apply {
             text = "LISTS"
-            RealityVisuals.styleControl(this, 0, accent = green, radiusDp = 12f)
+            RealityVisuals.styleControl(this, 0, accent = lilac, radiusDp = 18f)
         }
         utilityRow.addView(listsButton, utilityLayout())
 
         val mergeButton = management.mergeDuplicatesButton { renderList() }.apply {
             text = "MERGE"
-            RealityVisuals.styleControl(this, 0, accent = magenta, radiusDp = 12f)
+            RealityVisuals.styleControl(this, 0, accent = iceSoft, radiusDp = 18f)
         }
         utilityRow.addView(mergeButton, utilityLayout())
         root.addView(utilityRow, LinearLayout.LayoutParams(-1, 46.dp()))
@@ -100,12 +102,13 @@ class ContactsScreen(
             tag = COUNT_TAG
             text = ""
             gravity = Gravity.END or Gravity.CENTER_VERTICAL
-            setPadding(0, 2.dp(), 4.dp(), 0)
+            setPadding(0, 3.dp(), 6.dp(), 0)
             RealityVisuals.styleMicroLabel(this, muted)
         }
-        root.addView(count, LinearLayout.LayoutParams(-1, 24.dp()))
+        root.addView(count, LinearLayout.LayoutParams(-1, 25.dp()))
 
         listHost = LinearLayout(activity).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.TOP
         }
@@ -119,29 +122,33 @@ class ContactsScreen(
     }
 
     private fun header(): View = LinearLayout(activity).apply {
+        tag = RealityVisuals.HUD_OWNED_TAG
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         addView(TextView(activity).apply {
             text = "CONTACT INDEX"
             setTextColor(RealityVisuals.Colors.Text)
-            RealityTypography.displayMedium(this, 22f)
-        }, LinearLayout.LayoutParams(0, 48.dp(), 1f))
+            RealityTypography.displayMedium(this, 23f)
+        }, LinearLayout.LayoutParams(0, 50.dp(), 1f))
         addView(TextView(activity).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             text = "LOCAL"
             gravity = Gravity.CENTER
             background = RealityVisuals.panel(
                 activity,
-                fill = Color.rgb(6, 28, 22),
+                fill = Color.rgb(13, 47, 36),
                 stroke = green,
                 radiusDp = 20f,
+                strokeDp = 1,
             )
-            setPadding(10.dp(), 3.dp(), 10.dp(), 3.dp())
+            setPadding(12.dp(), 4.dp(), 12.dp(), 4.dp())
             RealityVisuals.styleMicroLabel(this, green)
         })
     }
 
     private fun searchField(initialQuery: String): EditText = EditText(activity).apply {
-        hint = "Search name or number"
+        tag = RealityVisuals.HUD_OWNED_TAG
+        hint = "Search contacts, numbers, lists"
         setHintTextColor(muted)
         setTextColor(RealityVisuals.Colors.Text)
         setText(initialQuery)
@@ -151,11 +158,12 @@ class ContactsScreen(
             activity,
             fill = RealityVisuals.Colors.BackgroundRaised,
             stroke = RealityVisuals.Colors.Border,
-            radiusDp = 12f,
+            radiusDp = 19f,
+            strokeDp = 1,
         )
-        setPadding(14.dp(), 0, 14.dp(), 0)
+        setPadding(15.dp(), 0, 15.dp(), 0)
         setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_re_search, 0, 0, 0)
-        compoundDrawableTintList = ColorStateList.valueOf(cyan)
+        compoundDrawableTintList = ColorStateList.valueOf(iceSoft)
         compoundDrawablePadding = 10.dp()
         RealityTypography.display(this, 15f)
         addTextChangedListener(object : TextWatcher {
@@ -169,6 +177,7 @@ class ContactsScreen(
     }
 
     private fun filterRow(): View = LinearLayout(activity).apply {
+        tag = RealityVisuals.HUD_OWNED_TAG
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         allChip = chip("All", Filter.ALL)
@@ -182,6 +191,7 @@ class ContactsScreen(
     }
 
     private fun chip(label: String, target: Filter): Button = Button(activity).apply {
+        tag = RealityVisuals.HUD_OWNED_TAG
         text = label
         minWidth = 0
         minHeight = 0
@@ -215,7 +225,7 @@ class ContactsScreen(
     }
 
     private fun chipLayout() = LinearLayout.LayoutParams(0, 40.dp(), 1f).apply {
-        setMargins(2.dp(), 0, 2.dp(), 0)
+        setMargins(3.dp(), 0, 3.dp(), 0)
     }
 
     private fun utilityLayout() = LinearLayout.LayoutParams(0, 42.dp(), 1f).apply {
@@ -232,16 +242,15 @@ class ContactsScreen(
     }
 
     private fun styleChip(button: Button, active: Boolean) {
-        button.textSize = 9f
-        button.letterSpacing = .04f
-        button.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        button.setTextColor(if (active) Color.rgb(0, 24, 29) else muted)
+        button.setTextColor(if (active) RealityVisuals.Colors.Text else muted)
         button.background = RealityVisuals.panel(
             activity,
-            fill = if (active) cyan else RealityVisuals.Colors.BackgroundRaised,
-            stroke = if (active) cyan else RealityVisuals.Colors.Border,
+            fill = if (active) Color.rgb(29, 28, 60) else RealityVisuals.Colors.BackgroundRaised,
+            stroke = if (active) lilac else RealityVisuals.Colors.Border,
             radiusDp = 20f,
+            strokeDp = 1,
         )
+        RealityTypography.displayMedium(button, 10f)
     }
 
     private fun renderList() {
@@ -282,9 +291,9 @@ class ContactsScreen(
 
     private fun sectionHeader(label: String): View = TextView(activity).apply {
         text = label
-        setTextColor(magenta)
-        setPadding(5.dp(), 12.dp(), 0, 4.dp())
-        RealityVisuals.styleMicroLabel(this, magenta)
+        setTextColor(lilac)
+        setPadding(7.dp(), 14.dp(), 0, 5.dp())
+        RealityVisuals.styleMicroLabel(this, lilac)
     }
 
     private fun contactRow(
@@ -296,15 +305,17 @@ class ContactsScreen(
         val contactLists = lists.listsFor(contact.number)
 
         val row = LinearLayout(activity).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = RealityVisuals.panel(
                 activity,
                 fill = panel,
-                stroke = if (favorite) Color.rgb(80, 108, 93) else Color.rgb(15, 66, 81),
-                radiusDp = 12f,
+                stroke = if (favorite) lilac else RealityVisuals.Colors.Border,
+                radiusDp = 19f,
+                strokeDp = 1,
             )
-            setPadding(10.dp(), 8.dp(), 8.dp(), 8.dp())
+            setPadding(11.dp(), 9.dp(), 9.dp(), 9.dp())
             isClickable = true
             isFocusable = true
             setOnClickListener { onDialContact(contact.number) }
@@ -315,21 +326,21 @@ class ContactsScreen(
             bind(
                 contactId = contact.contactId,
                 name = contact.name,
-                accent = if (favorite) green else cyan,
+                accent = if (favorite) lilac else iceSoft,
             )
         }
-        row.addView(avatar, LinearLayout.LayoutParams(44.dp(), 44.dp()))
+        row.addView(avatar, LinearLayout.LayoutParams(46.dp(), 46.dp()))
 
         val identity = LinearLayout(activity).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(11.dp(), 0, 6.dp(), 0)
+            setPadding(12.dp(), 0, 7.dp(), 0)
         }
         identity.addView(TextView(activity).apply {
             text = contact.name
             maxLines = 1
             setTextColor(RealityVisuals.Colors.Text)
-            RealityTypography.displayMedium(this, 14f)
+            RealityTypography.displayMedium(this, 14.5f)
         })
         identity.addView(TextView(activity).apply {
             text = buildString {
@@ -339,17 +350,18 @@ class ContactsScreen(
                 if (contactLists.isNotEmpty()) append("  ·  ").append(contactLists.first().uppercase())
             }
             maxLines = 1
-            setTextColor(if (favorite) green else muted)
-            RealityTypography.technical(this, 8.5f)
+            setTextColor(if (favorite) lilac else muted)
+            RealityTypography.display(this, 9f)
         })
-        row.addView(identity, LinearLayout.LayoutParams(0, 54.dp(), 1f))
+        row.addView(identity, LinearLayout.LayoutParams(0, 56.dp(), 1f))
 
         val messageButton = Button(activity).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             text = "TXT"
             minWidth = 0
             minHeight = 0
             contentDescription = "Message ${contact.name}"
-            RealityVisuals.styleControl(this, 0, accent = cyan, radiusDp = 18f)
+            RealityVisuals.styleControl(this, 0, accent = iceSoft, radiusDp = 19f)
             setPadding(2.dp(), 0, 2.dp(), 0)
             setOnClickListener {
                 runCatching {
@@ -359,20 +371,20 @@ class ContactsScreen(
                 }
             }
         }
-        row.addView(messageButton, LinearLayout.LayoutParams(44.dp(), 42.dp()).apply { setMargins(0, 0, 6.dp(), 0) })
+        row.addView(messageButton, LinearLayout.LayoutParams(46.dp(), 42.dp()).apply { setMargins(0, 0, 7.dp(), 0) })
 
         val favoriteButton = ImageButton(activity).apply {
             tag = RealityVisuals.HUD_OWNED_TAG
             contentDescription = if (favorite) "Remove favorite" else "Add favorite"
             setImageResource(R.drawable.ic_re_star)
-            imageTintList = ColorStateList.valueOf(if (favorite) green else muted)
+            imageTintList = ColorStateList.valueOf(if (favorite) lilac else muted)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = RealityVisuals.panel(
                 activity,
-                fill = RealityVisuals.Colors.Panel,
-                stroke = if (favorite) green else RealityVisuals.Colors.Border,
-                radiusDp = 18f,
-                strokeDp = 2,
+                fill = if (favorite) Color.rgb(29, 27, 57) else RealityVisuals.Colors.Panel,
+                stroke = if (favorite) lilac else RealityVisuals.Colors.Border,
+                radiusDp = 19f,
+                strokeDp = 1,
             )
             setPadding(10.dp(), 10.dp(), 10.dp(), 10.dp())
             minimumWidth = 0
@@ -385,22 +397,23 @@ class ContactsScreen(
         row.addView(favoriteButton, LinearLayout.LayoutParams(42.dp(), 42.dp()))
 
         return row.also {
-            it.layoutParams = LinearLayout.LayoutParams(-1, 72.dp()).apply {
-                setMargins(0, 3.dp(), 0, 3.dp())
+            it.layoutParams = LinearLayout.LayoutParams(-1, 76.dp()).apply {
+                setMargins(0, 4.dp(), 0, 4.dp())
             }
         }
     }
 
     private fun emptyState(): View = LinearLayout(activity).apply {
+        tag = RealityVisuals.HUD_OWNED_TAG
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
         background = RealityVisuals.panel(
             activity,
             fill = RealityVisuals.Colors.BackgroundRaised,
             stroke = RealityVisuals.Colors.Border,
-            radiusDp = 12f,
+            radiusDp = 19f,
         )
-        setPadding(18.dp(), 28.dp(), 18.dp(), 28.dp())
+        setPadding(20.dp(), 30.dp(), 20.dp(), 30.dp())
         addView(TextView(activity).apply {
             text = when (filter) {
                 Filter.FAVORITES -> "NO FAVORITES YET"
@@ -409,7 +422,7 @@ class ContactsScreen(
                 Filter.ALL -> "NO CONTACT MATCHES"
             }
             gravity = Gravity.CENTER
-            RealityVisuals.styleMicroLabel(this, magenta)
+            RealityVisuals.styleMicroLabel(this, lilac)
         })
         addView(TextView(activity).apply {
             text = when (filter) {
@@ -423,7 +436,7 @@ class ContactsScreen(
                 Filter.ALL -> "Try a different name or phone number."
             }
             gravity = Gravity.CENTER
-            setPadding(0, 8.dp(), 0, 0)
+            setPadding(0, 9.dp(), 0, 0)
             setTextColor(muted)
             RealityTypography.display(this, 12f)
         })
