@@ -28,6 +28,7 @@ class RealityInCallService : InCallService() {
     private lateinit var settings: SettingsStore
     private val finalizedCalls = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
     private val finalizedRecordings = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
+    private val incomingCalls = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Call, Boolean>())
     @Volatile private var failedCall: Call? = null
     private var ringtone: Ringtone? = null
     private var ringingCall: Call? = null
@@ -63,6 +64,7 @@ class RealityInCallService : InCallService() {
         super.onCallAdded(call)
         finalizedCalls.remove(call)
         finalizedRecordings.remove(call)
+        incomingCalls[call] = call.state == Call.STATE_RINGING
         failedCall = null
         if (CallSessionRegistry.primary() == null) clearLiveSession()
         CallSessionRegistry.add(call)
@@ -78,9 +80,9 @@ class RealityInCallService : InCallService() {
         call.unregisterCallback(callback)
         if (failedCall === call) failedCall = null
         if (ringingCall === call) stopRingtone()
-        finalizeRecordingOnce(call, endedNumber)
-        finalizeOnce(call, endedNumber)
+        finalizeCallEnd(call, endedNumber)
         CallSessionRegistry.remove(call)
+        incomingCalls.remove(call)
         if (CallSessionRegistry.primary() != null) {
             syncRinging()
             syncTranscription()
@@ -123,21 +125,40 @@ class RealityInCallService : InCallService() {
     }
 
     @Synchronized
-    private fun finalizeOnce(call: Call, phoneNumber: String) {
-        if (!finalizedCalls.add(call)) return
+    private fun finalizeOnce(call: Call, phoneNumber: String): Boolean {
+        if (!finalizedCalls.add(call)) return false
         val transcriptKey = phoneNumber.ifBlank { "Unknown" }
         val savedTranscript = CallTranscriptStore.save(applicationContext, transcriptKey, LiveTranscriptState.transcript())
         if (phoneNumber.isNotBlank()) summaryBuilder.finalize(phoneNumber, savedTranscript?.text.orEmpty())
+        return true
     }
 
     @Synchronized
-    private fun finalizeRecordingOnce(call: Call, phoneNumber: String) {
-        if (!finalizedRecordings.add(call)) return
-        val recording = transcription.finishRecording() ?: return
+    private fun finalizeRecordingOnce(call: Call, phoneNumber: String): Boolean {
+        if (!finalizedRecordings.add(call)) return false
+        val recording = transcription.finishRecording() ?: return false
         CallRecordingState.publish(recording)
         startActivity(Intent(this, PostCallReviewActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         })
+        return true
+    }
+
+    private fun finalizeCallEnd(call: Call, phoneNumber: String) {
+        val firstFinalize = finalizeOnce(call, phoneNumber)
+        val openIncomingProfile = firstFinalize && incomingCalls[call] == true && phoneNumber.isNotBlank()
+        if (openIncomingProfile) {
+            val match = ContactMediaStore.findByNumber(this, phoneNumber)
+            val name = match?.name?.takeIf { it.isNotBlank() } ?: phoneNumber
+            PostCallProfileState.queue(phoneNumber, name)
+        }
+        val reviewStarted = finalizeRecordingOnce(call, phoneNumber)
+        if (openIncomingProfile && !reviewStarted) {
+            android.os.Handler(mainLooper).postDelayed(
+                { PostCallProfileState.launchIfPending(this) },
+                700L,
+            )
+        }
     }
 
     private fun maybeStartAutoRecording(call: Call) {
@@ -320,8 +341,7 @@ class RealityInCallService : InCallService() {
             syncRinging()
             if (state == Call.STATE_DISCONNECTED) {
                 val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
-                finalizeRecordingOnce(call, endedNumber)
-                finalizeOnce(call, endedNumber)
+                finalizeCallEnd(call, endedNumber)
                 CallSessionRegistry.removeIfDisconnected(call)
                 if (failedCall === call) failedCall = null
                 if (CallSessionRegistry.primary() == null) {
