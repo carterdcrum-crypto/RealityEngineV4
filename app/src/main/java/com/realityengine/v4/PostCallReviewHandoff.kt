@@ -48,7 +48,6 @@ object PostCallReviewHandoff {
 
     private fun startCallScreenPoll(activity: CallActivity) {
         stopPoll(activity)
-        val startedAt = android.os.SystemClock.elapsedRealtime()
         val poll = object : Runnable {
             override fun run() {
                 if (activity.isFinishing || activity.isDestroyed) {
@@ -59,12 +58,13 @@ object PostCallReviewHandoff {
                     polls.remove(activity)
                     return
                 }
-                // Keep the foreground rescue alive through the normal post-disconnect finish delay.
-                if (android.os.SystemClock.elapsedRealtime() - startedAt < MAX_CALL_POLL_MS) {
-                    handler.postDelayed(this, POLL_MS)
+                val current = CallSessionRegistry.primary()
+                val delay = if (current == null || current.state == Call.STATE_DISCONNECTED) {
+                    DISCONNECT_POLL_MS
                 } else {
-                    polls.remove(activity)
+                    ACTIVE_CALL_POLL_MS
                 }
+                handler.postDelayed(this, delay)
             }
         }
         polls[activity] = poll
@@ -107,6 +107,6 @@ object PostCallReviewHandoff {
         }
     }
 
-    private const val POLL_MS = 120L
-    private const val MAX_CALL_POLL_MS = 8_000L
+    private const val DISCONNECT_POLL_MS = 100L
+    private const val ACTIVE_CALL_POLL_MS = 1_000L
 }
