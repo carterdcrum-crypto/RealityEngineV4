@@ -41,7 +41,12 @@ object CallSessionRegistry {
     fun all(): List<Call> = calls.toList()
 
     fun primary(): Call? {
-        val live = calls.filter { it.state != Call.STATE_DISCONNECTED }
+        // STATE_DISCONNECTING is terminal from the UI's point of view. Keeping it as the
+        // primary call can strand CallActivity after a no-answer/rejected/failed outgoing call
+        // while Telecom finishes tearing the connection down in the background.
+        val live = calls.filter {
+            it.state != Call.STATE_DISCONNECTED && it.state != Call.STATE_DISCONNECTING
+        }
         return live.firstOrNull { it.state == Call.STATE_RINGING }
             ?: live.firstOrNull { it.state == Call.STATE_ACTIVE }
             ?: live.firstOrNull { it.state == Call.STATE_DIALING || it.state == Call.STATE_CONNECTING }
