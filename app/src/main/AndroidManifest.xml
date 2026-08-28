@@ -17,6 +17,7 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Native Telecom exposes no supported arbitrary media-to-uplink injection API; unsupported soundboard UI is intentionally omitted. -->
+    <!-- Product-hardening UI is native/local-first; runtime health telemetry stores no transcript text. -->
     <application android:allowBackup="false" android:label="Reality Engine" android:icon="@drawable/reality_engine_icon" android:roundIcon="@drawable/reality_engine_icon" android:theme="@style/AppTheme" android:supportsRtl="true">
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <provider android:name=".RealityFileProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
