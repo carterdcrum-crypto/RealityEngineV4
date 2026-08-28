@@ -34,7 +34,9 @@ class SettingsDashboardScreen(
     private val onAndroidPhoneSettings: () -> Unit,
 ) {
     private data class Readiness(val label: String, val ready: Boolean, val detail: String, val attention: Boolean = false)
+    private data class RoutingChoice(val label: String, val lockedProvider: String, val preferredProvider: String)
 
+    private val routingPreference = CoachRoutingPreferenceStore(activity)
     private val cyan = RealityVisuals.Colors.Cyan
     private val magenta = RealityVisuals.Colors.Magenta
     private val green = RealityVisuals.Colors.Green
@@ -74,40 +76,40 @@ class SettingsDashboardScreen(
 
         root.addView(section("INTELLIGENCE"))
         root.addView(row(
-            "Coach provider",
+            "AI routing",
             coachProviderSummary(),
-            store.coachProvider,
+            coachRoutingBadge(),
             if (store.coachConfigured()) green else amber,
         ) { chooseCoachProvider() })
         root.addView(row(
             "Groq API",
-            if (store.groqConfigured()) "Configured · Auto uses Groq first for low latency" else "Add a Groq key for the fast provider",
+            if (store.groqConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Add a Groq key for GPT-OSS 20B",
             if (store.groqConfigured()) "READY" else "KEY",
             if (store.groqConfigured()) green else muted,
         ) { editSecret("Groq API key", store.groqApiKey) { store.groqApiKey = it } })
         root.addView(row("Groq coach model", groqModelSummary(), "MODEL", cyan) { chooseGroqModel() })
         root.addView(row(
             "Gemini API",
-            if (store.geminiConfigured()) "Configured · available directly or as Auto fallback" else "Add a Google AI Studio key · free-tier prompts may be used to improve Google products",
+            if (store.geminiConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Add a Google AI Studio key · free-tier prompts may be used to improve Google products",
             if (store.geminiConfigured()) "READY" else "KEY",
             if (store.geminiConfigured()) green else muted,
         ) { editSecret("Gemini API key", store.geminiApiKey) { store.geminiApiKey = it } })
         root.addView(row("Gemini coach model", geminiModelSummary(), "MODEL", cyan) { chooseGeminiModel() })
         root.addView(row(
             "Cerebras API",
-            if (store.cerebrasConfigured()) "Configured · GPT-OSS 120B high-speed fallback" else "Optional fast fallback · free access is trial/limited",
+            if (store.cerebrasConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Optional fast GPT-OSS 120B provider · free access is trial/limited",
             if (store.cerebrasConfigured()) "READY" else "KEY",
             if (store.cerebrasConfigured()) green else muted,
         ) { editSecret("Cerebras API key", store.cerebrasApiKey) { store.cerebrasApiKey = it } })
         root.addView(row(
             "Mistral API",
-            if (store.mistralConfigured()) "Configured · Mistral Small 4 fallback" else "Optional free-mode fallback provider",
+            if (store.mistralConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Optional Mistral Small 4 provider",
             if (store.mistralConfigured()) "READY" else "KEY",
             if (store.mistralConfigured()) green else muted,
         ) { editSecret("Mistral API key", store.mistralApiKey) { store.mistralApiKey = it } })
         root.addView(row(
             "OpenRouter API",
-            if (store.openRouterConfigured()) "Configured · free-model router is last in Auto chain" else "Optional last-resort free-model router",
+            if (store.openRouterConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Optional free-model router",
             if (store.openRouterConfigured()) "READY" else "KEY",
             if (store.openRouterConfigured()) green else muted,
         ) { editSecret("OpenRouter API key", store.openRouterApiKey) { store.openRouterApiKey = it } })
@@ -342,7 +344,7 @@ class SettingsDashboardScreen(
         Readiness("Microphone", microphoneReady(), if (microphoneReady()) "Allowed" else "Permission required"),
         Readiness("Shizuku", shizukuReady(), shizukuDetail()),
         Readiness("Transcription", store.deepgramConfigured(), if (store.deepgramConfigured()) "Configured" else "Deepgram key required"),
-        Readiness("Response coach", coachReady(), if (coachReady()) "${store.coachProvider} configured" else "Selected AI provider needs a key or coach is disabled"),
+        Readiness("Response coach", coachReady(), if (coachReady()) coachProviderSummary() else "Selected AI routing needs at least one configured provider or coach is disabled"),
     )
 
     private fun isDefaultPhone(): Boolean {
@@ -360,16 +362,24 @@ class SettingsDashboardScreen(
     }
     private fun coachReady() = store.coachConfigured() && store.responseCoachEnabled
 
-    private fun coachProviderSummary() = when (store.coachProvider) {
-        SettingsStore.COACH_PROVIDER_GROQ -> "Force Groq for every response-coach request"
-        SettingsStore.COACH_PROVIDER_GEMINI -> "Force Gemini for every response-coach request"
-        SettingsStore.COACH_PROVIDER_CEREBRAS -> "Force Cerebras GPT-OSS 120B"
-        SettingsStore.COACH_PROVIDER_MISTRAL -> "Force Mistral Small 4"
-        SettingsStore.COACH_PROVIDER_OPENROUTER -> "Force OpenRouter free-model router"
-        else -> "Groq → Gemini → Cerebras → Mistral → OpenRouter; skips missing keys"
+    private fun coachProviderName(provider: String): String = provider.lowercase().replaceFirstChar { it.uppercase() }
+
+    private fun coachRoutingBadge(): String = when {
+        store.coachProvider != SettingsStore.COACH_PROVIDER_AUTO -> "ONLY ${coachProviderName(store.coachProvider).uppercase()}"
+        routingPreference.preferredProvider != CoachRoutingPreferenceStore.BEST -> "PREFER ${coachProviderName(routingPreference.preferredProvider).uppercase()}"
+        else -> "BEST"
     }
 
-    private fun groqModelSummary() = "GPT-OSS 20B · low-latency default"
+    private fun coachProviderSummary(): String = when {
+        store.coachProvider != SettingsStore.COACH_PROVIDER_AUTO ->
+            "Only ${coachProviderName(store.coachProvider)} · no provider fallback"
+        routingPreference.preferredProvider != CoachRoutingPreferenceStore.BEST ->
+            "Prefer ${coachProviderName(routingPreference.preferredProvider)} while healthy · adaptive fallback if it slows, fails, or rate-limits"
+        else ->
+            "Best · automatically learns provider speed and reliability, explores alternatives, and fails over when needed"
+    }
+
+    private fun groqModelSummary() = "GPT-OSS 20B · low-latency supported model"
 
     private fun geminiModelSummary() = when (store.geminiModel) {
         "gemini-3.7-flash" -> "Gemini 3.7 Flash · newest quality/speed balance"
@@ -380,19 +390,25 @@ class SettingsDashboardScreen(
     private fun deepgramModelSummary() = if (store.deepgramModel == "nova-3") "Nova-3 · recommended live transcription" else "Nova-2 Phonecall · compatibility fallback"
 
     private fun chooseCoachProvider() {
-        val providers = SettingsStore.COACH_PROVIDERS
-        val labels = arrayOf(
-            "Auto — Groq → Gemini → Cerebras → Mistral → OpenRouter",
-            "Groq — Force GPT-OSS 20B",
-            "Gemini — Force selected Gemini model",
-            "Cerebras — Force GPT-OSS 120B",
-            "Mistral — Force Mistral Small 4",
-            "OpenRouter — Force free-model router",
-        )
+        val choices = buildList {
+            add(RoutingChoice("BEST — adaptive speed + reliability + automatic failover", SettingsStore.COACH_PROVIDER_AUTO, CoachRoutingPreferenceStore.BEST))
+            SettingsStore.COACH_FALLBACK_ORDER.forEach { provider ->
+                add(RoutingChoice("PREFER ${coachProviderName(provider)} — try first, then adaptive fallback", SettingsStore.COACH_PROVIDER_AUTO, provider))
+            }
+            SettingsStore.COACH_FALLBACK_ORDER.forEach { provider ->
+                add(RoutingChoice("ONLY ${coachProviderName(provider)} — hard lock, no fallback", provider, CoachRoutingPreferenceStore.BEST))
+            }
+        }
+        val selected = choices.indexOfFirst {
+            it.lockedProvider == store.coachProvider &&
+                (store.coachProvider != SettingsStore.COACH_PROVIDER_AUTO || it.preferredProvider == routingPreference.preferredProvider)
+        }.coerceAtLeast(0)
         AlertDialog.Builder(activity)
-            .setTitle("Response coach provider")
-            .setSingleChoiceItems(labels, providers.indexOf(store.coachProvider).coerceAtLeast(0)) { dialog, which ->
-                store.coachProvider = providers[which]
+            .setTitle("AI routing")
+            .setSingleChoiceItems(choices.map { it.label }.toTypedArray(), selected) { dialog, which ->
+                val choice = choices[which]
+                store.coachProvider = choice.lockedProvider
+                routingPreference.preferredProvider = choice.preferredProvider
                 dialog.dismiss()
                 onRefresh()
             }
