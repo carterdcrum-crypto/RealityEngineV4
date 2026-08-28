@@ -27,6 +27,8 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
     private val closeStreamSent=AtomicBoolean(false)
     private val client=OkHttpClient.Builder().pingInterval(15,TimeUnit.SECONDS).build()
     private val keepAliveExecutor=Executors.newSingleThreadScheduledExecutor { r->Thread(r,"reality-deepgram-keepalive").apply{isDaemon=true} }
+    private val interimLock=Any()
+    private val interimByStream=LinkedHashMap<String,String>()
     @Volatile private var keepAliveTask:ScheduledFuture<*>?=null
     @Volatile private var finalizeFallbackTask:ScheduledFuture<*>?=null
     @Volatile private var closeFallbackTask:ScheduledFuture<*>?=null
@@ -40,6 +42,7 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
 
     fun connect(sampleRate:Int=16_000,channels:Int=1,multichannel:Boolean=false,onTranscript:(Transcript)->Unit,onSpeechEvent:(SpeechEvent)->Unit={},onClosed:(String?)->Unit={}):Boolean{
         if(!settings.deepgramConfigured()||connected.get()||state==State.CONNECTING||state==State.CLOSING)return false
+        synchronized(interimLock){interimByStream.clear()}
         transcriptCallback=onTranscript;speechEventCallback=onSpeechEvent;closedCallback=onClosed;closing.set(false);closeStreamSent.set(false);state=State.CONNECTING;lastFailure=null;lastAudioSentAt=System.currentTimeMillis()
         val request=Request.Builder().url(endpoint(sampleRate,channels,multichannel)).header("Authorization","Token ${settings.deepgramApiKey}").build()
         socket=client.newWebSocket(request,object:WebSocketListener(){
@@ -108,7 +111,18 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
                             val speaker=if(words!=null&&words.length()>0)words.optJSONObject(0)?.takeIf{it.has("speaker")}?.optInt("speaker")else null
                             val channelIndex=root.optJSONArray("channel_index")
                             val channel=channelIndex?.takeIf{it.length()>0}?.optInt(0)
-                            transcriptCallback?.invoke(Transcript(text,root.optBoolean("is_final"),root.optBoolean("speech_final"),speaker,channel))
+                            val isFinal=root.optBoolean("is_final")
+                            val speechFinal=root.optBoolean("speech_final")
+                            val key=streamKey(channel,speaker)
+                            val emitted=if(isFinal){
+                                val interim=synchronized(interimLock){interimByStream.remove(key).orEmpty()}
+                                reconcileEdgeWords(interim,text)
+                            }else{
+                                synchronized(interimLock){interimByStream[key]=text}
+                                text
+                            }
+                            transcriptCallback?.invoke(Transcript(emitted,isFinal,speechFinal,speaker,channel))
+                            if(speechFinal){synchronized(interimLock){interimByStream.remove(key)}}
                         }
                     }
                     if(fromFinalize&&closing.get())sendCloseStream()
@@ -123,9 +137,51 @@ class DeepgramStreamingClient(private val settings: SettingsStore) {
         return builder.build().toString()
     }
 
+    internal fun reconcileEdgeWords(interim:String,finalText:String):String{
+        val interimClean=interim.trim()
+        val finalClean=finalText.trim()
+        if(interimClean.isBlank())return finalClean
+        if(finalClean.isBlank())return interimClean
+        val interimWords=interimClean.split(Regex("\\s+")).filter{it.isNotBlank()}
+        val finalWords=finalClean.split(Regex("\\s+")).filter{it.isNotBlank()}
+        if(interimWords.isEmpty())return finalClean
+        if(finalWords.isEmpty())return interimClean
+        val normalizedInterim=interimWords.map(::normalizeWord)
+        val normalizedFinal=finalWords.map(::normalizeWord)
+        var bestI=-1
+        var bestJ=-1
+        var bestLength=0
+        for(i in normalizedInterim.indices){
+            for(j in normalizedFinal.indices){
+                var length=0
+                while(i+length<normalizedInterim.size&&j+length<normalizedFinal.size&&normalizedInterim[i+length]==normalizedFinal[j+length])length++
+                if(length>bestLength){bestLength=length;bestI=i;bestJ=j}
+            }
+        }
+        val threshold=if(minOf(interimWords.size,finalWords.size)>=3)2 else 1
+        if(bestLength<threshold)return finalClean
+        val prefix=interimWords.take(bestI)
+        val suffix=interimWords.drop(bestI+bestLength)
+        val merged=ArrayList<String>(prefix.size+finalWords.size+suffix.size)
+        merged.addAll(prefix)
+        merged.addAll(finalWords)
+        val finalNormalizedSet=normalizedFinal.toSet()
+        suffix.forEachIndexed{index,word->
+            val normalized=normalizeWord(word)
+            val previous=merged.lastOrNull()?.let(::normalizeWord)
+            val isImmediateDuplicate=previous==normalized
+            val isLikelyAlreadyRepresented=index==0&&normalized in finalNormalizedSet&&finalWords.size>1
+            if(!isImmediateDuplicate&&!isLikelyAlreadyRepresented)merged+=word
+        }
+        return merged.joinToString(" ").trim()
+    }
+
+    private fun streamKey(channel:Int?,speaker:Int?):String="${channel?:-1}:${speaker?:-1}"
+    private fun normalizeWord(word:String):String=word.lowercase().filter{it.isLetterOrDigit()}
+
     @Synchronized private fun startKeepAlive(){stopKeepAlive();keepAliveTask=keepAliveExecutor.scheduleAtFixedRate({if(connected.get()&&!closing.get()&&System.currentTimeMillis()-lastAudioSentAt>=KEEPALIVE_IDLE_MS)socket?.send("{\"type\":\"KeepAlive\"}")},KEEPALIVE_INTERVAL_MS,KEEPALIVE_INTERVAL_MS,TimeUnit.MILLISECONDS)}
     @Synchronized private fun stopKeepAlive(){keepAliveTask?.cancel(false);keepAliveTask=null}
-    @Synchronized private fun finish(reason:String?){stopKeepAlive();finalizeFallbackTask?.cancel(false);finalizeFallbackTask=null;closeFallbackTask?.cancel(false);closeFallbackTask=null;closing.set(false);closeStreamSent.set(false);val wasActive=connected.getAndSet(false);socket=null;if(wasActive||reason!=null)closedCallback?.invoke(reason);closedCallback=null;transcriptCallback=null;speechEventCallback=null}
+    @Synchronized private fun finish(reason:String?){stopKeepAlive();finalizeFallbackTask?.cancel(false);finalizeFallbackTask=null;closeFallbackTask?.cancel(false);closeFallbackTask=null;closing.set(false);closeStreamSent.set(false);synchronized(interimLock){interimByStream.clear()};val wasActive=connected.getAndSet(false);socket=null;if(wasActive||reason!=null)closedCallback?.invoke(reason);closedCallback=null;transcriptCallback=null;speechEventCallback=null}
 
-    companion object{private const val KEEPALIVE_INTERVAL_MS=3_000L;private const val KEEPALIVE_IDLE_MS=3_000L;private const val FINALIZE_WAIT_MS=750L;private const val CLOSE_FALLBACK_MS=2_000L}
+    companion object{private const val KEEPALIVE_INTERVAL_MS=3_000L;private const val KEEPALIVE_IDLE_MS=3_000L;private const val FINALIZE_WAIT_MS=1_000L;private const val CLOSE_FALLBACK_MS=2_000L}
 }
