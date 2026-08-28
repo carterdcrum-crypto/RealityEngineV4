@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Handler
 import android.telecom.Call
 import android.telecom.CallAudioState
 import android.telecom.InCallService
@@ -29,6 +30,7 @@ class RealityInCallService : InCallService() {
     private val finalizedCalls = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
     private val finalizedRecordings = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
     private val incomingCalls = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Call, Boolean>())
+    private val mainHandler by lazy { Handler(mainLooper) }
     @Volatile private var failedCall: Call? = null
     private var ringtone: Ringtone? = null
     private var ringingCall: Call? = null
@@ -99,7 +101,14 @@ class RealityInCallService : InCallService() {
 
     override fun onCallAudioStateChanged(audioState: CallAudioState?) {
         super.onCallAudioStateChanged(audioState)
-        if (CallSessionRegistry.primary() != null) {
+        val primary = CallSessionRegistry.primary()
+        if (primary != null) {
+            // Incoming calls can report ACTIVE slightly before the capture route is ready. A later
+            // audio-route callback is a valid reason to retry instead of permanently honoring the
+            // first startup failure.
+            if (primary.state == Call.STATE_ACTIVE && failedCall === primary && !transcription.isRunning()) {
+                failedCall = null
+            }
             syncTranscription()
             showCallNotification()
             launchCallUi()
@@ -154,7 +163,7 @@ class RealityInCallService : InCallService() {
         }
         val reviewStarted = finalizeRecordingOnce(call, phoneNumber)
         if (openIncomingProfile && !reviewStarted) {
-            android.os.Handler(mainLooper).postDelayed(
+            mainHandler.postDelayed(
                 { PostCallProfileState.launchIfPending(this) },
                 700L,
             )
@@ -214,7 +223,26 @@ class RealityInCallService : InCallService() {
     }
 
     private fun runOnMain(block: () -> Unit) {
-        android.os.Handler(mainLooper).post(block)
+        mainHandler.post(block)
+    }
+
+    /**
+     * Telecom can announce ACTIVE before Samsung finishes switching the call-audio route. Outgoing
+     * calls usually have the route by then; freshly answered incoming calls sometimes do not. Retry
+     * a few times while the same call remains active so one early capture miss cannot disable STT
+     * for the entire call.
+     */
+    private fun armTranscriptionWarmup(call: Call) {
+        val delays = longArrayOf(250L, 700L, 1_400L, 2_800L)
+        delays.forEach { delay ->
+            mainHandler.postDelayed({
+                if (CallSessionRegistry.primary() !== call || call.state != Call.STATE_ACTIVE || transcription.isRunning()) {
+                    return@postDelayed
+                }
+                if (failedCall === call) failedCall = null
+                syncTranscription()
+            }, delay)
+        }
     }
 
     private fun syncRinging() {
@@ -357,8 +385,16 @@ class RealityInCallService : InCallService() {
                 }
             } else {
                 CallSessionRegistry.add(call)
+                if (state == Call.STATE_ACTIVE) {
+                    // Treat ACTIVE as a fresh chance even if the first capture attempt happened a few
+                    // milliseconds before the route was ready.
+                    if (failedCall === call && !transcription.isRunning()) failedCall = null
+                    syncTranscription()
+                    armTranscriptionWarmup(call)
+                } else {
+                    syncTranscription()
+                }
                 syncRinging()
-                syncTranscription()
                 showCallNotification()
                 launchCallUi()
             }
