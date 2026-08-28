@@ -1,6 +1,7 @@
 package com.realityengine.v4
 
 import android.content.Context
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.text.Editable
 import android.text.TextWatcher
@@ -8,6 +9,8 @@ import android.view.Gravity
 import android.view.View
 import android.widget.EditText
 import android.widget.GridLayout
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 
@@ -158,11 +161,12 @@ class DialScreen(
             setPadding(dp(6), dp(5), dp(6), 0)
         }
 
-        val backspace = TextView(context).apply {
+        val backspace = ImageButton(context).apply {
             tag = RealityVisuals.HUD_OWNED_TAG
-            text = "⌫"
-            setTextColor(cyan)
-            gravity = Gravity.CENTER
+            contentDescription = "Backspace"
+            setImageResource(R.drawable.ic_re_backspace)
+            imageTintList = ColorStateList.valueOf(cyan)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
             background = RealityVisuals.panel(
                 context,
                 fill = Color.rgb(2, 18, 31),
@@ -170,8 +174,9 @@ class DialScreen(
                 radiusDp = 12f,
                 strokeDp = 2,
             )
-            includeFontPadding = false
-            RealityTypography.displayMedium(this, 28f)
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            minimumWidth = 0
+            minimumHeight = 0
             setOnClickListener {
                 RealityVisuals.pulseOnce(this)
                 val value = number.text
