@@ -195,7 +195,6 @@ class SettingsDashboardScreen(
         ) { activity.startActivity(Intent(activity, SoundboardSettingsActivity::class.java)) })
 
         root.addView(section("SYSTEM"))
-        root.addView(row("Button geometry", "Visual shape used by primary controls", buttonShapeLabel.uppercase(), cyan, onCycleButtonShape))
         root.addView(row("Android phone settings", "Manage system calling apps and defaults", "ANDROID", muted, onAndroidPhoneSettings))
 
         root.addView(section("APP"))
