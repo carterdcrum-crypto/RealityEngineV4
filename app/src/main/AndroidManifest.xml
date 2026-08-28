@@ -16,7 +16,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Native Telecom exposes no supported arbitrary media-to-uplink injection API; unsupported soundboard UI is intentionally omitted. -->
+    <!-- Native Telecom exposes no supported arbitrary media-to-uplink injection API. The soundboard uses local speaker-coupled playback and states that limitation in-app. -->
     <!-- Product-hardening UI is native/local-first; runtime health telemetry stores no transcript text. -->
     <application android:allowBackup="false" android:label="Reality Engine" android:icon="@drawable/reality_engine_icon" android:roundIcon="@drawable/reality_engine_icon" android:theme="@style/AppTheme" android:supportsRtl="true">
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
@@ -28,6 +28,7 @@
         <activity android:name=".SupabaseSetupActivity" android:exported="false" />
         <activity android:name=".CallerMemoryActivity" android:exported="false" />
         <activity android:name=".TranscriptLibraryActivity" android:exported="false" />
+        <activity android:name=".SoundboardSettingsActivity" android:exported="false" />
         <activity android:name=".CallActivity" android:exported="false" android:launchMode="singleTask" android:excludeFromRecents="true" android:showWhenLocked="true" android:turnScreenOn="true" />
         <activity android:name=".MainActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.DIAL" /><category android:name="android.intent.category.DEFAULT" /></intent-filter><intent-filter><action android:name="android.intent.action.DIAL" /><action android:name="android.intent.action.VIEW" /><category android:name="android.intent.category.DEFAULT" /><category android:name="android.intent.category.BROWSABLE" /><data android:scheme="tel" /></intent-filter></activity>
         <service android:name=".RealityInCallService" android:permission="android.permission.BIND_INCALL_SERVICE" android:exported="true"><meta-data android:name="android.telecom.IN_CALL_SERVICE_UI" android:value="true" /><meta-data android:name="android.telecom.IN_CALL_SERVICE_RINGING" android:value="true" /><intent-filter><action android:name="android.telecom.InCallService" /></intent-filter></service>
