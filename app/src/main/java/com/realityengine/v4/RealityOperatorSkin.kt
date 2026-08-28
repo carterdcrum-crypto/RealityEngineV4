@@ -19,20 +19,14 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.min
 
-/**
- * Asset-first visual shell for the existing V4 hierarchy.
- *
- * The observer never performs decoration inside layout. It merely queues a post-layout pass and
- * de-bounces multiple layout notifications. That lets MainActivity swap Phone / Traffic / Intel /
- * Index / Settings content while keeping the new skin, without the re-entrant layout behavior that
- * caused the first operator build to crash.
- */
+/** Global operator skin for V4. Feature behavior remains owned by the original screens. */
 object RealityOperatorSkin {
     enum class Scene(val frame: Int) {
         IDLE(0), CALL(1), INCOMING(2), SETTINGS(3), SUMMARY(4), MEMORY(5)
@@ -63,10 +57,7 @@ object RealityOperatorSkin {
     private fun attach(activity: Activity) {
         if (listeners.containsKey(activity)) return
         val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-        val listener = ViewTreeObserver.OnGlobalLayoutListener {
-            // Important: no View mutation in the layout callback. Queue a later pass instead.
-            queue(activity)
-        }
+        val listener = ViewTreeObserver.OnGlobalLayoutListener { queue(activity) }
         listeners[activity] = listener
         runCatching { content.viewTreeObserver.addOnGlobalLayoutListener(listener) }
     }
@@ -105,8 +96,8 @@ object RealityOperatorSkin {
         if (root.background !is OperatorSceneDrawable || (root.background as? OperatorSceneDrawable)?.scene != scene) {
             root.background = OperatorSceneDrawable(activity, scene)
         }
-        activity.window.statusBarColor = Color.rgb(2, 7, 12)
-        activity.window.navigationBarColor = Color.rgb(2, 7, 12)
+        activity.window.statusBarColor = Color.rgb(1, 4, 9)
+        activity.window.navigationBarColor = Color.rgb(1, 4, 9)
         restyleTree(activity, root, isRoot = true, depth = 0)
     }
 
@@ -167,17 +158,36 @@ object RealityOperatorSkin {
 
     private fun restyleTree(activity: Activity, view: View, isRoot: Boolean, depth: Int) {
         if (depth > 15) return
+
+        // Screens/components that explicitly own their HUD appearance must never be flattened by
+        // the broad fallback skin. This is what was dimming the dialer and CONNECT button before.
+        if (view.tag == RealityVisuals.HUD_OWNED_TAG) return
+
+        if (view is LinearLayout && isBottomNavContainer(view)) {
+            view.background = RealityVisuals.panel(
+                activity,
+                fill = Color.rgb(1, 10, 20),
+                stroke = Color.rgb(0, 91, 125),
+                radiusDp = 7f,
+                strokeDp = 1,
+            )
+        }
+
+        if (view is LinearLayout && styleBottomNavItem(activity, view)) return
+
         if (!isRoot) {
             runCatching {
                 when (view) {
                     is Button -> {
-                        val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 } ?: RealityVisuals.Colors.Cyan
+                        val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 }
+                            ?: RealityVisuals.Colors.Cyan
                         val destructive = accentRed(accent)
                         view.background = RealityVisuals.panel(
                             activity,
                             fill = if (destructive) RealityVisuals.Colors.DangerFill else RealityVisuals.Colors.Panel,
                             stroke = accent,
-                            radiusDp = 14f,
+                            radiusDp = 10f,
+                            strokeDp = 2,
                         )
                         view.stateListAnimator = null
                         view.elevation = 0f
@@ -186,19 +196,21 @@ object RealityOperatorSkin {
                     is TextView -> {
                         val old = view.background
                         if (old != null && shouldRestyleTextPlate(view, old)) {
-                            val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 } ?: RealityVisuals.Colors.Border
+                            val accent = view.currentTextColor.takeIf { Color.alpha(it) > 100 }
+                                ?: RealityVisuals.Colors.Border
                             view.background = RealityVisuals.panel(
                                 activity,
                                 fill = RealityVisuals.Colors.Panel,
                                 stroke = accent,
-                                radiusDp = 11f,
+                                radiusDp = 9f,
+                                strokeDp = 1,
                             )
                         }
                     }
                     else -> {
                         val bg = view.background
                         if (bg is ColorDrawable && isDark(bg.color)) {
-                            bg.color = Color.argb(34, Color.red(bg.color), Color.green(bg.color), Color.blue(bg.color))
+                            bg.color = Color.argb(25, Color.red(bg.color), Color.green(bg.color), Color.blue(bg.color))
                         }
                     }
                 }
@@ -211,6 +223,50 @@ object RealityOperatorSkin {
             }
         }
     }
+
+    private fun isBottomNavContainer(view: LinearLayout): Boolean {
+        if (view.childCount != 5) return false
+        val labels = (0 until view.childCount).mapNotNull { i ->
+            val child = view.getChildAt(i) as? LinearLayout ?: return@mapNotNull null
+            (child.getChildAtOrNull(1) as? TextView)?.text?.toString()
+        }
+        return labels.toSet().containsAll(setOf("Phone", "Traffic", "Intel", "Index", "Settings"))
+    }
+
+    private fun styleBottomNavItem(activity: Activity, view: LinearLayout): Boolean {
+        if (view.childCount != 2) return false
+        val icon = view.getChildAt(0) as? TextView ?: return false
+        val label = view.getChildAt(1) as? TextView ?: return false
+        val name = label.text?.toString().orEmpty()
+        if (name !in setOf("Phone", "Traffic", "Intel", "Index", "Settings")) return false
+
+        val active = colorDistance(label.currentTextColor, RealityVisuals.Colors.Cyan) < 95
+        val accent = if (active) RealityVisuals.Colors.Green else Color.rgb(145, 188, 226)
+        val fill = if (active) Color.rgb(0, 35, 20) else Color.rgb(2, 12, 23)
+        val stroke = if (active) RealityVisuals.Colors.Green else Color.rgb(0, 62, 88)
+
+        view.tag = RealityVisuals.HUD_OWNED_TAG
+        view.background = RealityVisuals.panel(activity, fill, stroke, 7f, if (active) 2 else 1)
+        icon.text = when (name) {
+            "Phone" -> "☎"
+            "Traffic" -> "≋"
+            "Intel" -> "◇"
+            "Index" -> "▤"
+            else -> "⚙"
+        }
+        icon.background = null
+        icon.setTextColor(accent)
+        label.setTextColor(accent)
+        return true
+    }
+
+    private fun ViewGroup.getChildAtOrNull(index: Int): View? =
+        if (index in 0 until childCount) getChildAt(index) else null
+
+    private fun colorDistance(a: Int, b: Int): Int =
+        kotlin.math.abs(Color.red(a) - Color.red(b)) +
+            kotlin.math.abs(Color.green(a) - Color.green(b)) +
+            kotlin.math.abs(Color.blue(a) - Color.blue(b))
 
     private fun shouldRestyleTextPlate(view: TextView, bg: Drawable): Boolean {
         if (view.text.isNullOrBlank()) return false
@@ -235,7 +291,7 @@ object RealityOperatorSkin {
         private val bitmap = Atlas.bitmap(activity)
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         private val shadePaint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(3, 7, 12) }
+        private val fallbackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(1, 4, 9) }
 
         override fun draw(canvas: Canvas) {
             val source = bitmap
@@ -254,9 +310,13 @@ object RealityOperatorSkin {
             }
             canvas.drawBitmap(source, Rect(0, top, source.width, bottom), bounds, paint)
             shadePaint.shader = LinearGradient(
-                0f, bounds.top.toFloat(), 0f, bounds.bottom.toFloat(),
-                intArrayOf(Color.argb(28, 0, 0, 0), Color.argb(4, 0, 0, 0), Color.argb(90, 0, 0, 0)),
-                floatArrayOf(0f, .48f, 1f), Shader.TileMode.CLAMP,
+                0f,
+                bounds.top.toFloat(),
+                0f,
+                bounds.bottom.toFloat(),
+                intArrayOf(Color.argb(10, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(48, 0, 0, 0)),
+                floatArrayOf(0f, .5f, 1f),
+                Shader.TileMode.CLAMP,
             )
             canvas.drawRect(bounds, shadePaint)
             shadePaint.shader = null
