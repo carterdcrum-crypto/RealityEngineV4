@@ -14,12 +14,14 @@ import android.widget.TextView
 import java.util.Collections
 import java.util.WeakHashMap
 
-/** Makes saved call audio discoverable from the contact/recent surfaces users already visit. */
+/** Makes saved call audio and transcripts discoverable from the contact/recent surfaces users already visit. */
 object RecordingDiscoveryOverlay {
     private const val TAG_PROFILE_AUDIO = "reality.recordings.profile.audio"
+    private const val TAG_PROFILE_TRANSCRIPTS = "reality.transcripts.profile.history"
     private const val TAG_CONTACT_AUDIO = "reality.recordings.contact.audio"
-    private const val RECENT_MARKER = "AUDIO ·"
-    private const val CONTACT_MARKER = "AUDIO "
+    private const val RECENT_AUDIO_MARKER = "AUDIO ·"
+    private const val RECENT_TRANSCRIPT_MARKER = "TRANSCRIPT ·"
+    private const val CONTACT_AUDIO_MARKER = "AUDIO "
 
     private val sessions = Collections.synchronizedMap(WeakHashMap<Activity, Session>())
 
@@ -84,34 +86,65 @@ object RecordingDiscoveryOverlay {
             if (findExactText(root, "Traffic") == null) return
             allButtons(root).forEach { button ->
                 val raw = button.text?.toString().orEmpty()
-                if (raw.contains(RECENT_MARKER) || !raw.contains('•')) return@forEach
+                if (!raw.contains('•')) return@forEach
                 val phone = recentPhone(raw) ?: return@forEach
-                val count = CallRecordingStore.savedCountFor(activity, phone)
-                if (count <= 0) return@forEach
-                button.text = "$raw\n$RECENT_MARKER $count SAVED"
-                button.minHeight = maxOf(button.minHeight, dp(94))
+                var decorated = raw
+
+                val audioCount = CallRecordingStore.savedCountFor(activity, phone)
+                if (audioCount > 0 && !decorated.contains(RECENT_AUDIO_MARKER)) {
+                    decorated += "\n$RECENT_AUDIO_MARKER $audioCount SAVED"
+                }
+
+                val transcriptCount = CallTranscriptStore.savedFor(activity, phone).size
+                if (transcriptCount > 0 && !decorated.contains(RECENT_TRANSCRIPT_MARKER)) {
+                    decorated += "\n$RECENT_TRANSCRIPT_MARKER $transcriptCount SAVED"
+                }
+
+                if (decorated != raw) {
+                    button.text = decorated
+                    button.minHeight = maxOf(button.minHeight, dp(if (audioCount > 0 && transcriptCount > 0) 116 else 94))
+                }
             }
         }
 
         private fun decorateProfile(root: ViewGroup) {
             val numberView = allTextViews(root).firstOrNull { it.text?.toString()?.startsWith("NUMBER\n") == true } ?: return
             val parent = numberView.parent as? LinearLayout ?: return
-            if (parent.findViewWithTag<View>(TAG_PROFILE_AUDIO) != null) return
             val phone = numberView.text.toString().substringAfter('\n').trim()
-            val count = CallRecordingStore.savedCountFor(activity, phone)
-            if (count <= 0) return
             val name = ContactMediaStore.findByNumber(activity, phone)?.name.orEmpty()
-            val button = Button(activity).apply {
-                tag = TAG_PROFILE_AUDIO
-                text = "Saved audio · $count"
-                gravity = Gravity.CENTER
-                RealityVisuals.styleControl(this, R.drawable.ic_re_record, RealityVisuals.Colors.Lilac, radiusDp = 20f)
-                setOnClickListener { openRecordings(phone, name) }
+            var insertIndex = parent.indexOfChild(numberView) + 1
+
+            val transcriptCount = CallTranscriptStore.savedFor(activity, phone).size
+            if (transcriptCount > 0 && parent.findViewWithTag<View>(TAG_PROFILE_TRANSCRIPTS) == null) {
+                val transcriptButton = Button(activity).apply {
+                    tag = TAG_PROFILE_TRANSCRIPTS
+                    text = "Call transcripts · $transcriptCount"
+                    gravity = Gravity.CENTER
+                    contentDescription = "Open $transcriptCount saved transcript${if (transcriptCount == 1) "" else "s"} for this caller"
+                    RealityVisuals.styleControl(this, R.drawable.ic_re_intel, RealityVisuals.Colors.IceBlue, radiusDp = 20f)
+                    setOnClickListener { openTranscripts(phone, name) }
+                }
+                parent.addView(transcriptButton, insertIndex, LinearLayout.LayoutParams(-1, dp(52)).apply {
+                    setMargins(0, dp(5), 0, dp(6))
+                })
+                insertIndex += 1
+            } else if (parent.findViewWithTag<View>(TAG_PROFILE_TRANSCRIPTS) != null) {
+                insertIndex += 1
             }
-            val index = parent.indexOfChild(numberView) + 1
-            parent.addView(button, index, LinearLayout.LayoutParams(-1, dp(52)).apply {
-                setMargins(0, dp(5), 0, dp(6))
-            })
+
+            val audioCount = CallRecordingStore.savedCountFor(activity, phone)
+            if (audioCount > 0 && parent.findViewWithTag<View>(TAG_PROFILE_AUDIO) == null) {
+                val audioButton = Button(activity).apply {
+                    tag = TAG_PROFILE_AUDIO
+                    text = "Saved audio · $audioCount"
+                    gravity = Gravity.CENTER
+                    RealityVisuals.styleControl(this, R.drawable.ic_re_record, RealityVisuals.Colors.Lilac, radiusDp = 20f)
+                    setOnClickListener { openRecordings(phone, name) }
+                }
+                parent.addView(audioButton, insertIndex, LinearLayout.LayoutParams(-1, dp(52)).apply {
+                    setMargins(0, dp(5), 0, dp(6))
+                })
+            }
         }
 
         private fun decorateContactRows(root: ViewGroup) {
@@ -124,7 +157,7 @@ object RecordingDiscoveryOverlay {
                 val count = CallRecordingStore.savedCountFor(activity, phone)
                 if (count <= 0) return@forEach
 
-                if (!raw.contains(CONTACT_MARKER)) {
+                if (!raw.contains(CONTACT_AUDIO_MARKER)) {
                     phoneView.text = "$raw  ·  AUDIO $count"
                 }
 
@@ -174,6 +207,13 @@ object RecordingDiscoveryOverlay {
             activity.startActivity(Intent(activity, SavedRecordingsActivity::class.java).apply {
                 putExtra(SavedRecordingsActivity.EXTRA_PHONE, phone)
                 putExtra(SavedRecordingsActivity.EXTRA_NAME, name)
+            })
+        }
+
+        private fun openTranscripts(phone: String, name: String) {
+            activity.startActivity(Intent(activity, TranscriptLibraryActivity::class.java).apply {
+                putExtra(TranscriptLibraryActivity.EXTRA_PHONE, phone)
+                putExtra(TranscriptLibraryActivity.EXTRA_NAME, name)
             })
         }
     }
