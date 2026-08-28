@@ -26,8 +26,15 @@ jobs:
               elif 'callerTurnsSinceAnalysis < requiredTurns' in line:
                   lines[i] = "    '''                callerTurnsSinceAnalysis < requiredTurns -> {"
                   lines[i + 1] = "                    status = ResponseCoachState.Phase.LISTENING to \"Caller turn $callerTurnsSinceAnalysis/$requiredTurns\"''',"
+              elif 'status.text = \"NEW MEMORY READY · REVIEW SAVE / IGNORE\"\"\"\"' in line:
+                  for j in range(i - 1, max(-1, i - 8), -1):
+                      if '"""                if (learned.summary.isNotBlank())' in lines[j]:
+                          lines[j] = lines[j].replace('"""', "'''", 1)
+                          break
+                  lines[i] = line.replace('""""', "\"'''", 1)
           p.write_text('\n'.join(lines) + '\n')
           PY
+          python3 -m py_compile .github/scripts/product_hardening_patch.py
       - name: Apply product hardening patch
         run: python3 .github/scripts/product_hardening_patch.py
       - name: Commit integrated product hardening
