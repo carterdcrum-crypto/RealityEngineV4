@@ -2,7 +2,6 @@ package com.realityengine.v4
 
 import android.content.Context
 import android.graphics.Color
-import android.graphics.Typeface
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -28,23 +27,35 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
     private var searchText = ""
 
     init {
+        tag = RealityVisuals.HUD_OWNED_TAG
         orientation = VERTICAL
-        setPadding(dp(8), dp(7), dp(8), dp(7))
-        background = RealityVisuals.panel(context, RealityVisuals.Colors.BackgroundRaised, RealityVisuals.Colors.Border, 10f)
+        setPadding(dp(10), dp(9), dp(10), dp(9))
+        background = RealityVisuals.panel(
+            context,
+            RealityVisuals.Colors.BackgroundRaised,
+            RealityVisuals.Colors.Border,
+            19f,
+        )
 
         val tools = LinearLayout(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
         query.apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             hint = "Search live transcript"
             setSingleLine(true)
             setTextColor(RealityVisuals.Colors.Text)
             setHintTextColor(RealityVisuals.Colors.TextDim)
-            textSize = 11f
-            typeface = Typeface.MONOSPACE
-            background = RealityVisuals.panel(context, RealityVisuals.Colors.Panel, RealityVisuals.Colors.Border, 12f)
-            setPadding(dp(10), 0, dp(10), 0)
+            background = RealityVisuals.panel(
+                context,
+                RealityVisuals.Colors.Panel,
+                RealityVisuals.Colors.Border,
+                18f,
+            )
+            setPadding(dp(12), 0, dp(12), 0)
+            RealityTypography.display(this, 11.5f)
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -54,23 +65,28 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
                 override fun afterTextChanged(s: Editable?) = Unit
             })
         }
-        tools.addView(query, LayoutParams(0, dp(38), 1f))
+        tools.addView(query, LayoutParams(0, dp(40), 1f))
         resume.apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             text = "LIVE ↓"
             visibility = View.GONE
             isAllCaps = false
             setTextColor(RealityVisuals.Colors.Green)
-            textSize = 10f
-            typeface = Typeface.DEFAULT_BOLD
-            background = RealityVisuals.panel(context, RealityVisuals.Colors.Panel, RealityVisuals.Colors.Green, 12f)
+            background = RealityVisuals.panel(
+                context,
+                Color.rgb(12, 48, 34),
+                RealityVisuals.Colors.Green,
+                18f,
+            )
+            RealityTypography.displayMedium(this, 10f)
             setOnClickListener {
                 followLatest = true
                 visibility = View.GONE
                 scroll.post { scroll.fullScroll(FOCUS_DOWN) }
             }
         }
-        tools.addView(resume, LayoutParams(dp(76), dp(38)).apply { setMargins(dp(6), 0, 0, 0) })
-        addView(tools, LayoutParams(-1, dp(40)))
+        tools.addView(resume, LayoutParams(dp(78), dp(40)).apply { setMargins(dp(7), 0, 0, 0) })
+        addView(tools, LayoutParams(-1, dp(42)))
 
         host.orientation = VERTICAL
         scroll.apply {
@@ -84,7 +100,7 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
                 false
             }
         }
-        addView(scroll, LayoutParams(-1, 0, 1f).apply { setMargins(0, dp(4), 0, 0) })
+        addView(scroll, LayoutParams(-1, 0, 1f).apply { setMargins(0, dp(6), 0, 0) })
     }
 
     fun bindPhone(phone: String) {
@@ -103,11 +119,10 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
         val entries = current.entries.takeLast(120).filter { needle.isBlank() || it.text.lowercase().contains(needle) }
         if (entries.isEmpty() && current.text.isBlank()) {
             host.addView(TextView(context).apply {
-                text = "AWAITING AUDIO STREAM…"
+                text = "Awaiting audio stream…"
                 setTextColor(RealityVisuals.Colors.TextDim)
-                textSize = 11f
-                typeface = Typeface.MONOSPACE
-                setPadding(dp(7), dp(10), dp(7), dp(10))
+                setPadding(dp(9), dp(12), dp(9), dp(12))
+                RealityTypography.display(this, 11.5f)
             })
         }
         entries.forEach { addBubble(it, interim = false) }
@@ -120,9 +135,10 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
     private fun addBubble(entry: LiveTranscriptState.Entry, interim: Boolean) {
         val callerSide = entry.isCaller != false
         val wrap = LinearLayout(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = VERTICAL
             gravity = if (callerSide) Gravity.START else Gravity.END
-            setPadding(if (callerSide) 0 else dp(34), dp(3), if (callerSide) dp(34) else 0, dp(3))
+            setPadding(if (callerSide) 0 else dp(38), dp(4), if (callerSide) dp(38) else 0, dp(4))
         }
         val label = TextView(context).apply {
             text = when (entry.isCaller) {
@@ -130,21 +146,29 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
                 false -> if (interim) "YOU · listening…" else "YOU"
                 null -> if (interim) "VOICE · listening…" else "VOICE"
             }
-            RealityVisuals.styleMicroLabel(this, if (callerSide) RealityVisuals.Colors.Cyan else RealityVisuals.Colors.Green)
+            RealityVisuals.styleMicroLabel(
+                this,
+                if (callerSide) RealityVisuals.Colors.CyanSoft else RealityVisuals.Colors.Lilac,
+            )
         }
         wrap.addView(label)
         val bubble = TextView(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             text = entry.text.trim()
-            setTextColor(if (interim) Color.rgb(126, 176, 188) else RealityVisuals.Colors.Text)
-            textSize = 12.5f
-            typeface = Typeface.MONOSPACE
-            setLineSpacing(2f, 1.05f)
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setTextColor(if (interim) Color.rgb(154, 165, 193) else RealityVisuals.Colors.Text)
+            setLineSpacing(2.5f, 1.08f)
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            RealityTypography.display(this, 12.5f)
             background = RealityVisuals.panel(
                 context,
-                fill = if (callerSide) Color.rgb(7, 20, 29) else Color.rgb(6, 27, 23),
-                stroke = if (interim) RealityVisuals.Colors.TextDim else if (callerSide) RealityVisuals.Colors.Cyan else RealityVisuals.Colors.Green,
-                radiusDp = 11f,
+                fill = if (callerSide) Color.rgb(11, 20, 40) else Color.rgb(27, 24, 53),
+                stroke = when {
+                    interim -> RealityVisuals.Colors.TextDim
+                    callerSide -> RealityVisuals.Colors.CyanSoft
+                    else -> RealityVisuals.Colors.Lilac
+                },
+                radiusDp = 18f,
+                strokeDp = 1,
             )
             if (!interim) {
                 isLongClickable = true
