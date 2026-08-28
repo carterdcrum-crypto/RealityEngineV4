@@ -1,0 +1,90 @@
+name: Remove unsupported soundboard once
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove soundboard feature
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          call = Path('app/src/main/java/com/realityengine/v4/CallActivity.kt')
+          text = call.read_text()
+          for line in [
+              '    private lateinit var soundboardButton: Button\n',
+              '    private lateinit var soundboardStore: SoundboardStore\n',
+              '    private lateinit var soundboardPlayer: CallSoundboardPlayer\n',
+              '        soundboardStore = SoundboardStore(this)\n',
+              '        soundboardPlayer = CallSoundboardPlayer(this)\n',
+              '        if (::soundboardPlayer.isInitialized) soundboardPlayer.stop()\n',
+              '        soundboardButton = control("Sounds", R.drawable.ic_re_speaker, green) { showSoundboard() }\n',
+              '        soundboardButton.isEnabled = current.state == Call.STATE_ACTIVE\n',
+              '        soundboardButton.alpha = if (soundboardButton.isEnabled) 1f else .42f\n',
+          ]:
+              text = text.replace(line, '')
+          text = text.replace(
+              '        quickActions.addView(unhingedButton, buttonLayout(48)); quickActions.addView(flirtButton, buttonLayout(48)); quickActions.addView(soundboardButton, buttonLayout(48)); root.addView(quickActions)\n',
+              '        quickActions.addView(unhingedButton, buttonLayout(48)); quickActions.addView(flirtButton, buttonLayout(48)); root.addView(quickActions)\n'
+          )
+          text, count = re.subn(
+              r'\n    private fun showSoundboard\(\) \{.*?\n    \}\n\n    private fun requestRecording',
+              '\n    private fun requestRecording',
+              text,
+              flags=re.S,
+          )
+          if count != 1:
+              raise SystemExit(f'Expected one showSoundboard block, removed {count}')
+          call.write_text(text)
+
+          settings = Path('app/src/main/java/com/realityengine/v4/SettingsDashboardScreen.kt')
+          text = settings.read_text()
+          block = '''        val soundCount = SoundboardStore(activity).count()
+          root.addView(row(
+              "Call soundboard",
+              "Import audio from Downloads, preview it, rename sounds, and manage the in-call library",
+              if (soundCount == 0) "SETUP" else "$soundCount",
+              if (soundCount == 0) amber else green,
+          ) { activity.startActivity(Intent(activity, SoundboardSettingsActivity::class.java)) })
+'''
+          if block not in text:
+              raise SystemExit('Soundboard settings block not found')
+          settings.write_text(text.replace(block, ''))
+
+          manifest = Path('app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          text = text.replace('        <activity android:name=".SoundboardSettingsActivity" android:exported="false" />\n', '')
+          manifest.write_text(text)
+
+          for name in ['CallSoundboardPlayer.kt', 'SoundboardSettingsActivity.kt', 'SoundboardStore.kt']:
+              path = Path('app/src/main/java/com/realityengine/v4') / name
+              if path.exists():
+                  path.unlink()
+
+          leftovers = []
+          for path in Path('app/src/main').rglob('*'):
+              if path.is_file() and path.suffix in {'.kt', '.xml'}:
+                  body = path.read_text(errors='ignore')
+                  if 'Soundboard' in body or 'soundboard' in body:
+                      leftovers.append(str(path))
+          if leftovers:
+              raise SystemExit('Soundboard references remain: ' + ', '.join(leftovers))
+          PY
+
+          rm -f .github/workflows/remove-soundboard-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Remove unsupported call soundboard"
+          git push
