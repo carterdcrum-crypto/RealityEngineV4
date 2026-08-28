@@ -6,14 +6,13 @@ import android.app.Application
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.telecom.Call
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.Button
-import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import java.util.Collections
 import java.util.WeakHashMap
@@ -172,7 +171,8 @@ object ConversationOSOverlay {
 
         private fun tool(label: String, accent: Int, action: () -> Unit) = Button(activity).apply {
             text = label
-            minWidth = 0; minHeight = 0
+            minWidth = 0
+            minHeight = 0
             RealityVisuals.styleControl(this, 0, accent, radiusDp = 16f)
             setPadding(dp(3), 0, dp(3), 0)
             setOnClickListener { action() }
@@ -181,7 +181,10 @@ object ConversationOSOverlay {
         private fun toolLp() = LinearLayout.LayoutParams(0, dp(40), 1f).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) }
 
         private fun render(state: LiveTranscriptState.State) {
-            if (!installed) { install(); return }
+            if (!installed) {
+                install()
+                return
+            }
             val currentPhone = phone()
             lastInsight = engine.analyze(currentPhone, state)
             radar?.render(lastInsight)
@@ -231,7 +234,10 @@ object ConversationOSOverlay {
                 .setTitle("Live bilingual translation")
                 .setSingleChoiceItems(labels.toTypedArray(), selected) { dialog, which ->
                     if (which == 0) translation.enabled = false
-                    else { translation.enabled = true; translation.pair = ConversationTranslationStore.PAIRS[which - 1] }
+                    else {
+                        translation.enabled = true
+                        translation.pair = ConversationTranslationStore.PAIRS[which - 1]
+                    }
                     lastTranslatedSource = ""
                     dialog.dismiss()
                     render(LiveTranscriptState.snapshot())
@@ -356,7 +362,11 @@ object ConversationOSOverlay {
                         RealityTypography.display(this, 10.5f)
                         setPadding(dp(3), dp(6), 0, dp(8))
                     })
-                    addView(TextView(activity).apply { text = "ONE-TAP FOLLOW-UP"; RealityVisuals.styleMicroLabel(this, RealityVisuals.Colors.Lilac); setPadding(dp(3), dp(8), 0, dp(5)) })
+                    addView(TextView(activity).apply {
+                        text = "ONE-TAP FOLLOW-UP"
+                        RealityVisuals.styleMicroLabel(this, RealityVisuals.Colors.Lilac)
+                        setPadding(dp(3), dp(8), 0, dp(5))
+                    })
                     addView(LinearLayout(activity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         addView(action("Text recap", RealityVisuals.Colors.CyanSoft) { ConversationFollowUp.textRecap(activity, phone, profile.lastCallSummary) }, actionLp())
@@ -375,6 +385,7 @@ object ConversationOSOverlay {
             RealityVisuals.styleControl(this, 0, accent, radiusDp = 17f)
             setOnClickListener { click() }
         }
+
         private fun actionLp() = LinearLayout.LayoutParams(0, dp(46), 1f).apply { setMargins(dp(2), 0, dp(2), 0) }
     }
 
@@ -386,7 +397,7 @@ object ConversationOSOverlay {
                 val phone = activity.intent.getStringExtra(CallerMemoryActivity.EXTRA_PHONE).orEmpty()
                 if (phone.isBlank()) return@post
                 val name = activity.intent.getStringExtra(CallerMemoryActivity.EXTRA_NAME).orEmpty()
-                val scroll = firstDescendant<android.widget.ScrollView>(content) ?: return@post
+                val scroll = firstScrollView(content) ?: return@post
                 val root = scroll.getChildAt(0) as? LinearLayout ?: return@post
                 val button = Button(activity).apply {
                     tag = TAG_TIMELINE_BUTTON
@@ -418,9 +429,13 @@ object ConversationOSOverlay {
         return null
     }
 
-    private inline fun <reified T : View> firstDescendant(root: View): T? {
-        if (root is T) return root
-        if (root is ViewGroup) for (i in 0 until root.childCount) firstDescendant<T>(root.getChildAt(i))?.let { return it }
+    private fun firstScrollView(root: View): ScrollView? {
+        if (root is ScrollView) return root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                firstScrollView(root.getChildAt(i))?.let { return it }
+            }
+        }
         return null
     }
 
