@@ -16,25 +16,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      # SOUND_BOARD_BOOTSTRAP_START
-      - name: Restore soundboard integration
-        shell: bash
-        run: |
-          set -e
-          if [ -f .github/scripts/restore_soundboard.py ]; then
-            python3 .github/scripts/restore_soundboard.py
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A
-            if ! git diff --cached --quiet; then
-              git commit -m "Restore managed in-call soundboard"
-              git pull --rebase origin main
-              git push origin HEAD:main
-            fi
-          fi
-      # SOUND_BOARD_BOOTSTRAP_END
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
