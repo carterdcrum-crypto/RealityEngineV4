@@ -25,49 +25,62 @@ class DialScreen(
     private val magenta = RealityVisuals.Colors.Magenta
     private val primaryText = RealityVisuals.Colors.Text
     private val muted = RealityVisuals.Colors.TextDim
-    private val keyFill = Color.rgb(5, 18, 31)
+    private val keyFill = Color.rgb(2, 17, 31)
 
     fun build(): View {
         val root = LinearLayout(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            setPadding(dp(18), dp(8), dp(18), dp(8))
+            setPadding(dp(4), dp(4), dp(4), dp(4))
         }
 
         root.addView(TextView(context).apply {
             text = "SECURE DIAL // NATIVE CELLULAR"
             gravity = Gravity.CENTER
-            RealityVisuals.styleMicroLabel(this, magenta)
-        }, LinearLayout.LayoutParams(-1, dp(24)))
+            setTextColor(magenta)
+            letterSpacing = .17f
+            RealityTypography.technical(this, 10f)
+        }, LinearLayout.LayoutParams(-1, dp(32)).apply {
+            setMargins(dp(14), 0, dp(14), dp(8))
+        })
 
         val numberPlate = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            background = RealityVisuals.panel(context, RealityVisuals.Colors.PanelStrong, cyan, 18f)
-            setPadding(dp(14), dp(7), dp(14), dp(7))
+            background = RealityVisuals.panel(
+                context,
+                fill = Color.rgb(2, 21, 39),
+                stroke = cyan,
+                radiusDp = 16f,
+                strokeDp = 2,
+            )
+            setPadding(dp(18), dp(8), dp(18), dp(8))
         }
 
         number.apply {
-            hint = "Enter number to call"
-            setHintTextColor(muted)
+            hint = "ENTER NUMBER"
+            setHintTextColor(Color.rgb(74, 116, 143))
             setTextColor(primaryText)
             gravity = Gravity.CENTER
             background = null
             inputType = android.text.InputType.TYPE_CLASS_PHONE
             isSingleLine = true
-            RealityTypography.displayMedium(this, 25f)
+            includeFontPadding = false
+            RealityTypography.displayMedium(this, 33f)
         }
-        numberPlate.addView(number, LinearLayout.LayoutParams(-1, dp(54)))
+        numberPlate.addView(number, LinearLayout.LayoutParams(-1, dp(66)))
 
         contactMatch.apply {
             setTextColor(cyan)
             gravity = Gravity.CENTER
             visibility = View.INVISIBLE
-            RealityTypography.displayMedium(this, 12.5f)
+            includeFontPadding = false
+            RealityTypography.technical(this, 10f)
         }
-        numberPlate.addView(contactMatch, LinearLayout.LayoutParams(-1, dp(24)))
-        root.addView(numberPlate, LinearLayout.LayoutParams(-1, dp(88)).apply {
-            setMargins(0, 0, 0, dp(9))
+        numberPlate.addView(contactMatch, LinearLayout.LayoutParams(-1, dp(22)))
+        root.addView(numberPlate, LinearLayout.LayoutParams(-1, dp(102)).apply {
+            setMargins(dp(6), 0, dp(6), dp(12))
         })
 
         number.addTextChangedListener(object : TextWatcher {
@@ -83,6 +96,7 @@ class DialScreen(
         })
 
         val grid = GridLayout(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             columnCount = 3
             rowCount = 4
             alignmentMode = GridLayout.ALIGN_BOUNDS
@@ -96,48 +110,70 @@ class DialScreen(
         )
         keys.forEach { (digit, letters) ->
             val key = LinearLayout(context).apply {
+                tag = RealityVisuals.HUD_OWNED_TAG
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = RealityVisuals.panel(context, keyFill, Color.rgb(18, 112, 142), 22f)
+                background = RealityVisuals.panel(
+                    context,
+                    fill = keyFill,
+                    stroke = cyan,
+                    radiusDp = 13f,
+                    strokeDp = 2,
+                )
                 isClickable = true
                 isFocusable = true
                 addView(TextView(context).apply {
                     text = digit
                     setTextColor(primaryText)
                     gravity = Gravity.CENTER
-                    RealityTypography.displayMedium(this, 23f)
-                })
+                    includeFontPadding = false
+                    RealityTypography.displayMedium(this, 29f)
+                }, LinearLayout.LayoutParams(-1, dp(38)))
                 if (letters.isNotEmpty()) addView(TextView(context).apply {
                     text = letters
-                    setTextColor(muted)
+                    setTextColor(Color.rgb(105, 155, 199))
                     gravity = Gravity.CENTER
-                    RealityTypography.technical(this, 8.5f)
-                })
+                    includeFontPadding = false
+                    letterSpacing = .12f
+                    RealityTypography.technical(this, 10f)
+                }, LinearLayout.LayoutParams(-1, dp(18)))
                 setOnClickListener {
                     RealityVisuals.pulseOnce(this)
                     number.append(digit)
                 }
             }
             grid.addView(key, GridLayout.LayoutParams().apply {
-                width = dp(80)
-                height = dp(72)
+                width = 0
+                height = dp(82)
                 columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                setMargins(dp(9), dp(6), dp(9), dp(6))
+                setMargins(dp(6), dp(5), dp(6), dp(5))
             })
         }
-        root.addView(grid)
+        root.addView(grid, LinearLayout.LayoutParams(-1, -2))
 
         val actions = LinearLayout(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
+            setPadding(dp(6), dp(5), dp(6), 0)
         }
+
         val backspace = TextView(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
             text = "⌫"
             setTextColor(cyan)
             gravity = Gravity.CENTER
-            background = RealityVisuals.panel(context, keyFill, cyan, 20f)
-            RealityTypography.displayMedium(this, 22f)
+            background = RealityVisuals.panel(
+                context,
+                fill = Color.rgb(2, 18, 31),
+                stroke = cyan,
+                radiusDp = 12f,
+                strokeDp = 2,
+            )
+            includeFontPadding = false
+            RealityTypography.displayMedium(this, 28f)
             setOnClickListener {
+                RealityVisuals.pulseOnce(this)
                 val value = number.text
                 if (value.isNotEmpty()) value.delete(value.length - 1, value.length)
             }
@@ -146,32 +182,42 @@ class DialScreen(
                 true
             }
         }
-        actions.addView(backspace, LinearLayout.LayoutParams(dp(74), dp(58)).apply {
-            setMargins(0, dp(14), dp(10), dp(4))
+        actions.addView(backspace, LinearLayout.LayoutParams(0, dp(68), .34f).apply {
+            setMargins(0, dp(4), dp(7), dp(4))
         })
 
         val call = TextView(context).apply {
-            text = "CONNECT"
-            setTextColor(Color.rgb(0, 28, 22))
+            tag = RealityVisuals.HUD_OWNED_TAG
+            text = "▮▯▮  CONNECT"
+            setTextColor(green)
             gravity = Gravity.CENTER
-            background = RealityVisuals.panel(context, green, green, 22f)
-            RealityTypography.technical(this, 10f)
+            letterSpacing = .08f
+            background = RealityVisuals.panel(
+                context,
+                fill = Color.rgb(0, 45, 20),
+                stroke = green,
+                radiusDp = 14f,
+                strokeDp = 2,
+            )
+            includeFontPadding = false
+            RealityTypography.technical(this, 14f)
             setOnClickListener {
                 RealityVisuals.pulseOnce(this)
                 onCall(number.text.toString().trim())
             }
         }
-        actions.addView(call, LinearLayout.LayoutParams(dp(142), dp(66)).apply {
-            setMargins(dp(10), dp(10), 0, dp(4))
+        actions.addView(call, LinearLayout.LayoutParams(0, dp(68), .66f).apply {
+            setMargins(dp(7), dp(4), 0, dp(4))
         })
-        root.addView(actions)
+        root.addView(actions, LinearLayout.LayoutParams(-1, -2))
 
         error.apply {
-            setTextColor(Color.rgb(255, 91, 122))
+            setTextColor(Color.rgb(255, 76, 132))
             gravity = Gravity.CENTER
-            RealityTypography.technical(this, 11f)
+            includeFontPadding = false
+            RealityTypography.technical(this, 10f)
         }
-        root.addView(error, LinearLayout.LayoutParams(-1, dp(22)))
+        root.addView(error, LinearLayout.LayoutParams(-1, dp(18)))
         return root
     }
 
