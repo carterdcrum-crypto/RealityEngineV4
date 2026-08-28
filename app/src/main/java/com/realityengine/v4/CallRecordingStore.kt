@@ -126,18 +126,31 @@ object CallRecordingStore {
     fun deletePending(pending: PendingRecording): Boolean =
         !pending.file.exists() || pending.file.delete()
 
-    fun savedFor(context: Context, phoneNumber: String): List<SavedRecording> {
-        val dir = recordingDir(context, phoneNumber)
-        return dir.listFiles { file -> file.isFile && file.extension.equals("wav", true) }
-            ?.mapNotNull(::readSaved)
-            ?.sortedByDescending { it.timestampMs }
-            .orEmpty()
-    }
+    /**
+     * Looks in compatible phone-number folders so +1XXXXXXXXXX, 1XXXXXXXXXX and
+     * XXXXXXXXXX resolve to the same saved audio on NANP numbers. This also makes
+     * older recordings discoverable when Contacts and the call log format a number differently.
+     */
+    fun savedFor(context: Context, phoneNumber: String): List<SavedRecording> =
+        recordingDirs(context, phoneNumber)
+            .flatMap { dir ->
+                dir.listFiles { file -> file.isFile && file.extension.equals("wav", true) }
+                    ?.mapNotNull(::readSaved)
+                    .orEmpty()
+            }
+            .distinctBy { it.file.absolutePath }
+            .sortedByDescending { it.timestampMs }
+
+    fun savedCountFor(context: Context, phoneNumber: String): Int = savedFor(context, phoneNumber).size
 
     fun deleteSaved(context: Context, phoneNumber: String, fileName: String): Boolean {
         val safeName = File(fileName).name
-        val file = File(recordingDir(context, phoneNumber), safeName)
-        return file.exists() && file.delete()
+        val candidate = recordingDirs(context, phoneNumber)
+            .asSequence()
+            .map { File(it, safeName) }
+            .firstOrNull { it.exists() && it.isFile }
+            ?: return false
+        return candidate.delete()
     }
 
     private fun readSaved(file: File): SavedRecording? = try {
@@ -166,9 +179,35 @@ object CallRecordingStore {
     private fun recordingDir(context: Context, phoneNumber: String): File =
         File(File(context.filesDir, "call_recordings"), storageKey(phoneNumber))
 
-    internal fun storageKey(phoneNumber: String): String {
+    private fun recordingDirs(context: Context, phoneNumber: String): List<File> {
+        val root = File(context.filesDir, "call_recordings")
+        return compatibleStorageKeys(phoneNumber).map { File(root, it) }.distinctBy { it.absolutePath }
+    }
+
+    private fun compatibleStorageKeys(phoneNumber: String): List<String> {
         val normalized = PhoneNumberKey.normalize(phoneNumber).orEmpty()
-        val safe = normalized.replace(Regex("[^+0-9A-Za-z_-]"), "_").take(64)
+        val values = linkedSetOf<String>()
+        if (normalized.isNotBlank()) values += normalized
+        val digits = normalized.filter(Char::isDigit)
+        if (normalized.startsWith("+") && digits.isNotBlank()) values += digits
+        when {
+            digits.length == 10 -> {
+                values += "1$digits"
+                values += "+1$digits"
+            }
+            digits.length == 11 && digits.startsWith("1") -> {
+                values += digits.drop(1)
+                values += "+$digits"
+            }
+        }
+        return values.map(::safeStorageKey).ifEmpty { listOf("unknown") }
+    }
+
+    internal fun storageKey(phoneNumber: String): String =
+        safeStorageKey(PhoneNumberKey.normalize(phoneNumber).orEmpty())
+
+    private fun safeStorageKey(value: String): String {
+        val safe = value.replace(Regex("[^+0-9A-Za-z_-]"), "_").take(64)
         return safe.ifBlank { "unknown" }
     }
 
