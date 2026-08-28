@@ -308,7 +308,15 @@ class RealityInCallService : InCallService() {
     }
 
     private val callback = object : Call.Callback() {
+        override fun onDetailsChanged(call: Call, details: Call.Details) {
+            CallSessionRegistry.refreshDetails(call)
+            syncRinging()
+            showCallNotification()
+            launchCallUi()
+        }
+
         override fun onStateChanged(call: Call, state: Int) {
+            CallSessionRegistry.refreshDetails(call)
             syncRinging()
             if (state == Call.STATE_DISCONNECTED) {
                 val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
