@@ -15,7 +15,7 @@ import android.view.View
 import android.view.animation.LinearInterpolator
 import kotlin.math.min
 
-/** RE Core Ignition rendered directly on Canvas: no image/font/network dependency.
+/** RE Core Ignition layered over the shipped raster operator environment.
  * A hard timeout always hands control to MainActivity even if animation fails. */
 class SplashActivity : Activity() {
     private val handler=Handler(Looper.getMainLooper());private var launched=false
@@ -33,7 +33,7 @@ class SplashActivity : Activity() {
         private var p=0f
         private val animator=ValueAnimator.ofFloat(0f,1f).apply{duration=1550L;interpolator=LinearInterpolator();addUpdateListener{p=it.animatedValue as Float;invalidate()};start()}
         override fun onDetachedFromWindow(){animator.cancel();super.onDetachedFromWindow()}
-        override fun onDraw(c:Canvas){super.onDraw(c);c.drawColor(Color.BLACK);val cx=width/2f;val cy=height*.43f;val base=min(width,height)*.16f
+        override fun onDraw(c:Canvas){super.onDraw(c);c.drawColor(Color.argb(188,0,0,0));val cx=width/2f;val cy=height*.43f;val base=min(width,height)*.16f
             val ignite=(p/.22f).coerceIn(0f,1f);val build=((p-.12f)/.42f).coerceIn(0f,1f);val identity=((p-.48f)/.22f).coerceIn(0f,1f);val titleA=((p-.65f)/.18f).coerceIn(0f,1f);val online=((p-.78f)/.15f).coerceIn(0f,1f)
             paint.style=Paint.Style.FILL;for(i in 7 downTo 1){paint.color=Color.argb((12*ignite).toInt(),0,210,255);c.drawCircle(cx,cy,base*.055f*i,paint)};paint.color=Color.argb((255*ignite).toInt(),220,245,255);c.drawCircle(cx,cy,base*.055f*ignite,paint)
             paint.style=Paint.Style.STROKE

@@ -11,12 +11,14 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.TextView
+import kotlin.math.max
 
 /**
  * Shared visual language for Reality Engine V4.
  *
- * Keep screen code focused on behavior while this object owns the reusable
- * neon palette, surfaces, icon-assisted controls and lightweight motion.
+ * The raster operator environment now lives underneath these controls. Surfaces are intentionally
+ * translucent so the asset layer remains visible, while the original V4 control semantics and
+ * color-coded states stay unchanged.
  */
 object RealityVisuals {
     object Colors {
@@ -43,8 +45,8 @@ object RealityVisuals {
         radiusDp: Float = 12f,
         strokeDp: Int = 1,
     ): GradientDrawable = GradientDrawable().apply {
-        setColor(fill)
-        setStroke(dp(context, strokeDp), stroke)
+        setColor(glass(fill))
+        setStroke(dp(context, strokeDp), glowStroke(stroke))
         cornerRadius = radiusDp * context.resources.displayMetrics.density
     }
 
@@ -54,8 +56,8 @@ object RealityVisuals {
         stroke: Int = Colors.Cyan,
     ): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
-        setColor(fill)
-        setStroke(dp(context, 1), stroke)
+        setColor(glass(fill, 228))
+        setStroke(dp(context, 1), glowStroke(stroke))
     }
 
     fun styleControl(
@@ -102,7 +104,7 @@ object RealityVisuals {
     fun styleSignal(bar: ProgressBar, accent: Int) {
         bar.max = 100
         bar.progressTintList = ColorStateList.valueOf(accent)
-        bar.progressBackgroundTintList = ColorStateList.valueOf(Colors.Track)
+        bar.progressBackgroundTintList = ColorStateList.valueOf(Color.argb(190, 15, 40, 51))
     }
 
     fun animateSignal(bar: ProgressBar, target: Int) {
@@ -138,6 +140,20 @@ object RealityVisuals {
                 view.animate().alpha(1f).setDuration(260L).start()
             }
             .start()
+    }
+
+    private fun glass(color: Int, darkAlpha: Int = 214): Int {
+        if (Color.alpha(color) < 255) return color
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        val bright = max(r, max(g, b)) > 190 && (r + g + b) > 340
+        return Color.argb(if (bright) 245 else darkAlpha, r, g, b)
+    }
+
+    private fun glowStroke(color: Int): Int {
+        if (Color.alpha(color) < 255) return color
+        return Color.argb(230, Color.red(color), Color.green(color), Color.blue(color))
     }
 
     private fun dp(context: Context, value: Int): Int =
