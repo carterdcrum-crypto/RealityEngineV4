@@ -7,6 +7,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -172,7 +173,7 @@ object LiveTranscriptLayoutOverlay {
                 isVerticalScrollBarEnabled = true
                 overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
                 clipToPadding = false
-                addView(workspace, ScrollView.LayoutParams(-1, -2))
+                addView(workspace, FrameLayout.LayoutParams(-1, -2))
             }
             parent.addView(scroll, index, originalParams)
         }
