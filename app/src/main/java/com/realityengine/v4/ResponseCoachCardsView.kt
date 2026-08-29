@@ -5,34 +5,26 @@ import android.content.Context
 import android.graphics.Color
 import android.view.Gravity
 import android.view.View
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 
-/** Horizontal ranked alternatives strip shown beneath the single BEST coach response. */
-class ResponseCoachCardsView(context: Context) : HorizontalScrollView(context) {
-    private val cards = LinearLayout(context).apply {
-        tag = RealityVisuals.HUD_OWNED_TAG
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-    }
-
+/** Full ranked alternatives stack shown beneath the BEST coach response. */
+class ResponseCoachCardsView(context: Context) : LinearLayout(context) {
     init {
         tag = RealityVisuals.HUD_OWNED_TAG
-        isHorizontalScrollBarEnabled = false
-        overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-        addView(cards, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+        orientation = VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        overScrollMode = View.OVER_SCROLL_NEVER
     }
 
     fun render(alternatives: List<LiveResponseEngine.Suggestion>) {
-        cards.removeAllViews()
+        removeAllViews()
         visibility = if (alternatives.isEmpty()) View.GONE else View.VISIBLE
         alternatives.forEachIndexed { index, suggestion ->
-            cards.addView(card(index + 2, suggestion), LinearLayout.LayoutParams(198.dp(), 70.dp()).apply {
-                setMargins(0, 3.dp(), 8.dp(), 3.dp())
+            addView(card(index + 2, suggestion), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                setMargins(0, 3.dp(), 0, 6.dp())
             })
         }
-        scrollTo(0, 0)
     }
 
     private fun card(rank: Int, suggestion: LiveResponseEngine.Suggestion): View = TextView(context).apply {
@@ -40,12 +32,14 @@ class ResponseCoachCardsView(context: Context) : HorizontalScrollView(context) {
         text = buildString {
             append("#$rank  ${suggestion.mode}  ·  ${suggestion.tone}\n")
             append(suggestion.text)
+            if (suggestion.reason.isNotBlank()) append("\nWHY // ${suggestion.reason}")
         }
         setTextColor(RealityVisuals.Colors.Text)
         gravity = Gravity.CENTER_VERTICAL
-        maxLines = 3
+        maxLines = 6
+        minHeight = 66.dp()
         setLineSpacing(1.5f, 1.06f)
-        setPadding(11.dp(), 7.dp(), 11.dp(), 7.dp())
+        setPadding(11.dp(), 8.dp(), 11.dp(), 8.dp())
         RealityTypography.display(this, 9.8f)
         background = RealityVisuals.panel(
             context,

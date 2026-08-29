@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import java.util.Collections
 import java.util.WeakHashMap
@@ -15,14 +16,15 @@ import java.util.WeakHashMap
 /**
  * Keeps the live transcript readable after Conversation OS adds radar/intelligence surfaces.
  *
- * Transcript Focus is intentionally quiet: transcript, compact radar/coach, essential call controls.
- * Secondary coaching modes and Conversation OS tools return when the user expands INTEL.
+ * The center call workspace is wrapped in one vertical scroller so the transcript, Pulse Spectrum,
+ * and the full ranked response set stay reachable on smaller screens without crowding call controls.
  */
 object LiveTranscriptLayoutOverlay {
     private const val CONTROL_TAG = "reality.transcript.layout.control"
     private const val RADAR_TAG = "reality.conversation.radar"
     private const val TRANSLATION_TAG = "reality.conversation.translation"
     private const val SIGNAL_VISUAL_TAG = "reality.signal.visual.pulse"
+    private const val WORKSPACE_SCROLL_TAG = "reality.transcript.workspace.scroll"
 
     private val sessions = Collections.synchronizedMap(WeakHashMap<Activity, Session>())
 
@@ -88,15 +90,17 @@ object LiveTranscriptLayoutOverlay {
             val workspace = header.parent as? LinearLayout ?: return
             val transcript = findTranscript(workspace) ?: return
 
+            ensureScrollableWorkspace(workspace)
             installToggle(header, title)
             compactEssentialButtons(root)
 
-            transcript.minimumHeight = dp(if (focusMode) 278 else 112)
+            val transcriptHeight = if (focusMode) 310 else 230
+            transcript.minimumHeight = dp(transcriptHeight)
             transcript.layoutParams = (transcript.layoutParams as? LinearLayout.LayoutParams
-                ?: LinearLayout.LayoutParams(-1, 0, 1f)).apply {
+                ?: LinearLayout.LayoutParams(-1, dp(transcriptHeight))).apply {
                 width = -1
-                height = 0
-                weight = 1f
+                height = dp(transcriptHeight)
+                weight = 0f
                 setMargins(0, dp(3), 0, dp(6))
             }
 
@@ -115,11 +119,21 @@ object LiveTranscriptLayoutOverlay {
             val coachHeader = coachLabel?.parent as? ViewGroup
             val coachPanel = coachHeader?.parent as? View
             if (coachPanel != null) {
-                val compactCoachHeight = if (coachSnapshot.phase == ResponseCoachState.Phase.ERROR) 66 else 96
-                setHeight(coachPanel, if (focusMode) compactCoachHeight else 184)
+                setWrapContent(coachPanel)
+                findCoachBody(coachPanel)?.let { body ->
+                    body.minimumHeight = dp(58)
+                    body.isVerticalScrollBarEnabled = false
+                    body.layoutParams = (body.layoutParams as? LinearLayout.LayoutParams
+                        ?: LinearLayout.LayoutParams(-1, -2)).apply {
+                        width = -1
+                        height = -2
+                        weight = 0f
+                    }
+                }
                 val cards = findCoachCards(coachPanel)
                 if (cards != null) {
-                    cards.visibility = if (!focusMode && coachSnapshot.alternatives.isNotEmpty()) View.VISIBLE else View.GONE
+                    setWrapContent(cards)
+                    cards.visibility = if (coachSnapshot.alternatives.isNotEmpty()) View.VISIBLE else View.GONE
                 }
                 if (coachSnapshot.phase == ResponseCoachState.Phase.ERROR) {
                     findTextStarting(coachPanel, "COACH ERROR")?.apply {
@@ -133,8 +147,7 @@ object LiveTranscriptLayoutOverlay {
                 ?.also { it.visibility = if (focusMode) View.GONE else View.VISIBLE }
                 ?: findTextStarting(workspace, "GROQ //")?.also { it.visibility = if (focusMode) View.GONE else View.VISIBLE }
 
-            // Pulse Spectrum is now the live signal surface in both layouts. Keep the original
-            // progress-bar panel hidden so INTEL does not show two competing representations.
+            // Pulse Spectrum is the only live signal surface in both layouts.
             val signalsLabel = findExactText(workspace, "LIVE SIGNALS")
             val signals = signalsLabel?.parent as? View
             if (signals != null) signals.visibility = View.GONE
@@ -144,6 +157,24 @@ object LiveTranscriptLayoutOverlay {
             // These are useful tools, but they should not permanently crowd the live transcript.
             setRowVisible(findButton(root, "Unhinged")?.parent as? View, !focusMode)
             setRowVisible(findButton(root, "Objective")?.parent as? View, !focusMode)
+        }
+
+        private fun ensureScrollableWorkspace(workspace: LinearLayout) {
+            if (workspace.parent is ScrollView) return
+            val parent = workspace.parent as? ViewGroup ?: return
+            val index = parent.indexOfChild(workspace)
+            if (index < 0) return
+            val originalParams = workspace.layoutParams
+            parent.removeViewAt(index)
+            val scroll = ScrollView(activity).apply {
+                tag = WORKSPACE_SCROLL_TAG
+                isFillViewport = false
+                isVerticalScrollBarEnabled = true
+                overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                clipToPadding = false
+                addView(workspace, ScrollView.LayoutParams(-1, -2))
+            }
+            parent.addView(scroll, index, originalParams)
         }
 
         private fun compactEssentialButtons(root: View) {
@@ -211,6 +242,15 @@ object LiveTranscriptLayoutOverlay {
                 view.layoutParams = lp
             }
         }
+
+        private fun setWrapContent(view: View) {
+            val lp = view.layoutParams ?: return
+            if (lp.height != ViewGroup.LayoutParams.WRAP_CONTENT) {
+                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT
+                if (lp is LinearLayout.LayoutParams) lp.weight = 0f
+                view.layoutParams = lp
+            }
+        }
     }
 
     private fun findTranscript(root: View): LiveTranscriptPanelView? {
@@ -228,6 +268,20 @@ object LiveTranscriptLayoutOverlay {
         if (root is ViewGroup) {
             for (i in 0 until root.childCount) {
                 findCoachCards(root.getChildAt(i))?.let { return it }
+            }
+        }
+        return null
+    }
+
+    private fun findCoachBody(root: View): TextView? {
+        if (root is TextView) {
+            val text = root.text?.toString().orEmpty()
+            val prefixes = arrayOf("BEST //", "STANDBY", "ANALYZING", "LISTENING", "AI PROVIDER REQUIRED", "COACH DISABLED", "COACH ERROR", "COACH PAUSED", "LAST //")
+            if (prefixes.any(text::startsWith)) return root
+        }
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) {
+                findCoachBody(root.getChildAt(i))?.let { return it }
             }
         }
         return null
