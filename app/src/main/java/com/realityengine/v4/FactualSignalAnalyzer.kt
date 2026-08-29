@@ -15,13 +15,31 @@ class FactualSignalAnalyzer(context: Context) {
     private var sessionPhoneKey = ""
     private var lastClaimAtMs = 0L
 
+    /** Finalized-turn analysis. This is the only path that mutates same-call claim memory. */
     @Synchronized
     fun analyze(phoneNumber: String, transcript: String): Result {
         val cleanText = transcript.trim()
         if (cleanText.isBlank()) return Result(0)
         val phoneKey = PhoneNumberKey.normalize(phoneNumber).orEmpty()
         rotateSessionIfNeeded(phoneKey)
+        val result = evaluate(phoneNumber, cleanText, recentClaims.takeLast(18))
+        rememberClaim(cleanText)
+        return result
+    }
 
+    /**
+     * Non-mutating preview for streaming/interim hypotheses. Earlier finalized caller turns are
+     * supplied by the live transcript so changing STT hypotheses never become remembered claims.
+     */
+    @Synchronized
+    fun preview(phoneNumber: String, transcript: String, earlierClaims: List<String> = emptyList()): Result {
+        val cleanText = transcript.trim()
+        if (cleanText.isBlank()) return Result(0)
+        return evaluate(phoneNumber, cleanText, earlierClaims.takeLast(18))
+    }
+
+    private fun evaluate(phoneNumber: String, cleanText: String, earlierClaims: List<String>): Result {
+        val phoneKey = PhoneNumberKey.normalize(phoneNumber).orEmpty()
         val current = normalize(cleanText)
         if (current.length < 6) return Result(0)
 
@@ -39,14 +57,10 @@ class FactualSignalAnalyzer(context: Context) {
             }
         }
 
-        // A caller can contradict something they said minutes earlier even when the profile has no
-        // saved memory yet. Compare finalized caller turns inside this session before storing this one.
-        for (claim in recentClaims.takeLast(18)) {
+        for (claim in earlierClaims) {
             val candidate = compare(claim, current, source = "earlier call claim")
             if (candidate.score > best.score) best = candidate
         }
-
-        rememberClaim(cleanText)
         return best
     }
 

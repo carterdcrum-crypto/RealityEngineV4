@@ -44,6 +44,7 @@ object SignalVisualOverlay {
     private class Session(private val activity: CallActivity) {
         private val handler = Handler(Looper.getMainLooper())
         private val intelligence = ConversationIntelligenceEngine(activity)
+        private val factual = FactualSignalAnalyzer(activity)
         private var visual: LiveSignalVisualView? = null
         private var lastInsight = ConversationInsightSnapshot()
         private var listenerAdded = false
@@ -52,6 +53,7 @@ object SignalVisualOverlay {
         private val transcriptListener: (LiveTranscriptState.State) -> Unit = { state ->
             activity.runOnUiThread {
                 lastInsight = intelligence.analyze(phone(), state)
+                publishFactualPreview(state)
                 render(state)
             }
         }
@@ -127,6 +129,32 @@ object SignalVisualOverlay {
 
         private fun render(state: LiveTranscriptState.State) {
             visual?.render(LiveSignalState.snapshot(), state, lastInsight)
+        }
+
+        /**
+         * Factual analysis used to wait for the turn-finalization timer. Preview the current caller
+         * hypothesis against saved memory and already-finalized caller turns so Pulse Spectrum can
+         * repaint immediately. preview() is deliberately non-mutating, so interim STT rewrites do
+         * not become remembered claims or create self-conflicts.
+         */
+        private fun publishFactualPreview(state: LiveTranscriptState.State) {
+            if (state.isCaller == false) return
+            val current = state.text.trim()
+            if (current.isBlank()) return
+            val earlierClaims = state.entries.asSequence()
+                .filter { it.isCaller != false }
+                .map { it.text.trim() }
+                .filter { it.isNotBlank() && !it.equals(current, ignoreCase = true) }
+                .toList()
+            val result = factual.preview(phone(), current, earlierClaims)
+            val context = buildString {
+                append(current.take(150))
+                if (result.reason.isNotBlank()) append(" [consistency: ").append(result.reason).append(']')
+            }
+            LiveSignalState.publishRealtime(
+                factual = result.score,
+                context = context.take(220),
+            )
         }
 
         private fun syncLayoutMode() {
