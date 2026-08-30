@@ -48,6 +48,7 @@ object SignalVisualOverlay {
         private var visual: LiveSignalVisualView? = null
         private var lastInsight = ConversationInsightSnapshot()
         private var listenerAdded = false
+        private var installQueued = false
         private var attempts = 0
 
         private val transcriptListener: (LiveTranscriptState.State) -> Unit = { state ->
@@ -62,6 +63,7 @@ object SignalVisualOverlay {
             override fun run() {
                 if (activity.isFinishing || activity.isDestroyed) return
                 if (visual == null) install()
+                dedupeVisuals()
                 syncLayoutMode()
                 hideLegacySignals()
                 render(LiveTranscriptState.snapshot())
@@ -88,19 +90,28 @@ object SignalVisualOverlay {
             handler.removeCallbacks(ticker)
             if (listenerAdded) LiveTranscriptState.removeListener(transcriptListener)
             listenerAdded = false
+            installQueued = false
             visual = null
         }
 
         private fun install() {
             val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-            val existing = content.findViewWithTag<LiveSignalVisualView>(TAG_VISUAL)
-            if (existing != null) {
-                visual = existing
-                return
-            }
+            if (dedupeVisuals(content) != null || installQueued) return
 
+            installQueued = true
             content.post {
+                installQueued = false
                 if (activity.isFinishing || activity.isDestroyed) return@post
+
+                // Another install may have completed while this runnable was queued. Re-check here
+                // so only one Pulse Spectrum can ever be attached to the call workspace.
+                if (dedupeVisuals(content) != null) {
+                    hideLegacySignals()
+                    syncLayoutMode()
+                    render(LiveTranscriptState.snapshot())
+                    return@post
+                }
+
                 val liveTitle = findExactText(content, "LIVE TRANSCRIPT")
                 val header = liveTitle?.parent as? ViewGroup
                 val workspace = header?.parent as? ViewGroup
@@ -121,10 +132,38 @@ object SignalVisualOverlay {
                     LinearLayout.LayoutParams(-1, dp(92)).apply { setMargins(0, dp(2), 0, dp(5)) },
                 )
                 visual = panel
+                dedupeVisuals(content)
                 hideLegacySignals()
                 syncLayoutMode()
                 render(LiveTranscriptState.snapshot())
             }
+        }
+
+        /**
+         * Keeps exactly one live signal instrument attached. Older builds could queue several
+         * install runnables before the first panel reached the view tree, leaving zero-value copies
+         * underneath the active spectrum. Prefer the panel this session is already rendering and
+         * remove every other LiveSignalVisualView regardless of tag.
+         */
+        private fun dedupeVisuals(
+            content: ViewGroup? = activity.findViewById<ViewGroup>(android.R.id.content),
+        ): LiveSignalVisualView? {
+            content ?: return null
+            val panels = collectSignalVisuals(content)
+            if (panels.isEmpty()) {
+                if (visual?.parent == null) visual = null
+                return null
+            }
+
+            val keep = visual?.takeIf { candidate -> candidate.parent != null && panels.any { it === candidate } }
+                ?: panels.first()
+            keep.tag = TAG_VISUAL
+            keep.setOnClickListener { showDetails() }
+            panels.forEach { candidate ->
+                if (candidate !== keep) (candidate.parent as? ViewGroup)?.removeView(candidate)
+            }
+            visual = keep
+            return keep
         }
 
         private fun render(state: LiveTranscriptState.State) {
@@ -182,7 +221,11 @@ object SignalVisualOverlay {
         private fun showDetails() {
             val state = LiveSignalState.snapshot()
             val transcript = LiveTranscriptState.snapshot()
-            val language = if (transcript.isCaller != false) LinguisticSignalAnalyzer.analyze(transcript.text) else LinguisticSignalAnalyzer.Result(state.linguistic, emptyList())
+            val language = if (transcript.isCaller != false) {
+                LinguisticSignalAnalyzer.analyze(transcript.text)
+            } else {
+                LinguisticSignalAnalyzer.Result(state.linguistic, emptyList())
+            }
             val factualStatus = when {
                 state.factual >= 60 || lastInsight.changes.isNotEmpty() -> "Conflict evidence detected — review the matched claim."
                 state.factual >= 35 -> "Some consistency evidence needs review."
@@ -196,7 +239,9 @@ object SignalVisualOverlay {
                 append(language.markers.ifEmpty { listOf("No active language markers") }.joinToString(" · ")).append("\n\n")
                 append("FACTUAL · ").append(state.factual).append("%\n")
                 append(factualStatus)
-                if (lastInsight.changes.isNotEmpty()) append("\n\n").append(lastInsight.changes.take(3).joinToString("\n"))
+                if (lastInsight.changes.isNotEmpty()) {
+                    append("\n\n").append(lastInsight.changes.take(3).joinToString("\n"))
+                }
             }
             AlertDialog.Builder(activity)
                 .setTitle("Live signal field")
@@ -205,7 +250,19 @@ object SignalVisualOverlay {
                 .show()
         }
 
-        private fun phone(): String = CallSessionRegistry.primary()?.details?.handle?.schemeSpecificPart.orEmpty()
+        private fun phone(): String =
+            CallSessionRegistry.primary()?.details?.handle?.schemeSpecificPart.orEmpty()
+    }
+
+    private fun collectSignalVisuals(root: View): List<LiveSignalVisualView> = buildList {
+        appendSignalVisuals(root, this)
+    }
+
+    private fun appendSignalVisuals(root: View, output: MutableList<LiveSignalVisualView>) {
+        if (root is LiveSignalVisualView) output += root
+        if (root is ViewGroup) {
+            for (i in 0 until root.childCount) appendSignalVisuals(root.getChildAt(i), output)
+        }
     }
 
     private fun findExactText(root: View, exact: String): TextView? {
