@@ -314,8 +314,10 @@ class MainActivity : Activity() {
 
         entries.forEach { entry ->
             val summary = entry.realitySummary.takeIf { it.isNotBlank() }?.let { "\nRE // ${it.take(210)}" }.orEmpty()
+            val duration = formatTrafficDuration(entry.durationSeconds)
+            val timestamp = formatTrafficTimestamp(entry.timestampMs)
             content.addView(listButton(
-                "${entry.displayName}\n${entry.direction}  •  ${entry.number}  •  ${entry.durationSeconds}s$summary",
+                "${entry.displayName}\n${entry.direction}  •  ${entry.number}  •  $duration\n$timestamp$summary",
             ) { showCallerProfile(entry.number, entry.displayName) }.apply {
                 minHeight = if (summary.isBlank()) 70.dp() else 112.dp()
                 setOnLongClickListener {
@@ -437,7 +439,6 @@ class MainActivity : Activity() {
                 putExtra(CallerMemoryActivity.EXTRA_NAME, label)
             })
         }, LinearLayout.LayoutParams(-1, 48.dp()).apply { setMargins(0, 8.dp(), 0, 2.dp()) })
-
         content.addView(cyberButton("Call $label") { placeCall(phone) }, LinearLayout.LayoutParams(-1, 50.dp()).apply { setMargins(0, 10.dp(), 0, 4.dp()) })
         content.addView(contactPanel.blockButton(phone) { showCallerProfile(phone, name) })
         content.addView(destructiveButton("Delete all Reality memory for this caller") { confirmDeleteCallerMemory(phone, name) }, LinearLayout.LayoutParams(-1, 50.dp()).apply { setMargins(0, 8.dp(), 0, 14.dp()) })
@@ -556,6 +557,21 @@ class MainActivity : Activity() {
             })
         }, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 6.dp(), 0, 6.dp()) })
     }
+
+    private fun formatTrafficDuration(seconds: Long): String {
+        val totalSeconds = seconds.coerceAtLeast(0L)
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val remainingSeconds = totalSeconds % 60
+        return if (hours > 0L) {
+            "${hours}h ${minutes}m ${remainingSeconds}s"
+        } else {
+            "${minutes}m ${remainingSeconds}s"
+        }
+    }
+
+    private fun formatTrafficTimestamp(timestampMs: Long): String =
+        java.text.SimpleDateFormat("MMM d · h:mm a", java.util.Locale.getDefault()).format(Date(timestampMs))
 
     private fun formatRecordingDate(timestampMs: Long): String =
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(timestampMs))
