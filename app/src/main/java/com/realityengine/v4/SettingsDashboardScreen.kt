@@ -9,6 +9,7 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.net.Uri
 import android.telecom.TelecomManager
 import android.text.InputType
 import android.view.Gravity
@@ -86,39 +87,63 @@ class SettingsDashboardScreen(
             if (store.groqConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Add a Groq key for GPT-OSS 20B",
             if (store.groqConfigured()) "READY" else "KEY",
             if (store.groqConfigured()) green else muted,
-        ) { editSecret("Groq API key", store.groqApiKey) { store.groqApiKey = it } })
+        ) {
+            editSecret("Groq API key", store.groqApiKey, "Get a Groq API key", "https://console.groq.com/keys") {
+                store.groqApiKey = it
+            }
+        })
         root.addView(row("Groq coach model", groqModelSummary(), "MODEL", cyan) { chooseGroqModel() })
         root.addView(row(
             "Gemini API",
             if (store.geminiConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Add a Google AI Studio key · free-tier prompts may be used to improve Google products",
             if (store.geminiConfigured()) "READY" else "KEY",
             if (store.geminiConfigured()) green else muted,
-        ) { editSecret("Gemini API key", store.geminiApiKey) { store.geminiApiKey = it } })
+        ) {
+            editSecret("Gemini API key", store.geminiApiKey, "Get a Gemini API key", "https://aistudio.google.com/app/apikey") {
+                store.geminiApiKey = it
+            }
+        })
         root.addView(row("Gemini coach model", geminiModelSummary(), "MODEL", cyan) { chooseGeminiModel() })
         root.addView(row(
             "Cerebras API",
             if (store.cerebrasConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Optional fast GPT-OSS 120B provider · free access is trial/limited",
             if (store.cerebrasConfigured()) "READY" else "KEY",
             if (store.cerebrasConfigured()) green else muted,
-        ) { editSecret("Cerebras API key", store.cerebrasApiKey) { store.cerebrasApiKey = it } })
+        ) {
+            editSecret("Cerebras API key", store.cerebrasApiKey, "Open Cerebras Cloud", "https://cloud.cerebras.ai/") {
+                store.cerebrasApiKey = it
+            }
+        })
         root.addView(row(
             "Mistral API",
             if (store.mistralConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Optional Mistral Small 4 provider",
             if (store.mistralConfigured()) "READY" else "KEY",
             if (store.mistralConfigured()) green else muted,
-        ) { editSecret("Mistral API key", store.mistralApiKey) { store.mistralApiKey = it } })
+        ) {
+            editSecret("Mistral API key", store.mistralApiKey, "Get a Mistral API key", "https://console.mistral.ai/api-keys/") {
+                store.mistralApiKey = it
+            }
+        })
         root.addView(row(
             "OpenRouter API",
             if (store.openRouterConfigured()) "Configured · available to Best, Prefer, or Only routing" else "Optional free-model router",
             if (store.openRouterConfigured()) "READY" else "KEY",
             if (store.openRouterConfigured()) green else muted,
-        ) { editSecret("OpenRouter API key", store.openRouterApiKey) { store.openRouterApiKey = it } })
+        ) {
+            editSecret("OpenRouter API key", store.openRouterApiKey, "Get an OpenRouter API key", "https://openrouter.ai/settings/keys") {
+                store.openRouterApiKey = it
+            }
+        })
         root.addView(row(
             "Deepgram API",
             if (store.deepgramConfigured()) "Live transcription configured" else "Required for live transcription",
             if (store.deepgramConfigured()) "READY" else "KEY",
             if (store.deepgramConfigured()) green else amber,
-        ) { editSecret("Deepgram API key", store.deepgramApiKey) { store.deepgramApiKey = it } })
+        ) {
+            editSecret("Deepgram API key", store.deepgramApiKey, "Get a Deepgram API key", "https://console.deepgram.com/signup?jump=keys") {
+                store.deepgramApiKey = it
+            }
+        })
         root.addView(row("Deepgram model", deepgramModelSummary(), "MODEL", cyan) { chooseDeepgramModel() })
         val supabaseVerified = store.supabaseConfigured() && store.supabaseVerifiedAtMs > 0L
         root.addView(row(
@@ -477,15 +502,42 @@ class SettingsDashboardScreen(
         activity.startActivity(Intent(activity, SupabaseSetupActivity::class.java))
     }
 
-    private fun editSecret(title: String, current: String, save: (String) -> Unit) {
+    private fun editSecret(
+        title: String,
+        current: String,
+        setupLabel: String? = null,
+        setupUrl: String? = null,
+        save: (String) -> Unit,
+    ) {
         val input = EditText(activity).apply {
             setText(current)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setSelection(length())
         }
+        val body = if (setupLabel != null && setupUrl != null) {
+            LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(input, LinearLayout.LayoutParams(-1, -2))
+                addView(TextView(activity).apply {
+                    text = "$setupLabel →"
+                    setTextColor(cyan)
+                    setPadding(0, dp(10), 0, dp(4))
+                    RealityTypography.displayMedium(this, 12.5f)
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        runCatching {
+                            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(setupUrl)))
+                        }
+                    }
+                }, LinearLayout.LayoutParams(-1, dp(42)))
+            }
+        } else {
+            input
+        }
         AlertDialog.Builder(activity)
             .setTitle(title)
-            .setView(input)
+            .setView(body)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save") { _, _ -> save(input.text.toString().trim()); onRefresh() }
             .show()
