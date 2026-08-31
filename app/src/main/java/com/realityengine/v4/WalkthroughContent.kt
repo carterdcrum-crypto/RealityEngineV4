@@ -11,7 +11,7 @@ object WalkthroughContent {
         ),
         Step(
             "1. Make Reality Engine your phone app",
-            "Android needs permission to let Reality Engine show its own calling screen. When asked, choose Reality Engine as your default phone app. You can change this later in Android Settings.",
+            "Because Reality Engine is installed directly from our GitHub APK instead of an app store, Android 16 may require you to enable Allow restricted settings before it will let a sideloaded app become your default phone app. This is an Android security safeguard for apps installed outside a recognized store; it does not give Reality Engine any extra permission by itself. If Android blocks the default-phone choice, open Reality Engine's App info, use the menu to choose Allow restricted settings, then return here. When asked, choose Reality Engine as your default phone app. You can change this later in Android Settings.",
             "Choose default phone app"
         ),
         Step(
