@@ -37,7 +37,7 @@ object RealityVisuals {
         val Green: Int = Color.rgb(102, 232, 147)
         val Amber: Int = Color.rgb(241, 190, 111)
         val Text: Int = Color.rgb(247, 249, 255)
-        val TextDim: Int = Color.rgb(147, 157, 184)
+        val TextDim: Int = Color.rgb(191, 203, 226)
         val Border: Int = Color.rgb(62, 76, 110)
         val Track: Int = Color.rgb(20, 28, 47)
         val DangerFill: Int = Color.rgb(39, 16, 28)
@@ -107,8 +107,8 @@ object RealityVisuals {
 
     fun styleMicroLabel(view: TextView, accent: Int = Colors.TextDim) {
         view.apply {
-            textSize = 8.5f
-            letterSpacing = .075f
+            textSize = 9.5f
+            letterSpacing = .06f
             setTextColor(accent)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             includeFontPadding = false
