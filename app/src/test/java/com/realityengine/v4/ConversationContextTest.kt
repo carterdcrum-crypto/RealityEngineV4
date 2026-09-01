@@ -27,6 +27,19 @@ class ConversationContextTest {
         assertTrue(prompt.contains("CALLER: I wanted to check in."))
     }
 
+    @Test fun `prompt makes latest caller speech the response target and user speech context only`() {
+        val context = ConversationContext()
+        context.addTurn(ConversationContext.Speaker.CALLER, "Can you pick me up at eight?")
+        context.addTurn(ConversationContext.Speaker.USER, "I may still be at work.")
+        context.addTurn(ConversationContext.Speaker.CALLER, "Nine would work too.")
+
+        val prompt = context.snapshot().asPromptContext()
+
+        assertTrue(prompt.contains("CALLER LATEST: Nine would work too."))
+        assertTrue(prompt.contains("USER speech is prior-response context only"))
+        assertFalse(prompt.contains("CALLER LATEST: I may still be at work."))
+    }
+
     @Test fun `turn text is whitespace normalized`() {
         val context = ConversationContext()
         context.addTurn(ConversationContext.Speaker.CALLER, "  hello    there  ")

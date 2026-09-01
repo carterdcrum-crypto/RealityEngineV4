@@ -25,11 +25,17 @@ class ConversationContext(
         val coachDirective: String = ""
     ) {
         fun asPromptContext(): String = buildString {
+            val latestCallerTurn = recentTurns.lastOrNull { it.speaker == Speaker.CALLER }
+            append("RESPONSE TARGET: Respond primarily to the CALLER'S LATEST WORDS, intent, and context. ")
+            append("USER speech is prior-response context only; never treat it as the caller's request.\n")
+            if (latestCallerTurn != null) {
+                append("CALLER LATEST: ").append(latestCallerTurn.text).append('\n')
+            }
             if (coachDirective.isNotBlank()) append("COACH DELIVERY: ").append(coachDirective).append('\n')
             if (summary.isNotBlank()) append("STATE: ").append(summary).append('\n')
             if (facts.isNotEmpty()) append("FACTS: ").append(facts.joinToString(" | ")).append('\n')
             if (unresolved.isNotEmpty()) append("OPEN: ").append(unresolved.joinToString(" | ")).append('\n')
-            append("RECENT:\n")
+            append("PRIOR CONVERSATION CONTEXT:\n")
             recentTurns.forEach {
                 append(if (it.speaker == Speaker.CALLER) "CALLER: " else "USER: ")
                 append(it.text).append('\n')

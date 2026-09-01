@@ -148,6 +148,7 @@ object RecordingDiscoveryOverlay {
         }
 
         private fun decorateContactRows(root: ViewGroup) {
+            if (findExactText(root, "CONTACT INDEX") == null) return
             allLinearLayouts(root).forEach { row ->
                 if (row.findViewWithTag<View>(TAG_CONTACT_AUDIO) != null) return@forEach
                 val phoneView = directIdentityPhoneView(row) ?: return@forEach
