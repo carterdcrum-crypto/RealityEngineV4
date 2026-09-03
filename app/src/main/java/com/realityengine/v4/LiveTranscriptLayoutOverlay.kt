@@ -179,7 +179,7 @@ object LiveTranscriptLayoutOverlay {
         }
 
         private fun compactEssentialButtons(root: View) {
-            val labels = setOf("Mute", "Unmute", "Speaker", "Earpiece", "Bluetooth", "BT", "BT off", "Hold", "Resume")
+            val labels = setOf("Mute", "Unmute", "Speaker", "Earpiece", "Audio", "Bluetooth", "BT", "BT off", "Hold", "Resume")
             walkButtons(root) { button ->
                 val label = button.text?.toString().orEmpty()
                 if (label !in labels) return@walkButtons

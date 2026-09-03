@@ -11,12 +11,14 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.telecom.Call
 import android.telecom.CallAudioState
+import android.telecom.CallEndpoint
 import android.text.method.ScrollingMovementMethod
 import android.view.Gravity
 import android.view.MotionEvent
@@ -30,6 +32,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 
 class CallActivity : Activity(), SensorEventListener {
     private var call: Call? = null
@@ -95,6 +98,7 @@ class CallActivity : Activity(), SensorEventListener {
             updateTimer()
             renderLiveSignals()
             refreshRecordingUi()
+            refreshAudioButtons()
             renderHealth(CallSessionHealthState.snapshot())
             handler.postDelayed(this, 500L)
         }
@@ -161,8 +165,15 @@ class CallActivity : Activity(), SensorEventListener {
 
     private fun shouldUseProximity(): Boolean {
         val current = call ?: return false
-        val audio = RealityInCallService.instance?.callAudioState
-        val earpiece = audio == null || audio.route == CallAudioState.ROUTE_EARPIECE
+        val service = RealityInCallService.instance
+        val audio = service?.callAudioState
+        val legacyEarpiece = audio == null || audio.route == CallAudioState.ROUTE_EARPIECE
+        val earpiece = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val endpoint = service?.currentCallEndpointSnapshot()
+            endpoint?.endpointType == CallEndpoint.TYPE_EARPIECE || (endpoint == null && legacyEarpiece)
+        } else {
+            legacyEarpiece
+        }
         return current.state == Call.STATE_ACTIVE && earpiece
     }
 
@@ -406,7 +417,7 @@ class CallActivity : Activity(), SensorEventListener {
         val controls = GridLayout(this).apply { columnCount = 4; alignmentMode = GridLayout.ALIGN_BOUNDS; useDefaultMargins = false }
         muteButton = control("Mute", R.drawable.ic_re_mic) { toggleMute() }
         speakerButton = control("Speaker", R.drawable.ic_re_speaker) { toggleSpeaker() }
-        bluetoothButton = control("Bluetooth", R.drawable.ic_re_bluetooth) { toggleBluetooth() }
+        bluetoothButton = control("Audio", R.drawable.ic_re_bluetooth) { showAudioRoutePicker() }
         holdButton = control("Hold", R.drawable.ic_re_hold) { toggleHold() }
         arrayOf(muteButton, speakerButton, bluetoothButton, holdButton).forEach {
             controls.addView(it, GridLayout.LayoutParams().apply {
@@ -660,20 +671,100 @@ class CallActivity : Activity(), SensorEventListener {
 
     private fun toggleSpeaker() {
         val service = RealityInCallService.instance ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val endpointType = if (service.currentCallEndpointSnapshot()?.endpointType == CallEndpoint.TYPE_SPEAKER) CallEndpoint.TYPE_EARPIECE else CallEndpoint.TYPE_SPEAKER
+            val endpoint = service.availableCallEndpointsSnapshot().firstOrNull { it.endpointType == endpointType }
+            if (endpoint != null) {
+                service.selectCallEndpoint(endpoint) { error -> showAudioRouteResult(error) }
+                return
+            }
+        }
         val audio = service.callAudioState ?: return
         val target = if (audio.route == CallAudioState.ROUTE_SPEAKER) CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER
-        if (audio.supportedRouteMask and target != 0) service.setAudioRoute(target)
+        if (audio.supportedRouteMask and target != 0) {
+            service.setAudioRoute(target)
+        }
         refreshAudioButtons(); updateProximityRegistration()
     }
 
-    private fun toggleBluetooth() {
+    private fun showAudioRoutePicker() {
         val service = RealityInCallService.instance ?: return
-        val audio = service.callAudioState ?: return
-        val bluetooth = CallAudioState.ROUTE_BLUETOOTH
-        val fallback = if (audio.supportedRouteMask and CallAudioState.ROUTE_EARPIECE != 0) CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER
-        val target = if (audio.route == bluetooth) fallback else bluetooth
-        if (audio.supportedRouteMask and target != 0) service.setAudioRoute(target)
-        refreshAudioButtons(); updateProximityRegistration()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val endpoints = service.availableCallEndpointsSnapshot()
+                .sortedWith(compareBy(::endpointOrder, { it.endpointName.toString() }))
+            if (endpoints.isNotEmpty()) {
+                val currentId = service.currentCallEndpointSnapshot()?.identifier
+                val selected = endpoints.indexOfFirst { it.identifier == currentId }
+                AlertDialog.Builder(this)
+                    .setTitle("Call audio")
+                    .setSingleChoiceItems(endpoints.map(::endpointLabel).toTypedArray(), selected) { dialog, which ->
+                        service.selectCallEndpoint(endpoints[which]) { error -> showAudioRouteResult(error) }
+                        dialog.dismiss()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+                return
+            }
+        }
+
+        val audio = service.callAudioState
+        if (audio == null) {
+            Toast.makeText(this, "Call audio routes are still loading", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val routes = buildList {
+            fun addRoute(route: Int, label: String) {
+                if (audio.supportedRouteMask and route != 0) add(route to label)
+            }
+            addRoute(CallAudioState.ROUTE_EARPIECE, "Phone earpiece")
+            addRoute(CallAudioState.ROUTE_SPEAKER, "Phone speaker")
+            addRoute(CallAudioState.ROUTE_WIRED_HEADSET, "Wired headset")
+            addRoute(CallAudioState.ROUTE_BLUETOOTH, "Bluetooth")
+        }
+        if (routes.isEmpty()) {
+            Toast.makeText(this, "No call audio routes are available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val selected = routes.indexOfFirst { it.first == audio.route }
+        AlertDialog.Builder(this)
+            .setTitle("Call audio")
+            .setSingleChoiceItems(routes.map { it.second }.toTypedArray(), selected) { dialog, which ->
+                service.setAudioRoute(routes[which].first)
+                dialog.dismiss()
+                refreshAudioButtons()
+                updateProximityRegistration()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showAudioRouteResult(error: String?) = runOnUiThread {
+        if (error != null) Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
+        refreshAudioButtons()
+        updateProximityRegistration()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun endpointLabel(endpoint: CallEndpoint): String {
+        val fallback = when (endpoint.endpointType) {
+            CallEndpoint.TYPE_EARPIECE -> "Phone earpiece"
+            CallEndpoint.TYPE_SPEAKER -> "Phone speaker"
+            CallEndpoint.TYPE_WIRED_HEADSET -> "Wired headset"
+            CallEndpoint.TYPE_BLUETOOTH -> "Bluetooth"
+            CallEndpoint.TYPE_STREAMING -> "Call streaming"
+            else -> "Call audio"
+        }
+        return endpoint.endpointName.toString().trim().ifBlank { fallback }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private fun endpointOrder(endpoint: CallEndpoint): Int = when (endpoint.endpointType) {
+        CallEndpoint.TYPE_EARPIECE -> 0
+        CallEndpoint.TYPE_SPEAKER -> 1
+        CallEndpoint.TYPE_WIRED_HEADSET -> 2
+        CallEndpoint.TYPE_BLUETOOTH -> 3
+        CallEndpoint.TYPE_STREAMING -> 4
+        else -> 5
     }
 
     private fun toggleHold() {
@@ -760,12 +851,20 @@ class CallActivity : Activity(), SensorEventListener {
     }
 
     private fun refreshAudioButtons() {
-        val audio = RealityInCallService.instance?.callAudioState
-        val speakerOn = audio?.route == CallAudioState.ROUTE_SPEAKER; val bluetoothOn = audio?.route == CallAudioState.ROUTE_BLUETOOTH
-        speakerButton.text = if (speakerOn) "Earpiece" else "Speaker"; bluetoothButton.text = if (bluetoothOn) "BT off" else "Bluetooth"
-        setControlActive(speakerButton, speakerOn); setControlActive(bluetoothButton, bluetoothOn)
+        val service = RealityInCallService.instance
+        val audio = service?.callAudioState
+        val legacySpeaker = audio?.route == CallAudioState.ROUTE_SPEAKER
+        val speakerOn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val endpoint = service?.currentCallEndpointSnapshot()
+            endpoint?.endpointType == CallEndpoint.TYPE_SPEAKER || (endpoint == null && legacySpeaker)
+        } else {
+            legacySpeaker
+        }
+        speakerButton.text = if (speakerOn) "Earpiece" else "Speaker"; bluetoothButton.text = "Audio"
         val interactive = call?.state == Call.STATE_ACTIVE || call?.state == Call.STATE_HOLDING
-        bluetoothButton.isEnabled = interactive && ((audio?.supportedRouteMask ?: 0) and CallAudioState.ROUTE_BLUETOOTH != 0)
+        val endpointCount = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) service?.availableCallEndpointsSnapshot()?.size ?: 0 else 0
+        bluetoothButton.isEnabled = interactive && (endpointCount > 0 || (audio?.supportedRouteMask ?: 0) != 0)
+        setControlActive(speakerButton, speakerOn); setControlActive(bluetoothButton, false)
     }
 
     private fun setControlActive(button: Button, active: Boolean) {

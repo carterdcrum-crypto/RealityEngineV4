@@ -10,8 +10,11 @@ import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.Handler
+import android.os.OutcomeReceiver
 import android.telecom.Call
 import android.telecom.CallAudioState
+import android.telecom.CallEndpoint
+import android.telecom.CallEndpointException
 import android.telecom.InCallService
 import androidx.core.app.NotificationCompat
 
@@ -34,6 +37,8 @@ class RealityInCallService : InCallService() {
     @Volatile private var failedCall: Call? = null
     private var ringtone: Ringtone? = null
     private var ringingCall: Call? = null
+    @Volatile private var currentEndpoint: CallEndpoint? = null
+    @Volatile private var availableEndpoints: List<CallEndpoint> = emptyList()
 
     override fun onCreate() {
         super.onCreate()
@@ -94,6 +99,8 @@ class RealityInCallService : InCallService() {
             stopRingtone()
             cancelCallNotification()
             transcription.stop()
+            currentEndpoint = null
+            availableEndpoints = emptyList()
             clearLiveSession()
         }
         super.onCallRemoved(call)
@@ -113,6 +120,47 @@ class RealityInCallService : InCallService() {
             showCallNotification()
             launchCallUi()
         }
+    }
+
+    override fun onCallEndpointChanged(callEndpoint: CallEndpoint) {
+        super.onCallEndpointChanged(callEndpoint)
+        currentEndpoint = callEndpoint
+        val primary = CallSessionRegistry.primary()
+        if (primary != null) {
+            if (primary.state == Call.STATE_ACTIVE && failedCall === primary && !transcription.isRunning()) {
+                failedCall = null
+            }
+            syncTranscription()
+            showCallNotification()
+            launchCallUi()
+        }
+    }
+
+    override fun onAvailableCallEndpointsChanged(endpoints: List<CallEndpoint>) {
+        super.onAvailableCallEndpointsChanged(endpoints)
+        availableEndpoints = endpoints.toList()
+        if (CallSessionRegistry.primary() != null) launchCallUi()
+    }
+
+    fun availableCallEndpointsSnapshot(): List<CallEndpoint> = availableEndpoints.toList()
+
+    fun currentCallEndpointSnapshot(): CallEndpoint? = currentEndpoint
+
+    fun selectCallEndpoint(endpoint: CallEndpoint, callback: (String?) -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            callback("Call endpoint selection requires Android 14 or newer")
+            return
+        }
+        requestCallEndpointChange(
+            endpoint,
+            mainExecutor,
+            object : OutcomeReceiver<Void, CallEndpointException> {
+                override fun onResult(result: Void?) = callback(null)
+                override fun onError(error: CallEndpointException) {
+                    callback(error.message?.takeIf { it.isNotBlank() } ?: "Android could not switch call audio")
+                }
+            },
+        )
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
