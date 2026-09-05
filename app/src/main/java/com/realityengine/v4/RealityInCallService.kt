@@ -66,6 +66,14 @@ class RealityInCallService : InCallService() {
         return super.onStartCommand(intent, flags, startId)
     }
 
+    override fun onBringToForeground(showDialpad: Boolean) {
+        super.onBringToForeground(showDialpad)
+        val call = CallSessionRegistry.primary() ?: return
+        showCallNotification()
+        launchCallUi()
+        armCallUiForeground(call)
+    }
+
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         finalizedCalls.remove(call)
@@ -78,6 +86,7 @@ class RealityInCallService : InCallService() {
         syncTranscription()
         showCallNotification()
         launchCallUi()
+        armCallUiForeground(call)
     }
 
     override fun onCallRemoved(call: Call) {
@@ -290,6 +299,21 @@ class RealityInCallService : InCallService() {
         }
     }
 
+    /**
+     * Samsung may briefly promote its own in-call surface after Telecom accepts a new call. Reassert
+     * the default dialer's Activity during that handoff so Phone remains the visible call UI.
+     */
+    private fun armCallUiForeground(call: Call) {
+        val delays = longArrayOf(120L, 420L, 900L)
+        delays.forEach { delay ->
+            mainHandler.postDelayed({
+                if (CallSessionRegistry.primary() === call && call.state != Call.STATE_DISCONNECTED) {
+                    launchCallUi()
+                }
+            }, delay)
+        }
+    }
+
     private fun syncRinging() {
         val call = CallSessionRegistry.primary()
         if (call == null || call.state != Call.STATE_RINGING) {
@@ -365,7 +389,7 @@ class RealityInCallService : InCallService() {
         val open = PendingIntent.getActivity(
             this,
             1,
-            Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val end = PendingIntent.getService(
@@ -398,6 +422,7 @@ class RealityInCallService : InCallService() {
         startActivity(Intent(this, CallActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         })
     }
 
