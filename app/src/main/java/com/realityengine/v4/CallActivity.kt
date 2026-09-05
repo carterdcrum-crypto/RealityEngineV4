@@ -650,7 +650,7 @@ class CallActivity : Activity(), SensorEventListener {
         keypadContainer.addView(grid)
         root.addView(keypadContainer, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 4.dp(), 0, 0) })
 
-        callScroll.addView(root, ScrollView.LayoutParams(-1, -2))
+        callScroll.addView(root, FrameLayout.LayoutParams(-1, -2))
         setContentView(callScroll)
         renderCoach(ResponseCoachState.current())
         renderLiveSignals()
