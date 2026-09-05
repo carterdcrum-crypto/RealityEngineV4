@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.text.Editable
 import android.text.TextUtils
 import android.text.TextWatcher
+import android.text.method.ScrollingMovementMethod
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -36,6 +37,10 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
     private var followLatest = true
     private var historyMode = false
     private var searchText = ""
+    private var primaryCardKey = ""
+    private var primaryCardScrollY = 0
+    private var youCardKey = ""
+    private var youCardScrollY = 0
 
     init {
         tag = RealityVisuals.HUD_OWNED_TAG
@@ -105,6 +110,12 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
     }
 
     fun bindPhone(phone: String) {
+        if (phoneNumber != phone) {
+            primaryCardKey = ""
+            primaryCardScrollY = 0
+            youCardKey = ""
+            youCardScrollY = 0
+        }
         phoneNumber = phone
     }
 
@@ -127,18 +138,33 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
 
         when {
             latestCaller != null -> {
-                addFocusBubble(latestCaller, label = "THEM", primary = true)
+                addFocusBubble(
+                    latestCaller,
+                    label = "THEM",
+                    primary = true,
+                    scrollKey = "THEM:${entries.count { it.isCaller == true }}",
+                )
                 addWaveform(latestCaller)
             }
             latestUnknown != null -> {
-                addFocusBubble(latestUnknown, label = "VOICE", primary = true)
+                addFocusBubble(
+                    latestUnknown,
+                    label = "VOICE",
+                    primary = true,
+                    scrollKey = "VOICE:${entries.count { it.isCaller == null }}",
+                )
                 addWaveform(latestUnknown)
             }
             else -> addWaitingState()
         }
 
         if (latestMine != null) {
-            addFocusBubble(latestMine, label = "YOU", primary = false)
+            addFocusBubble(
+                latestMine,
+                label = "YOU",
+                primary = false,
+                scrollKey = "YOU:${entries.count { it.isCaller == false }}",
+            )
         } else {
             addFocusPlaceholder("YOU", "Waiting for your reply…", primary = false)
         }
@@ -186,7 +212,12 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
         return entries
     }
 
-    private fun addFocusBubble(entry: LiveTranscriptState.Entry, label: String, primary: Boolean) {
+    private fun addFocusBubble(
+        entry: LiveTranscriptState.Entry,
+        label: String,
+        primary: Boolean,
+        scrollKey: String,
+    ) {
         val card = LinearLayout(context).apply {
             tag = RealityVisuals.HUD_OWNED_TAG
             orientation = VERTICAL
@@ -226,10 +257,10 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
             setTextColor(if (entry.isFinal) PulseDeckVisuals.Colors.Text else PulseDeckVisuals.Colors.TextDim)
             setLineSpacing(dp(1).toFloat(), if (primary) 1.04f else 1.02f)
             RealityTypography.displayMedium(this, if (primary) 18f else 13.5f)
-            maxLines = if (primary) 2 else 1
-            ellipsize = TextUtils.TruncateAt.END
+            setPadding(0, 0, dp(5), 0)
+            enableCardScrolling(primary, scrollKey)
             if (entry.isFinal) installBookmark(entry)
-        }, LayoutParams(-1, -2))
+        }, LayoutParams(-1, dp(36)))
         host.addView(card, LayoutParams(-1, -2).apply {
             setMargins(0, if (primary) 0 else dp(5), 0, if (primary) dp(4) else 0)
         })
@@ -242,7 +273,7 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
                 acoustic = LiveSignalState.snapshot().acoustic,
                 timestampMs = entry.updatedAtMs,
             )
-        }, LayoutParams(-1, dp(28)).apply { setMargins(dp(5), 0, dp(5), dp(2)) })
+        }, LayoutParams(-1, dp(20)).apply { setMargins(dp(5), 0, dp(5), dp(2)) })
     }
 
     private fun addHistoryBubble(entry: LiveTranscriptState.Entry, label: String) {
@@ -298,6 +329,61 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
             bookmarkStore.add(phoneNumber, entry)
             Toast.makeText(context, "Transcript moment bookmarked", Toast.LENGTH_SHORT).show()
             true
+        }
+    }
+
+    /**
+     * Gives each focus card its own transcript viewport. The role header remains fixed while the
+     * body scrolls, and touch control is handed back to the surrounding call screen at either edge.
+     */
+    private fun TextView.enableCardScrolling(primary: Boolean, scrollKey: String) {
+        val savedScrollY = if (primary) {
+            if (primaryCardKey != scrollKey) {
+                primaryCardKey = scrollKey
+                primaryCardScrollY = 0
+            }
+            primaryCardScrollY
+        } else {
+            if (youCardKey != scrollKey) {
+                youCardKey = scrollKey
+                youCardScrollY = 0
+            }
+            youCardScrollY
+        }
+
+        movementMethod = ScrollingMovementMethod.getInstance()
+        isVerticalScrollBarEnabled = true
+        isScrollbarFadingEnabled = false
+        scrollBarStyle = View.SCROLLBARS_INSIDE_OVERLAY
+        overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        isFocusable = true
+
+        var lastTouchY = 0f
+        setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastTouchY = event.y
+                    view.parent?.requestDisallowInterceptTouchEvent(
+                        view.canScrollVertically(-1) || view.canScrollVertically(1),
+                    )
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val direction = if (event.y < lastTouchY) 1 else -1
+                    view.parent?.requestDisallowInterceptTouchEvent(view.canScrollVertically(direction))
+                    lastTouchY = event.y
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            false
+        }
+        setOnScrollChangeListener { _, _, nextY, _, _ ->
+            if (primary) primaryCardScrollY = nextY else youCardScrollY = nextY
+        }
+        post {
+            val textHeight = layout?.height ?: 0
+            val viewportHeight = (height - compoundPaddingTop - compoundPaddingBottom).coerceAtLeast(0)
+            scrollTo(0, savedScrollY.coerceIn(0, (textHeight - viewportHeight).coerceAtLeast(0)))
         }
     }
 
