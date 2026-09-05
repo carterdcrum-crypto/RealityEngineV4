@@ -106,7 +106,7 @@ class ContactActionsDialog(
         val summary = group.joinToString("\n") { "• ${it.name}  ${it.number}" }
         AlertDialog.Builder(activity)
             .setTitle("Merge these contacts?")
-            .setMessage("Reality Engine found the same normalized phone number on these Android contacts:\n\n$summary")
+            .setMessage("Phone found the same normalized phone number on these Android contacts:\n\n$summary")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Merge") { _, _ ->
                 val result = duplicates.merge(group)

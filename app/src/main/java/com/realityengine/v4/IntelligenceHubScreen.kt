@@ -88,7 +88,7 @@ class IntelligenceHubScreen(private val activity: Activity) {
         val heat = thermal.snapshot()
         root.addView(card(
             "THERMAL · ${heat.label}",
-            if (heat.throttle) "Reality Engine will reduce optional coach refreshes until the phone cools." else "Full live-analysis cadence is available.",
+            if (heat.throttle) "Phone will reduce optional coach refreshes until the device cools." else "Full live-analysis cadence is available.",
             if (heat.throttle) magenta else green,
         ))
 

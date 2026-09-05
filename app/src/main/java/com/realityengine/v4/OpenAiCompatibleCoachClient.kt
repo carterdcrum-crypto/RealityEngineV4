@@ -179,7 +179,7 @@ Every choice must include a short delivery tone such as warm/relaxed, calm/curio
             model = settings.openRouterModel,
             extraHeaders = mapOf(
                 "HTTP-Referer" to "https://github.com/carterdcrum-crypto/RealityEngineV4",
-                "X-Title" to "Reality Engine V4",
+                "X-Title" to "Phone",
             ),
         )
     }

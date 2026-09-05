@@ -57,7 +57,7 @@ class SoundboardSettingsActivity : Activity() {
         }, LinearLayout.LayoutParams(-1, dp(52)).apply { setMargins(0, 0, 0, dp(10)) })
 
         root.addView(TextView(this).apply {
-            text = "Native cellular calls do not expose direct uplink audio injection to third-party dialers. Reality Engine uses the strongest local call playback route available; caller audibility can vary by device/audio route."
+            text = "Native cellular calls do not expose direct uplink audio injection to third-party dialers. Phone uses the strongest local call playback route available; caller audibility can vary by device/audio route."
             setTextColor(RealityVisuals.Colors.Amber)
             RealityTypography.display(this, 11f)
             background = RealityVisuals.panel(this@SoundboardSettingsActivity, fill = RealityVisuals.Colors.Panel, stroke = RealityVisuals.Colors.Amber, radiusDp = 10f)
@@ -171,7 +171,7 @@ class SoundboardSettingsActivity : Activity() {
     private fun remove(entry: SoundboardStore.Entry) {
         AlertDialog.Builder(this)
             .setTitle("Remove ${entry.name}?")
-            .setMessage("This removes it from Reality Engine. The original audio file in Downloads is not deleted.")
+            .setMessage("This removes it from Phone. The original audio file in Downloads is not deleted.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ -> store.remove(entry.id); render() }
             .show()

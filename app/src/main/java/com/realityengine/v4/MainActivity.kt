@@ -300,7 +300,7 @@ class MainActivity : Activity() {
         }
 
         content.addView(TextView(this).apply {
-            text = "Tap a call for its caller profile. Hold a call to delete that row or clear its Reality Engine memory."
+            text = "Tap a call for its caller profile. Hold a call to delete that row or clear its Phone memory."
             setTextColor(muted)
             RealityTypography.display(this, 11f)
             setPadding(8.dp(), 4.dp(), 8.dp(), 10.dp())
@@ -365,7 +365,7 @@ class MainActivity : Activity() {
     private fun confirmDeleteCall(entry: CallHistoryEntry) {
         AlertDialog.Builder(this)
             .setTitle("Delete this call?")
-            .setMessage("This removes this call-log row from the phone. Saved recordings and Reality Engine caller memory stay unless you delete them separately.")
+            .setMessage("This removes this call-log row from the device. Saved recordings and Phone caller memory stay unless you delete them separately.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Delete") { _, _ ->
                 val deleted = callHistory.delete(entry)
@@ -378,7 +378,7 @@ class MainActivity : Activity() {
     private fun confirmClearCallHistory() {
         AlertDialog.Builder(this)
             .setTitle("Clear entire call history?")
-            .setMessage("This removes Android call-log entries. Reality Engine caller memory and saved recordings stay unless you delete them separately.")
+            .setMessage("This removes Android call-log entries. Phone caller memory and saved recordings stay unless you delete them separately.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Clear history") { _, _ ->
                 val removed = callHistory.clearAll()
@@ -501,7 +501,7 @@ class MainActivity : Activity() {
     private fun confirmDeleteRecording(phone: String, name: String, recording: CallRecordingStore.SavedRecording) {
         AlertDialog.Builder(this)
             .setTitle("Permanently delete recording?")
-            .setMessage("This WAV file will be removed from Reality Engine private storage and cannot be recovered.")
+            .setMessage("This WAV file will be removed from Phone private storage and cannot be recovered.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Delete permanently") { _, _ ->
                 stopRecordingPlayback()
@@ -646,7 +646,7 @@ class MainActivity : Activity() {
             runOnUiThread {
                 when (result) {
                     is AppUpdater.CheckResult.Current -> AlertDialog.Builder(this)
-                        .setTitle("Reality Engine is current")
+                        .setTitle("Phone is current")
                         .setMessage("Installed version ${result.versionName} is the newest green build.")
                         .setPositiveButton("OK", null)
                         .show()
@@ -661,7 +661,7 @@ class MainActivity : Activity() {
                         .setNegativeButton("Later", null)
                         .setPositiveButton("Install") { _, _ ->
                             if (!appUpdater.canInstallPackages()) {
-                                Toast.makeText(this, "Allow Reality Engine to install updates, then tap App updates again.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(this, "Allow Phone to install updates, then tap App updates again.", Toast.LENGTH_LONG).show()
                                 appUpdater.openInstallPermission()
                             } else {
                                 Toast.makeText(this, "Downloading private update…", Toast.LENGTH_SHORT).show()

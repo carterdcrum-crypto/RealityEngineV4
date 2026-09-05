@@ -277,7 +277,7 @@ object ConversationOSOverlay {
             val snapshot = ResponseCoachState.current()
             val best = snapshot.best
             val message = if (best == null) {
-                "No active suggestion yet. Reality Engine will explain the next recommendation when the coach produces one."
+                "No active suggestion yet. Phone will explain the next recommendation when the coach produces one."
             } else buildString {
                 append("BEST · ${best.mode} / ${best.tone}\n${best.text}\n\nWHY\n")
                 append(best.reason.ifBlank { "This suggestion ranked highest against the current call context and selected persona." })

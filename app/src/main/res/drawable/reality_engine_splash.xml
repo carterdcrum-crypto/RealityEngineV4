@@ -12,6 +12,6 @@
         </shape>
     </item>
     <item android:gravity="center" android:width="220dp" android:height="220dp">
-        <bitmap android:src="@drawable/reality_engine_icon" android:gravity="center" />
+        <bitmap android:src="@drawable/phone_signal_portal_icon" android:gravity="center" />
     </item>
 </layer-list>

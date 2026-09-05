@@ -2,9 +2,9 @@ package com.realityengine.v4
 
 /** Plain-language product copy shared by About and onboarding surfaces. */
 object AboutContent {
-    const val TITLE = "About Reality Engine"
+    const val TITLE = "About Phone"
     const val DEVELOPER = "Developed by: Carter Crum"
-    const val INTRO = "Reality Engine is a live conversation copilot designed to help you follow calls, notice useful context, and decide what to say next without complicated tools."
+    const val INTRO = "Phone is a live conversation copilot designed to help you follow calls, notice useful context, and decide what to say next without complicated tools."
 
     data class Capability(val title: String, val description: String)
 

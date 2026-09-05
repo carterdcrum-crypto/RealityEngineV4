@@ -32,7 +32,7 @@ class AboutScreen(private val activity: Activity, private val onBack: () -> Unit
         }
 
         root.addView(TextView(activity).apply {
-            text = "REALITY ENGINE // SYSTEM"
+            text = "PHONE // SYSTEM"
             RealityVisuals.styleMicroLabel(this, magenta)
         }, LinearLayout.LayoutParams(-1, dp(28)))
         root.addView(TextView(activity).apply {
@@ -95,7 +95,7 @@ class AboutScreen(private val activity: Activity, private val onBack: () -> Unit
             RealityVisuals.styleMicroLabel(this, magenta)
         })
         guidance.addView(TextView(activity).apply {
-            text = "Reality Engine provides conversation assistance and context. Its signals are not proof of deception; treat them as cues to review alongside the conversation itself."
+            text = "Phone provides conversation assistance and context. Its signals are not proof of deception; treat them as cues to review alongside the conversation itself."
             setTextColor(muted)
             setPadding(0, dp(6), 0, 0)
             RealityTypography.display(this, 12.5f)

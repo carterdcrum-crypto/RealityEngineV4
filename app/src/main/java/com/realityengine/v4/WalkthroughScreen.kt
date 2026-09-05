@@ -108,7 +108,7 @@ class WalkthroughScreen(
                 show()
             }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { marginEnd = dp(6) })
         }
-        navigation.addView(primaryButton(if (nav.isLast) "Launch Reality Engine" else "Next") {
+        navigation.addView(primaryButton(if (nav.isLast) "Launch Phone" else "Next") {
             if (nav.isLast) {
                 state.complete()
                 onExit()
@@ -139,7 +139,7 @@ class WalkthroughScreen(
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         addView(TextView(activity).apply {
-            text = "REALITY ENGINE // SETUP"
+            text = "PHONE // SETUP"
             RealityVisuals.styleMicroLabel(this, cyan)
         }, LinearLayout.LayoutParams(0, dp(32), 1f))
         addView(TextView(activity).apply {

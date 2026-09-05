@@ -22,7 +22,7 @@ object ShizukuAudioStatus {
     fun diagnostic(): String = when (state()) {
         State.READY -> "Shizuku ready"
         State.BINDER_UNAVAILABLE -> "Shizuku binder unavailable — start Shizuku first"
-        State.PERMISSION_REQUIRED -> "Shizuku permission required for Reality Engine"
+        State.PERMISSION_REQUIRED -> "Shizuku permission required for Phone"
         State.API_ERROR -> "Shizuku API unavailable"
     }
 
