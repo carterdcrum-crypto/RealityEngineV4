@@ -3,7 +3,7 @@ package com.realityengine.v4
 import android.content.Context
 import android.content.Intent
 
-/** One-shot navigation handoff so incoming calls can land on their caller memory after review. */
+/** One-shot navigation handoff so completed calls land on their caller memory after review. */
 object PostCallProfileState {
     data class Pending(val phoneNumber: String, val displayName: String)
 
@@ -26,16 +26,19 @@ object PostCallProfileState {
 
     fun launchIfPending(context: Context): Boolean {
         val item = synchronized(this) {
-            val value = pending ?: return false
-            pending = null
-            value
+            pending ?: return false
         }
-        context.startActivity(Intent(context, PostCallIntelligenceActivity::class.java).apply {
-            putExtra(PostCallIntelligenceActivity.EXTRA_PHONE, item.phoneNumber)
-            putExtra(PostCallIntelligenceActivity.EXTRA_NAME, item.displayName)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        })
-        return true
+        return runCatching {
+            context.startActivity(Intent(context, PostCallIntelligenceActivity::class.java).apply {
+                putExtra(PostCallIntelligenceActivity.EXTRA_PHONE, item.phoneNumber)
+                putExtra(PostCallIntelligenceActivity.EXTRA_NAME, item.displayName)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                if (context !is android.app.Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            synchronized(this) {
+                if (pending == item) pending = null
+            }
+            true
+        }.getOrDefault(false)
     }
 }
