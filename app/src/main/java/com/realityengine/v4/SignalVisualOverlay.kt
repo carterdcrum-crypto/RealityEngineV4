@@ -50,6 +50,7 @@ object SignalVisualOverlay {
         private var listenerAdded = false
         private var installQueued = false
         private var attempts = 0
+        private var pulseDeck = false
 
         private val transcriptListener: (LiveTranscriptState.State) -> Unit = { state ->
             activity.runOnUiThread {
@@ -62,10 +63,12 @@ object SignalVisualOverlay {
         private val ticker = object : Runnable {
             override fun run() {
                 if (activity.isFinishing || activity.isDestroyed) return
-                if (visual == null) install()
-                dedupeVisuals()
-                syncLayoutMode()
-                hideLegacySignals()
+                if (!pulseDeck && visual == null) install()
+                if (!pulseDeck) {
+                    dedupeVisuals()
+                    syncLayoutMode()
+                    hideLegacySignals()
+                }
                 render(LiveTranscriptState.snapshot())
                 handler.postDelayed(this, 120L)
             }
@@ -92,10 +95,15 @@ object SignalVisualOverlay {
             listenerAdded = false
             installQueued = false
             visual = null
+            pulseDeck = false
         }
 
         private fun install() {
             val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
+            if (content.findViewWithTag<View>(CallActivity.PULSE_DECK_ROOT_TAG) != null) {
+                pulseDeck = true
+                return
+            }
             if (dedupeVisuals(content) != null || installQueued) return
 
             installQueued = true

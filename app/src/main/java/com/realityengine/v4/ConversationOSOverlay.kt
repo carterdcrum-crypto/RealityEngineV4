@@ -32,6 +32,18 @@ object ConversationOSOverlay {
 
     private val sessions = Collections.synchronizedMap(WeakHashMap<Activity, Session>())
 
+    enum class CallAction { OBJECTIVE, REWIND, TRANSLATE, WHY }
+
+    /** Lets the integrated Pulse Deck controls reuse the existing stateful call tools. */
+    fun performCallAction(activity: CallActivity, action: CallAction) {
+        val session = synchronized(sessions) {
+            (sessions[activity] as? CallSession)
+                ?: CallSession(activity).also { sessions[activity] = it }
+        }
+        session.resume()
+        session.perform(action)
+    }
+
     val callbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
         override fun onActivityStarted(activity: Activity) = Unit
@@ -108,10 +120,25 @@ object ConversationOSOverlay {
             listenerAdded = false
         }
 
+        fun perform(action: CallAction) {
+            when (action) {
+                CallAction.OBJECTIVE -> pickObjective()
+                CallAction.REWIND -> ConversationRewind.show(activity, phone())
+                CallAction.TRANSLATE -> pickTranslation()
+                CallAction.WHY -> showWhy()
+            }
+        }
+
         private fun install() {
             val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
             content.post {
                 if (activity.isFinishing || activity.isDestroyed) return@post
+                if (content.findViewWithTag<View>(CallActivity.PULSE_DECK_ROOT_TAG) != null) {
+                    translationStrip = content.findViewWithTag(CallActivity.PULSE_DECK_TRANSLATION_TAG)
+                    installed = true
+                    render(LiveTranscriptState.snapshot())
+                    return@post
+                }
                 val headerText = findText(content, "LIVE TRANSCRIPT")
                 val transcriptHeader = headerText?.parent as? ViewGroup
                 val workspace = transcriptHeader?.parent as? ViewGroup

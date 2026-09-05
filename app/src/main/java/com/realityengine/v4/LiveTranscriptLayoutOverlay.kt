@@ -34,6 +34,8 @@ object LiveTranscriptLayoutOverlay {
         override fun onActivityStarted(activity: Activity) = Unit
         override fun onActivityResumed(activity: Activity) {
             if (activity !is CallActivity) return
+            val content = activity.findViewById<ViewGroup>(android.R.id.content)
+            if (content?.findViewWithTag<View>(CallActivity.PULSE_DECK_ROOT_TAG) != null) return
             val session = synchronized(sessions) {
                 sessions[activity] ?: Session(activity).also { sessions[activity] = it }
             }

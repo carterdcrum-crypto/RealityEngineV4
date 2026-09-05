@@ -91,6 +91,11 @@ object RealityOperatorSkin {
         val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
         if (content.childCount == 0) return
         val root = content.getChildAt(0)
+        if (root.tag == CallActivity.PULSE_DECK_ROOT_TAG) {
+            activity.window.statusBarColor = PulseDeckVisuals.Colors.Background
+            activity.window.navigationBarColor = PulseDeckVisuals.Colors.Background
+            return
+        }
         val scene = sceneFor(activity, root)
 
         if (root.background !is LucidPrismSceneDrawable ||

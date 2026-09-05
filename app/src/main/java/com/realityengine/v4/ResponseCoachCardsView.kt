@@ -2,7 +2,6 @@ package com.realityengine.v4
 
 import android.app.AlertDialog
 import android.content.Context
-import android.graphics.Color
 import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
@@ -30,29 +29,27 @@ class ResponseCoachCardsView(context: Context) : LinearLayout(context) {
     private fun card(rank: Int, suggestion: LiveResponseEngine.Suggestion): View = TextView(context).apply {
         tag = RealityVisuals.HUD_OWNED_TAG
         text = buildString {
-            append("#$rank  ${suggestion.mode}  ·  ${suggestion.tone}\n")
+            append("#$rank  ${suggestion.mode.replace('_', ' ')}  ·  ${suggestion.tone}\n")
             append(suggestion.text)
             if (suggestion.reason.isNotBlank()) append("\nWHY // ${suggestion.reason}")
         }
-        setTextColor(RealityVisuals.Colors.Text)
+        setTextColor(PulseDeckVisuals.Colors.Text)
         gravity = Gravity.CENTER_VERTICAL
         maxLines = 6
         minHeight = 66.dp()
         setLineSpacing(1.5f, 1.06f)
         setPadding(11.dp(), 8.dp(), 11.dp(), 8.dp())
-        RealityTypography.display(this, 9.8f)
-        background = RealityVisuals.panel(
+        RealityTypography.display(this, 10.2f)
+        val accent = when (suggestion.mode) {
+            "BOUNDARY", "DIRECT" -> PulseDeckVisuals.Colors.Amber
+            "VALIDATE", "BONDING", "DE_ESCALATE" -> PulseDeckVisuals.Colors.Green
+            else -> PulseDeckVisuals.Colors.Cyan
+        }
+        background = PulseDeckVisuals.panel(
             context,
-            fill = when (suggestion.mode) {
-                "BOUNDARY", "DIRECT" -> Color.rgb(31, 23, 50)
-                "VALIDATE", "BONDING", "DE_ESCALATE" -> Color.rgb(13, 34, 38)
-                else -> RealityVisuals.Colors.PanelStrong
-            },
-            stroke = when (suggestion.mode) {
-                "BOUNDARY", "DIRECT" -> RealityVisuals.Colors.Lilac
-                "VALIDATE", "BONDING", "DE_ESCALATE" -> RealityVisuals.Colors.Green
-                else -> RealityVisuals.Colors.CyanSoft
-            },
+            start = PulseDeckVisuals.Colors.PanelSoft,
+            end = PulseDeckVisuals.Colors.PanelBottom,
+            stroke = accent,
             radiusDp = 18f,
             strokeDp = 1,
         )
