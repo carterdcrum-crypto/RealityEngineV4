@@ -87,6 +87,9 @@ class CallActivity : Activity(), SensorEventListener {
     private var lastRenderedCallState: Int? = null
     private var usageRecorded = false
     private var alternativesExpanded = false
+    private var observedCall = false
+    private var postCallTransitionScheduled = false
+    private var postCallTransitionStarted = false
 
     private val bg = PulseDeckVisuals.Colors.Background
     private val cyan = PulseDeckVisuals.Colors.Cyan
@@ -163,6 +166,9 @@ class CallActivity : Activity(), SensorEventListener {
     }
 
     override fun onDestroy() {
+        handler.removeCallbacks(finishRunnable)
+        handler.removeCallbacks(postCallTransitionRunnable)
+        handler.removeCallbacks(timerTick)
         if (::soundboardPlayer.isInitialized) soundboardPlayer.stop()
         super.onDestroy()
     }
@@ -1064,8 +1070,17 @@ class CallActivity : Activity(), SensorEventListener {
     private fun refresh() {
         call = CallSessionRegistry.primary()
         val current = call
-        if (current == null) { unregisterProximity(); restoreScreen(); scheduleFinish(); return }
-        handler.removeCallbacks(finishRunnable); finishScheduled = false
+        if (current == null) {
+            unregisterProximity()
+            restoreScreen()
+            if (observedCall) transitionAfterCall() else scheduleFinish()
+            return
+        }
+        observedCall = true
+        handler.removeCallbacks(finishRunnable)
+        finishScheduled = false
+        handler.removeCallbacks(postCallTransitionRunnable)
+        postCallTransitionScheduled = false
         val number = current.details?.handle?.schemeSpecificPart ?: "UNKNOWN CALLER"
         if (number != lastNumber) {
             lastNumber = number
@@ -1184,6 +1199,50 @@ class CallActivity : Activity(), SensorEventListener {
     }
 
     private val finishRunnable = Runnable { finishScheduled = false; if (CallSessionRegistry.primary() == null && !isFinishing) finish() }
+
+    /**
+     * Keep Phone in the foreground while Telecom tears the call down. When finalization has queued
+     * a review or caller profile, open it directly from this foreground Activity. A short fallback
+     * delay covers devices that report DISCONNECTING before the service receives DISCONNECTED.
+     */
+    private fun transitionAfterCall() {
+        handler.removeCallbacks(finishRunnable)
+        finishScheduled = false
+        if (postCallTransitionStarted || isFinishing || isDestroyed) return
+        if (PostCallReviewHandoff.launchIfPending(this)) {
+            postCallTransitionStarted = true
+            finish()
+            return
+        }
+        if (postCallTransitionScheduled) return
+        postCallTransitionScheduled = true
+        handler.postDelayed(postCallTransitionRunnable, POST_CALL_FINALIZE_GRACE_MS)
+    }
+
+    private val postCallTransitionRunnable = object : Runnable {
+        override fun run() {
+            postCallTransitionScheduled = false
+            if (CallSessionRegistry.primary() != null || isFinishing || isDestroyed) return
+            if (PostCallReviewHandoff.launchIfPending(this@CallActivity)) {
+                postCallTransitionStarted = true
+                finish()
+                return
+            }
+            val openedHome = runCatching {
+                startActivity(Intent(this@CallActivity, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                })
+                true
+            }.getOrDefault(false)
+            if (openedHome) {
+                postCallTransitionStarted = true
+                finish()
+            } else {
+                transitionAfterCall()
+            }
+        }
+    }
+
     private fun scheduleFinish() {
         if (finishScheduled) return
         finishScheduled = true
@@ -1206,6 +1265,7 @@ class CallActivity : Activity(), SensorEventListener {
         const val PULSE_DECK_ROOT_TAG = "realityengine.pulse.deck.root"
         const val PULSE_DECK_TRANSLATION_TAG = "reality.conversation.translation"
         const val PULSE_DECK_SIGNAL_TAG = "reality.signal.visual.pulse"
+        private const val POST_CALL_FINALIZE_GRACE_MS = 350L
         private const val KEY_CONNECTED_AT = "connected_started_at"
         private const val KEY_KEYPAD_OPEN = "keypad_open"
     }
