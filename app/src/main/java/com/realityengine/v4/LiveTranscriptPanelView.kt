@@ -3,6 +3,7 @@ package com.realityengine.v4
 import android.content.Context
 import android.graphics.Color
 import android.text.Editable
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.MotionEvent
@@ -19,8 +20,8 @@ import java.util.Date
 /**
  * Pulse Deck transcript surface.
  *
- * The default focus view leads with the latest confirmed caller turn and treats the user's latest
- * earlier turn as context. Tapping the caller timestamp opens the complete searchable transcript;
+ * The default focus view leads with the latest confirmed caller turn and keeps the user's latest
+ * turn directly beneath it. Tapping the caller timestamp opens the complete searchable transcript;
  * long-pressing any finalized bubble keeps the existing bookmark behavior.
  */
 class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
@@ -121,9 +122,7 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
     private fun rebuildFocus() {
         val entries = focusEntries()
         val latestCaller = entries.lastOrNull { it.isCaller == true }
-        val latestMine = entries.lastOrNull { entry ->
-            entry.isCaller == false && (latestCaller == null || entry.updatedAtMs <= latestCaller.updatedAtMs)
-        } ?: entries.lastOrNull { it.isCaller == false }
+        val latestMine = entries.lastOrNull { it.isCaller == false }
         val latestUnknown = entries.lastOrNull { it.isCaller == null }
 
         when {
@@ -138,7 +137,11 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
             else -> addWaitingState()
         }
 
-        if (latestMine != null) addFocusBubble(latestMine, label = "YOU", primary = false)
+        if (latestMine != null) {
+            addFocusBubble(latestMine, label = "YOU", primary = false)
+        } else {
+            addFocusPlaceholder("YOU", "Waiting for your reply…", primary = false)
+        }
     }
 
     private fun rebuildHistory() {
@@ -202,7 +205,7 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
         }
         heading.addView(TextView(context).apply {
             text = if (!entry.isFinal) "$label · LISTENING" else label
-            setTextColor(if (primary) PulseDeckVisuals.Colors.Cyan else PulseDeckVisuals.Colors.TextDim)
+            setTextColor(if (primary) PulseDeckVisuals.Colors.Cyan else PulseDeckVisuals.Colors.Green)
             RealityTypography.displayMedium(this, if (primary) 10.5f else 9.5f)
             letterSpacing = .06f
         }, LayoutParams(0, dp(22), 1f))
@@ -223,6 +226,8 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
             setTextColor(if (entry.isFinal) PulseDeckVisuals.Colors.Text else PulseDeckVisuals.Colors.TextDim)
             setLineSpacing(dp(1).toFloat(), if (primary) 1.04f else 1.02f)
             RealityTypography.displayMedium(this, if (primary) 18f else 13.5f)
+            maxLines = if (primary) 2 else 1
+            ellipsize = TextUtils.TruncateAt.END
             if (entry.isFinal) installBookmark(entry)
         }, LayoutParams(-1, -2))
         host.addView(card, LayoutParams(-1, -2).apply {
@@ -297,13 +302,38 @@ class LiveTranscriptPanelView(context: Context) : LinearLayout(context) {
     }
 
     private fun addWaitingState() {
-        host.addView(TextView(context).apply {
-            text = "THEM\nListening for the caller…"
+        addFocusPlaceholder("THEM", "Listening for the caller…", primary = true)
+    }
+
+    private fun addFocusPlaceholder(label: String, message: String, primary: Boolean) {
+        val card = LinearLayout(context).apply {
+            tag = RealityVisuals.HUD_OWNED_TAG
+            orientation = VERTICAL
+            setPadding(dp(12), if (primary) dp(9) else dp(8), dp(12), if (primary) dp(10) else dp(8))
+            background = PulseDeckVisuals.panel(
+                context,
+                start = if (primary) Color.rgb(14, 35, 43) else Color.rgb(21, 39, 48),
+                end = if (primary) Color.rgb(8, 24, 31) else Color.rgb(14, 30, 38),
+                stroke = if (primary) PulseDeckVisuals.Colors.Border else Color.rgb(42, 65, 75),
+                radiusDp = if (primary) 15f else 13f,
+            )
+        }
+        card.addView(TextView(context).apply {
+            text = if (primary) "$label · LISTENING" else label
+            setTextColor(if (primary) PulseDeckVisuals.Colors.Cyan else PulseDeckVisuals.Colors.Green)
+            RealityTypography.displayMedium(this, if (primary) 10.5f else 9.5f)
+            letterSpacing = .06f
+        }, LayoutParams(-1, dp(22)))
+        card.addView(TextView(context).apply {
+            text = message
             setTextColor(PulseDeckVisuals.Colors.TextDim)
-            setPadding(dp(12), dp(12), dp(12), dp(12))
-            setLineSpacing(dp(3).toFloat(), 1.04f)
-            RealityTypography.displayMedium(this, 14f)
+            RealityTypography.displayMedium(this, if (primary) 14f else 12.5f)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }, LayoutParams(-1, -2))
+        host.addView(card, LayoutParams(-1, -2).apply {
+            setMargins(0, if (primary) 0 else dp(5), 0, if (primary) dp(4) else 0)
+        })
     }
 
     private fun showHistory() {

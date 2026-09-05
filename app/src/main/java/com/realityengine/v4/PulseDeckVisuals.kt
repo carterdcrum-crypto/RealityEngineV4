@@ -1,6 +1,5 @@
 package com.realityengine.v4
 
-import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
@@ -10,14 +9,12 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.RadialGradient
-import android.graphics.RectF
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.SystemClock
 import android.view.View
-import android.view.animation.DecelerateInterpolator
 import android.widget.Button
 import kotlin.math.abs
 import kotlin.math.max
@@ -265,110 +262,5 @@ class PulseDeckWaveformView(context: Context) : View(context) {
         }
         paint.alpha = 255
         if (active) postInvalidateDelayed(72L)
-    }
-}
-
-/** Three circular live-signal gauges matching the selected Pulse Deck mockup. */
-class PulseDeckSignalPanelView(context: Context) : View(context) {
-    private val density = resources.displayMetrics.density
-    private val scaledDensity = resources.displayMetrics.scaledDensity
-    private val track = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-    }
-    private val progress = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-    }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-    }
-    private var acoustic = 0f
-    private var linguistic = 0f
-    private var factual = 0f
-    private var targetA = 0
-    private var targetL = 0
-    private var targetF = 0
-    private var animator: ValueAnimator? = null
-
-    init {
-        background = PulseDeckVisuals.panel(context, radiusDp = 17f)
-        isClickable = true
-        isFocusable = true
-    }
-
-    fun render(acousticValue: Int, linguisticValue: Int, factualValue: Int) {
-        val nextA = acousticValue.coerceIn(0, 100)
-        val nextL = linguisticValue.coerceIn(0, 100)
-        val nextF = factualValue.coerceIn(0, 100)
-        if (nextA == targetA && nextL == targetL && nextF == targetF) return
-        targetA = nextA
-        targetL = nextL
-        targetF = nextF
-        val fromA = acoustic
-        val fromL = linguistic
-        val fromF = factual
-        animator?.cancel()
-        animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 260L
-            interpolator = DecelerateInterpolator()
-            addUpdateListener { animation ->
-                val fraction = animation.animatedValue as Float
-                acoustic = fromA + (targetA - fromA) * fraction
-                linguistic = fromL + (targetL - fromL) * fraction
-                factual = fromF + (targetF - fromF) * fraction
-                invalidate()
-            }
-            start()
-        }
-        contentDescription = "Live signals. Acoustic $nextA, linguistic $nextL, factual $nextF"
-    }
-
-    override fun onDetachedFromWindow() {
-        animator?.cancel()
-        animator = null
-        super.onDetachedFromWindow()
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val left = 14f * density
-        text.textAlign = Paint.Align.LEFT
-        text.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-        text.textSize = 9.5f * scaledDensity
-        text.color = PulseDeckVisuals.Colors.TextDim
-        canvas.drawText("LIVE SIGNALS", left, 20f * density, text)
-
-        text.textAlign = Paint.Align.RIGHT
-        text.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-        text.textSize = 7.5f * scaledDensity
-        canvas.drawText("REAL-TIME ANALYSIS", width - left, 20f * density, text)
-
-        val values = floatArrayOf(acoustic, linguistic, factual)
-        val labels = arrayOf("ACOUSTIC", "LINGUISTIC", "FACTUAL")
-        val accents = intArrayOf(PulseDeckVisuals.Colors.Cyan, PulseDeckVisuals.Colors.Green, PulseDeckVisuals.Colors.Amber)
-        val centerY = height * .64f
-        val radius = minOf(width / 8.3f, height * .255f)
-        val strokeWidth = (6.5f * density).coerceAtMost(radius * .23f)
-        track.strokeWidth = strokeWidth
-        track.color = PulseDeckVisuals.Colors.Track
-        progress.strokeWidth = strokeWidth
-
-        for (index in values.indices) {
-            val centerX = width * ((index * 2f + 1f) / 6f)
-            val ring = RectF(centerX - radius, centerY - radius, centerX + radius, centerY + radius)
-            canvas.drawArc(ring, 140f, 260f, false, track)
-            progress.color = accents[index]
-            canvas.drawArc(ring, 140f, 260f * (values[index] / 100f), false, progress)
-
-            text.textAlign = Paint.Align.CENTER
-            text.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            text.textSize = 7.7f * scaledDensity
-            text.color = PulseDeckVisuals.Colors.Text
-            canvas.drawText(labels[index], centerX, centerY - 2f * density, text)
-            text.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
-            text.textSize = 15.5f * scaledDensity
-            canvas.drawText(values[index].toInt().toString(), centerX, centerY + 18f * density, text)
-        }
     }
 }

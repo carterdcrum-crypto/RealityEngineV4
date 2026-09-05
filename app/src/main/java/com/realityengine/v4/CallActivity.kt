@@ -25,6 +25,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -72,7 +73,6 @@ class CallActivity : Activity(), SensorEventListener {
     private lateinit var coachWhyButton: Button
     private lateinit var coachExpandButton: Button
     private lateinit var groqUsage: TextView
-    private lateinit var signalPanel: PulseDeckSignalPanelView
     private lateinit var soundboardStore: SoundboardStore
     private lateinit var soundboardPlayer: CallSoundboardPlayer
 
@@ -259,13 +259,19 @@ class CallActivity : Activity(), SensorEventListener {
 
     /** Builds the selected Pulse Deck concept while retaining every existing call action. */
     private fun buildPulseDeckUi() {
-        callScroll = ScrollView(this).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.setDecorFitsSystemWindows(false)
+        }
+        val screen = LinearLayout(this).apply {
             tag = PULSE_DECK_ROOT_TAG
+            orientation = LinearLayout.VERTICAL
+            background = PulseDeckVisuals.backdrop()
+        }
+        callScroll = ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
             clipToPadding = false
-            background = PulseDeckVisuals.backdrop()
         }
         val root = LinearLayout(this).apply {
             tag = RealityVisuals.HUD_OWNED_TAG
@@ -301,7 +307,7 @@ class CallActivity : Activity(), SensorEventListener {
         }
         brandStack.addView(brandTitle)
         brandStack.addView(TextView(this).apply {
-            text = "R E A L I T Y   E N G I N E"
+            text = "P H O N E"
             setTextColor(muted)
             RealityTypography.displayMedium(this, 7.2f)
             letterSpacing = .08f
@@ -503,10 +509,11 @@ class CallActivity : Activity(), SensorEventListener {
         }
         root.addView(analysis, LinearLayout.LayoutParams(0, 0))
 
-        signalPanel = PulseDeckSignalPanelView(this).apply {
+        val signalVisual = LiveSignalVisualView(this).apply {
+            tag = PULSE_DECK_SIGNAL_TAG
             setOnClickListener { showSignalExplanation() }
         }
-        root.addView(signalPanel, LinearLayout.LayoutParams(-1, 122.dp()).apply { setMargins(0, 0, 0, 7.dp()) })
+        root.addView(signalVisual, LinearLayout.LayoutParams(-1, 92.dp()).apply { setMargins(0, 0, 0, 7.dp()) })
 
         val utilityRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -538,6 +545,11 @@ class CallActivity : Activity(), SensorEventListener {
         )
         root.addView(utilityRow, LinearLayout.LayoutParams(-1, 45.dp()).apply { setMargins(0, 0, 0, 6.dp()) })
 
+        val controlDock = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(8.dp(), 0, 8.dp(), 4.dp())
+        }
         val incoming = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         answerButton = pulseCallControl("Accept", R.drawable.ic_re_call, green, selected = true) {
             call?.takeIf { it.state == Call.STATE_RINGING }?.answer(0)
@@ -547,7 +559,7 @@ class CallActivity : Activity(), SensorEventListener {
         }
         incoming.addView(answerButton, buttonLayout(60))
         incoming.addView(rejectButton, buttonLayout(60))
-        root.addView(incoming)
+        controlDock.addView(incoming)
 
         val controls = GridLayout(this).apply {
             columnCount = 4
@@ -566,7 +578,7 @@ class CallActivity : Activity(), SensorEventListener {
                 setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp())
             })
         }
-        root.addView(controls, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, 5.dp()) })
+        controlDock.addView(controls, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 0, 0, 5.dp()) })
 
         // Keep the established secondary actions alive behind the header control without adding a
         // row the selected mockup does not contain.
@@ -608,7 +620,7 @@ class CallActivity : Activity(), SensorEventListener {
         bottom.addView(FrameLayout(this).apply {
             addView(endButton, FrameLayout.LayoutParams(74.dp(), 74.dp(), Gravity.CENTER))
         }, LinearLayout.LayoutParams(0, 82.dp(), 1f).apply { setMargins(3.dp(), 3.dp(), 3.dp(), 3.dp()) })
-        root.addView(bottom, LinearLayout.LayoutParams(-1, 88.dp()))
+        controlDock.addView(bottom, LinearLayout.LayoutParams(-1, 88.dp()))
 
         keypadContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -651,7 +663,10 @@ class CallActivity : Activity(), SensorEventListener {
         root.addView(keypadContainer, LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, 4.dp(), 0, 0) })
 
         callScroll.addView(root, FrameLayout.LayoutParams(-1, -2))
-        setContentView(callScroll)
+        screen.addView(callScroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        screen.addView(controlDock, LinearLayout.LayoutParams(-1, -2))
+        setContentView(screen)
+        installSafeAreaInsets(screen)
         renderCoach(ResponseCoachState.current())
         renderLiveSignals()
         renderTranscript(LiveTranscriptState.snapshot())
@@ -801,7 +816,6 @@ class CallActivity : Activity(), SensorEventListener {
 
     private fun renderLiveSignals() {
         val signal = LiveSignalState.snapshot()
-        if (::signalPanel.isInitialized) signalPanel.render(signal.acoustic, signal.linguistic, signal.factual)
         val coach = ResponseCoachState.current(); val best = coach.best
         analysis.text = when {
             best != null -> "NEXT ACTION  // ${best.mode} · ${best.tone}  |  FUSED ${signal.combined}%"
@@ -815,9 +829,38 @@ class CallActivity : Activity(), SensorEventListener {
 
     fun updateLiveSignals(acoustic: Int, linguistic: Int, factual: Int, nextAction: String? = null) {
         runOnUiThread {
-            if (::signalPanel.isInitialized) signalPanel.render(acoustic, linguistic, factual)
+            LiveSignalState.publishRealtime(acoustic, linguistic, factual)
             analysis.text = "NEXT ACTION  // ${nextAction?.takeIf { it.isNotBlank() } ?: "STANDBY"}"
         }
+    }
+
+    /**
+     * Android 15 lays target-SDK 35 activities edge-to-edge. Apply the real system-bar and cutout
+     * insets to the whole screen so the header and the pinned call controls always occupy the safe
+     * viewport instead of relying on device-specific top or bottom margins.
+     */
+    private fun installSafeAreaInsets(screen: View) {
+        // Pre-Android 11 decor already fits the content view inside system bars because we leave
+        // the platform's default decor-fitting behavior enabled there.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val baseLeft = screen.paddingLeft
+        val baseTop = screen.paddingTop
+        val baseRight = screen.paddingRight
+        val baseBottom = screen.paddingBottom
+        screen.setOnApplyWindowInsetsListener { view, insets ->
+            val safe = insets.getInsets(
+                WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout(),
+            )
+            view.setPadding(
+                baseLeft + safe.left,
+                baseTop + safe.top,
+                baseRight + safe.right,
+                baseBottom + safe.bottom,
+            )
+            insets
+        }
+        screen.requestApplyInsets()
+        screen.post { screen.requestApplyInsets() }
     }
 
     private fun requestQuickCoach(modeId: String) {
@@ -1162,6 +1205,7 @@ class CallActivity : Activity(), SensorEventListener {
     companion object {
         const val PULSE_DECK_ROOT_TAG = "realityengine.pulse.deck.root"
         const val PULSE_DECK_TRANSLATION_TAG = "reality.conversation.translation"
+        const val PULSE_DECK_SIGNAL_TAG = "reality.signal.visual.pulse"
         private const val KEY_CONNECTED_AT = "connected_started_at"
         private const val KEY_KEYPAD_OPEN = "keypad_open"
     }

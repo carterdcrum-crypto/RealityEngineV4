@@ -225,10 +225,15 @@ object ConversationOSOverlay {
                 strip.visibility = View.GONE
                 return
             }
-            strip.visibility = View.VISIBLE
-            if (!state.isFinal || state.text.isBlank() || state.text == lastTranslatedSource) return
+            if (!state.isFinal || state.text.isBlank() || state.text == lastTranslatedSource) {
+                // Enabling translation before a finalized turn used to reserve an empty 42dp panel.
+                // Keep the surface collapsed until there is something useful to show.
+                if (strip.text.isNullOrBlank()) strip.visibility = View.GONE
+                return
+            }
             lastTranslatedSource = state.text
             strip.text = "TRANSLATING · ${translation.pair}"
+            strip.visibility = View.VISIBLE
             translator.translate(state.text, translation.pair) { translated ->
                 activity.runOnUiThread {
                     if (!activity.isFinishing && !activity.isDestroyed) {

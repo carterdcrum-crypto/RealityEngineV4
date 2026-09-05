@@ -63,7 +63,10 @@ object SignalVisualOverlay {
         private val ticker = object : Runnable {
             override fun run() {
                 if (activity.isFinishing || activity.isDestroyed) return
-                if (!pulseDeck && visual == null) install()
+                if (visual?.parent == null) {
+                    visual = null
+                    install()
+                }
                 if (!pulseDeck) {
                     dedupeVisuals()
                     syncLayoutMode()
@@ -100,10 +103,22 @@ object SignalVisualOverlay {
 
         private fun install() {
             val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-            if (content.findViewWithTag<View>(CallActivity.PULSE_DECK_ROOT_TAG) != null) {
+            val pulseDeckRoot = content.findViewWithTag<View>(CallActivity.PULSE_DECK_ROOT_TAG)
+            if (pulseDeckRoot != null) {
                 pulseDeck = true
+                val embedded = collectSignalVisuals(pulseDeckRoot).firstOrNull()
+                if (embedded == null) {
+                    if (attempts++ < 20) handler.postDelayed({ install() }, 100L)
+                    return
+                }
+                visual = embedded
+                embedded.tag = TAG_VISUAL
+                embedded.setOnClickListener { showDetails() }
+                dedupeVisuals(content)
+                render(LiveTranscriptState.snapshot())
                 return
             }
+            pulseDeck = false
             if (dedupeVisuals(content) != null || installQueued) return
 
             installQueued = true
