@@ -76,6 +76,8 @@ class SplashActivity : Activity() {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             textAlign = Paint.Align.CENTER
         }
+        private val logo = BitmapFactory.decodeResource(resources, R.drawable.phone_signal_portal_foreground)
+        private val logoPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         private var p = 0f
         private val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 1550L
@@ -134,22 +136,20 @@ class SplashActivity : Activity() {
                 c.drawArc(RectF(cx - radius, cy - radius, cx + radius, cy + radius), p * -75f + r * 21f, 48f, false, paint)
             }
 
-            val logoSize = base * .72f
-            text.textSize = logoSize
-            text.typeface = Typeface.create("sans-serif-medium", Typeface.ITALIC)
-            text.color = Color.argb((255 * identity).toInt(), Color.red(ice), Color.green(ice), Color.blue(ice))
-            text.setShadowLayer(16f, 0f, 0f, ice)
-            c.drawText("R", cx - logoSize * .25f, cy + logoSize * .25f, text)
-            text.color = Color.argb((255 * identity).toInt(), Color.red(lilac), Color.green(lilac), Color.blue(lilac))
-            text.setShadowLayer(16f, 0f, 0f, lilac)
-            c.drawText("E", cx + logoSize * .25f, cy + logoSize * .25f, text)
-            text.clearShadowLayer()
+            val logoRadius = base * (1.08f + .08f * identity)
+            logoPaint.alpha = (255 * identity).toInt()
+            c.drawBitmap(
+                logo,
+                null,
+                RectF(cx - logoRadius, cy - logoRadius, cx + logoRadius, cy + logoRadius),
+                logoPaint,
+            )
 
             text.typeface = Typeface.create("sans-serif", Typeface.NORMAL)
             text.textSize = base * .18f
             text.letterSpacing = .16f
             text.color = Color.argb((255 * titleA).toInt(), 246, 248, 255)
-            c.drawText("REALITY ENGINE", cx, cy + base * 2.15f, text)
+            c.drawText("PHONE", cx, cy + base * 2.15f, text)
 
             text.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             text.textSize = base * .082f

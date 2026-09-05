@@ -60,7 +60,7 @@ class PreCallBriefingView(context: Context) : LinearLayout(context) {
             profile.conversationStarters.lastOrNull()?.let { add("OPENER · ${it.take(130)}") }
             if (profile.preferredConversationStyle.isNotBlank()) add("STYLE · ${profile.preferredConversationStyle.take(110)}")
         }
-        body.text = if (lines.isEmpty()) "First call with no saved context yet. Reality Engine will build a private conversation history from this call." else lines.take(6).joinToString("\n")
+        body.text = if (lines.isEmpty()) "First call with no saved context yet. Phone will build a private conversation history from this call." else lines.take(6).joinToString("\n")
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

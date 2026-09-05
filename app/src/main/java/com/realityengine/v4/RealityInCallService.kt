@@ -355,7 +355,7 @@ class RealityInCallService : InCallService() {
         if (Build.VERSION.SDK_INT >= 26) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
                 NotificationChannel(CHANNEL, "Active calls", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Return to or control an active Reality Engine call"
+                    description = "Return to or control an active Phone call"
                     setSound(null, null)
                 },
             )
@@ -381,7 +381,7 @@ class RealityInCallService : InCallService() {
         val rec = if (recordingActive()) " · REC" else ""
         val notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle("Reality Engine · Active call$rec")
+            .setContentTitle("Phone · Active call$rec")
             .setContentText(number)
             .setOngoing(true)
             .setCategory(NotificationCompat.CATEGORY_CALL)

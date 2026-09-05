@@ -35,7 +35,7 @@ class CoachPersonaManagerActivity : Activity() {
             RealityTypography.displayMedium(this, 24f)
         })
         root.addView(TextView(this).apply {
-            text = "AUTO inherits the default coach persona. With Adaptive selected, Reality Engine can use the caller's learned communication style."
+            text = "AUTO inherits the default coach persona. With Adaptive selected, Phone can use the caller's learned communication style."
             setTextColor(RealityVisuals.Colors.TextDim)
             RealityTypography.display(this, 12f)
             setPadding(0, dp(6), 0, dp(14))

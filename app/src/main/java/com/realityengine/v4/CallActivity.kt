@@ -900,7 +900,7 @@ class CallActivity : Activity(), SensorEventListener {
         }
         AlertDialog.Builder(this)
             .setTitle("Record this call?")
-            .setMessage("Reality Engine will visibly record the call-audio stream until hangup, then ask you to Save or Permanently Delete it. Only record where recording is permitted.")
+            .setMessage("Phone will visibly record the call-audio stream until hangup, then ask you to Save or Permanently Delete it. Only record where recording is permitted.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Start recording") { _, _ ->
                 if (!service.startRecording()) Toast.makeText(this, "Call audio recording is not available right now", Toast.LENGTH_SHORT).show()

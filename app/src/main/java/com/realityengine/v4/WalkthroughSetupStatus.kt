@@ -15,7 +15,7 @@ object WalkthroughSetupStatus {
             WalkthroughActionRouter.Action.DEFAULT_PHONE -> {
                 val telecom = activity.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
                 val ready = telecom.defaultDialerPackage == activity.packageName
-                Status(ready, if (ready) "Ready — Reality Engine is your phone app" else "Needs setup — choose Reality Engine as your phone app")
+                Status(ready, if (ready) "Ready — Phone is your phone app" else "Needs setup — choose Phone as your phone app")
             }
             WalkthroughActionRouter.Action.PERMISSIONS -> {
                 val mic = activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED

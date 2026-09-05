@@ -230,7 +230,7 @@ class SettingsDashboardScreen(
             if (store.privateUpdaterConfigured()) "READY" else "TOKEN",
             if (store.privateUpdaterConfigured()) green else amber,
         ) { editSecret("GitHub updater token", store.githubUpdaterToken) { store.githubUpdaterToken = it } })
-        root.addView(row("About Reality Engine", "Capabilities, design intent and signal guidance", "INFO", magenta, onAbout))
+        root.addView(row("About Phone", "Capabilities, design intent and signal guidance", "INFO", magenta, onAbout))
 
         return root
     }
@@ -376,7 +376,7 @@ class SettingsDashboardScreen(
         return telecom.defaultDialerPackage == activity.packageName
     }
 
-    private fun defaultPhoneDetail() = if (isDefaultPhone()) "Reality Engine is the active phone app" else "Choose Reality Engine as the default phone app"
+    private fun defaultPhoneDetail() = if (isDefaultPhone()) "Phone is the active phone app" else "Choose Phone as the default phone app"
     private fun microphoneReady() = activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     private fun shizukuReady() = ShizukuAudioStatus.binderAvailable() && ShizukuAudioStatus.permissionGranted()
     private fun shizukuDetail() = when {

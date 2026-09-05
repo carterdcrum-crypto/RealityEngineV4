@@ -119,7 +119,7 @@ class TranscriptLibraryActivity : Activity() {
             .setNeutralButton("Delete") { _, _ ->
                 AlertDialog.Builder(this)
                     .setTitle("Delete transcript?")
-                    .setMessage("This permanently removes this saved transcript from Reality Engine private storage.")
+                    .setMessage("This permanently removes this saved transcript from Phone private storage.")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Delete") { _, _ ->
                         CallTranscriptStore.delete(saved)

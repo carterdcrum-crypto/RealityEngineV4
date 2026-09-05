@@ -55,7 +55,7 @@ fun RealityHUDOverlay(state: HUDState, modifier: Modifier = Modifier) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        Text("REALITY ENGINE // MULTIMODAL HUD", color = Color(0xFF55EFFF), fontSize = 12.sp)
+        Text("PHONE // MULTIMODAL HUD", color = Color(0xFF55EFFF), fontSize = 12.sp)
         HonestyCore(state, pulse)
         Row(
             modifier = Modifier.fillMaxWidth(),

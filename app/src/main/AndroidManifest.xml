@@ -18,7 +18,7 @@
 
     <!-- Native Telecom exposes no supported arbitrary media-to-uplink injection API. The soundboard uses local speaker-coupled playback and states that limitation in-app. -->
     <!-- Product-hardening UI is native/local-first; runtime health telemetry stores no transcript text. -->
-    <application android:name=".RealityEngineApp" android:allowBackup="false" android:label="Reality Engine" android:icon="@drawable/reality_engine_icon" android:roundIcon="@drawable/reality_engine_icon" android:theme="@style/AppTheme" android:supportsRtl="true">
+    <application android:name=".RealityEngineApp" android:allowBackup="false" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher" android:theme="@style/AppTheme" android:supportsRtl="true">
         <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="${applicationId}.shizuku" android:multiprocess="false" android:enabled="true" android:exported="true" android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <provider android:name=".RealityFileProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_file_paths" /></provider>
         <activity android:name=".SplashActivity" android:exported="true" android:noHistory="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity>
