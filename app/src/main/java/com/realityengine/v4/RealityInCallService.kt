@@ -32,7 +32,6 @@ class RealityInCallService : InCallService() {
     private lateinit var settings: SettingsStore
     private val finalizedCalls = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
     private val finalizedRecordings = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
-    private val incomingCalls = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Call, Boolean>())
     private val mainHandler by lazy { Handler(mainLooper) }
     @Volatile private var failedCall: Call? = null
     private var ringtone: Ringtone? = null
@@ -71,7 +70,6 @@ class RealityInCallService : InCallService() {
         super.onCallAdded(call)
         finalizedCalls.remove(call)
         finalizedRecordings.remove(call)
-        incomingCalls[call] = call.state == Call.STATE_RINGING
         failedCall = null
         if (CallSessionRegistry.primary() == null) clearLiveSession()
         CallSessionRegistry.add(call)
@@ -89,7 +87,6 @@ class RealityInCallService : InCallService() {
         if (ringingCall === call) stopRingtone()
         finalizeCallEnd(call, endedNumber)
         CallSessionRegistry.remove(call)
-        incomingCalls.remove(call)
         if (CallSessionRegistry.primary() != null) {
             syncRinging()
             syncTranscription()
@@ -203,14 +200,14 @@ class RealityInCallService : InCallService() {
 
     private fun finalizeCallEnd(call: Call, phoneNumber: String) {
         val firstFinalize = finalizeOnce(call, phoneNumber)
-        val openIncomingProfile = firstFinalize && incomingCalls[call] == true && phoneNumber.isNotBlank()
-        if (openIncomingProfile) {
+        val openPostCallProfile = firstFinalize && phoneNumber.isNotBlank()
+        if (openPostCallProfile) {
             val match = ContactMediaStore.findByNumber(this, phoneNumber)
             val name = match?.name?.takeIf { it.isNotBlank() } ?: phoneNumber
             PostCallProfileState.queue(phoneNumber, name)
         }
         val reviewStarted = finalizeRecordingOnce(call, phoneNumber)
-        if (openIncomingProfile && !reviewStarted) {
+        if (openPostCallProfile && !reviewStarted) {
             mainHandler.postDelayed(
                 { PostCallProfileState.launchIfPending(this) },
                 700L,

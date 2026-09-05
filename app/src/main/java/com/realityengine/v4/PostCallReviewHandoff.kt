@@ -11,12 +11,12 @@ import java.util.Collections
 import java.util.WeakHashMap
 
 /**
- * Guarantees that a user-approved recording reaches the explicit Save / Permanently Delete review.
+ * Guarantees that an ended call reaches Phone's recording review or caller-memory destination.
  *
  * Android may reject an Activity launch initiated from InCallService after the call is no longer
  * considered foreground. This handoff watches the already-visible call Activity, and also performs
- * a catch-up check whenever MainActivity returns to the foreground. The recording remains pending
- * until PostCallReviewActivity receives an explicit user decision.
+ * a catch-up check whenever MainActivity returns to the foreground. A recording remains pending
+ * until PostCallReviewActivity receives an explicit user decision; otherwise caller memory opens.
  */
 object PostCallReviewHandoff {
     private val handler = Handler(Looper.getMainLooper())
@@ -75,11 +75,12 @@ object PostCallReviewHandoff {
         polls.remove(activity)?.let(handler::removeCallbacks)
     }
 
-    private fun launchIfPending(activity: Activity): Boolean {
+    internal fun launchIfPending(activity: Activity): Boolean {
         if (activity is PostCallReviewActivity || activity.isFinishing || activity.isDestroyed) return false
-        val pending = CallRecordingState.peek() ?: return false
         val current = CallSessionRegistry.primary()
         if (current != null && current.state != Call.STATE_DISCONNECTED) return false
+        val pending = CallRecordingState.peek()
+            ?: return PostCallProfileState.launchIfPending(activity)
 
         synchronized(this) {
             if (launchingStartedAtMs == pending.startedAtMs) return true
