@@ -778,6 +778,12 @@ class MainActivity : Activity() {
                 return
             }
             try {
+                // Claim foreground ownership while this Activity is still user-visible. Telecom can
+                // then bind RealityInCallService into an already-visible Phone call surface instead
+                // of allowing Samsung's preloaded in-call UI to win the initial outgoing handoff.
+                startActivity(Intent(this, CallActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                })
                 telecom.placeCall(Uri.fromParts("tel", value, null), null)
             } catch (_: Exception) {
                 if (::error.isInitialized) error.text = "Connection failed"
