@@ -26,10 +26,18 @@ class RealityInCallService : InCallService() {
         const val ACTION_END_CALL = "com.realityengine.v4.END_CALL"
     }
 
-    private lateinit var transcription: LiveTranscriptionPipeline
-    private lateinit var audioRouter: AudioCaptureRouter
-    private lateinit var summaryBuilder: CallSummaryBuilder
-    private lateinit var settings: SettingsStore
+    /*
+     * Keep the Telecom bind path deliberately tiny. Android falls back to the preloaded dialer if
+     * the default dialer's InCallService cannot bind. Call intelligence is therefore initialized
+     * only after Telecom has delivered a Call and Phone has registered/launched its core call UI.
+     */
+    private var transcription: LiveTranscriptionPipeline? = null
+    private var audioRouter: AudioCaptureRouter? = null
+    private var summaryBuilder: CallSummaryBuilder? = null
+    private var settings: SettingsStore? = null
+    @Volatile private var engineInitAttempted = false
+    @Volatile private var engineInitFailure: String? = null
+
     private val finalizedCalls = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
     private val finalizedRecordings = java.util.Collections.newSetFromMap(java.util.WeakHashMap<Call, Boolean>())
     private val mainHandler by lazy { Handler(mainLooper) }
@@ -42,21 +50,15 @@ class RealityInCallService : InCallService() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        LiveSignalState.initialize(applicationContext)
-        transcription = LiveTranscriptionPipeline(applicationContext)
-        audioRouter = AudioCaptureRouter(applicationContext)
-        summaryBuilder = CallSummaryBuilder(applicationContext)
-        settings = SettingsStore(applicationContext)
-        createCallChannel()
-        ShizukuAudioStatus.requestPermission()
+        runCatching { createCallChannel() }
     }
 
     override fun onDestroy() {
         stopRingtone()
-        cancelCallNotification()
-        transcription.stop()
-        transcription.discardRecording()
-        clearLiveSession()
+        runCatching { cancelCallNotification() }
+        runCatching { transcription?.stop() }
+        runCatching { transcription?.discardRecording() }
+        runCatching { clearLiveSession() }
         if (instance === this) instance = null
         super.onDestroy()
     }
@@ -80,13 +82,18 @@ class RealityInCallService : InCallService() {
         finalizedRecordings.remove(call)
         failedCall = null
         if (CallSessionRegistry.primary() == null) clearLiveSession()
+
+        // Telecom ownership first; optional audio/AI initialization second.
         CallSessionRegistry.add(call)
         call.registerCallback(callback)
-        syncRinging()
-        syncTranscription()
         showCallNotification()
         launchCallUi()
         armCallUiForeground(call)
+        syncRinging()
+
+        if (ensureEnginesReady()) {
+            runCatching { syncTranscription() }
+        }
     }
 
     override fun onCallRemoved(call: Call) {
@@ -94,17 +101,17 @@ class RealityInCallService : InCallService() {
         call.unregisterCallback(callback)
         if (failedCall === call) failedCall = null
         if (ringingCall === call) stopRingtone()
-        finalizeCallEnd(call, endedNumber)
+        runCatching { finalizeCallEnd(call, endedNumber) }
         CallSessionRegistry.remove(call)
         if (CallSessionRegistry.primary() != null) {
             syncRinging()
-            syncTranscription()
+            if (ensureEnginesReady()) runCatching { syncTranscription() }
             showCallNotification()
             launchCallUi()
         } else {
             stopRingtone()
             cancelCallNotification()
-            transcription.stop()
+            runCatching { transcription?.stop() }
             currentEndpoint = null
             availableEndpoints = emptyList()
             clearLiveSession()
@@ -116,13 +123,10 @@ class RealityInCallService : InCallService() {
         super.onCallAudioStateChanged(audioState)
         val primary = CallSessionRegistry.primary()
         if (primary != null) {
-            // Incoming calls can report ACTIVE slightly before the capture route is ready. A later
-            // audio-route callback is a valid reason to retry instead of permanently honoring the
-            // first startup failure.
-            if (primary.state == Call.STATE_ACTIVE && failedCall === primary && !transcription.isRunning()) {
+            if (primary.state == Call.STATE_ACTIVE && failedCall === primary && transcription?.isRunning() != true) {
                 failedCall = null
             }
-            syncTranscription()
+            if (ensureEnginesReady()) runCatching { syncTranscription() }
             showCallNotification()
             launchCallUi()
         }
@@ -133,10 +137,10 @@ class RealityInCallService : InCallService() {
         currentEndpoint = callEndpoint
         val primary = CallSessionRegistry.primary()
         if (primary != null) {
-            if (primary.state == Call.STATE_ACTIVE && failedCall === primary && !transcription.isRunning()) {
+            if (primary.state == Call.STATE_ACTIVE && failedCall === primary && transcription?.isRunning() != true) {
                 failedCall = null
             }
-            syncTranscription()
+            if (ensureEnginesReady()) runCatching { syncTranscription() }
             showCallNotification()
             launchCallUi()
         }
@@ -170,16 +174,18 @@ class RealityInCallService : InCallService() {
     }
 
     fun isMutedNow(): Boolean = callAudioState?.isMuted == true
-    fun recordingActive(): Boolean = transcription.isRecording()
+    fun recordingActive(): Boolean = transcription?.isRecording() == true
 
     /** Starts a visible user-requested recording on the already-authorized call-audio stream. */
     fun startRecording(): Boolean {
         val call = CallSessionRegistry.primary() ?: return false
         if (call.state != Call.STATE_ACTIVE) return false
+        if (!ensureEnginesReady()) return false
+        val pipeline = transcription ?: return false
         val number = CallSessionRegistry.numberFor(call).orEmpty().ifBlank { "Unknown" }
         val match = ContactMediaStore.findByNumber(this, number)
         val name = match?.name?.takeIf { it.isNotBlank() } ?: number
-        val started = transcription.startRecording(number, name)
+        val started = pipeline.startRecording(number, name)
         if (started) {
             showCallNotification()
             launchCallUi()
@@ -187,19 +193,48 @@ class RealityInCallService : InCallService() {
         return started
     }
 
+    private fun ensureEnginesReady(): Boolean {
+        if (transcription != null && audioRouter != null && summaryBuilder != null && settings != null) return true
+        if (engineInitAttempted && engineInitFailure != null) return false
+        engineInitAttempted = true
+        return try {
+            LiveSignalState.initialize(applicationContext)
+            val newSettings = SettingsStore(applicationContext)
+            val newTranscription = LiveTranscriptionPipeline(applicationContext)
+            val newAudioRouter = AudioCaptureRouter(applicationContext)
+            val newSummaryBuilder = CallSummaryBuilder(applicationContext)
+            settings = newSettings
+            transcription = newTranscription
+            audioRouter = newAudioRouter
+            summaryBuilder = newSummaryBuilder
+            engineInitFailure = null
+            true
+        } catch (t: Throwable) {
+            engineInitFailure = t.message?.takeIf { it.isNotBlank() } ?: t.javaClass.simpleName
+            AudioRouteState.publish(
+                AudioCaptureRouter.Decision(
+                    AudioCaptureRouter.Route.UNAVAILABLE,
+                    "Call intelligence unavailable: ${engineInitFailure.orEmpty().take(120)}",
+                    false,
+                ),
+            )
+            false
+        }
+    }
+
     @Synchronized
     private fun finalizeOnce(call: Call, phoneNumber: String): Boolean {
         if (!finalizedCalls.add(call)) return false
         val transcriptKey = phoneNumber.ifBlank { "Unknown" }
         val savedTranscript = CallTranscriptStore.save(applicationContext, transcriptKey, LiveTranscriptState.transcript())
-        if (phoneNumber.isNotBlank()) summaryBuilder.finalize(phoneNumber, savedTranscript?.text.orEmpty())
+        if (phoneNumber.isNotBlank()) runCatching { summaryBuilder?.finalize(phoneNumber, savedTranscript?.text.orEmpty()) }
         return true
     }
 
     @Synchronized
     private fun finalizeRecordingOnce(call: Call, phoneNumber: String): Boolean {
         if (!finalizedRecordings.add(call)) return false
-        val recording = transcription.finishRecording() ?: return false
+        val recording = transcription?.finishRecording() ?: return false
         CallRecordingState.publish(recording)
         startActivity(Intent(this, PostCallReviewActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -225,15 +260,17 @@ class RealityInCallService : InCallService() {
     }
 
     private fun maybeStartAutoRecording(call: Call) {
-        if (!settings.autoRecordCalls || transcription.isRecording() || call.state != Call.STATE_ACTIVE) return
+        val currentSettings = settings ?: return
+        val pipeline = transcription ?: return
+        if (!currentSettings.autoRecordCalls || pipeline.isRecording() || call.state != Call.STATE_ACTIVE) return
         val number = CallSessionRegistry.numberFor(call).orEmpty().ifBlank { "Unknown" }
         val match = ContactMediaStore.findByNumber(this, number)
         val name = match?.name?.takeIf { it.isNotBlank() } ?: number
-        transcription.startRecording(number, name)
+        pipeline.startRecording(number, name)
     }
 
     private fun clearLiveSession() {
-        if (::transcription.isInitialized) transcription.clearConversation()
+        runCatching { transcription?.clearConversation() }
         LiveTranscriptState.clear()
         LiveSignalState.clear()
         AudioRouteState.clear()
@@ -255,7 +292,8 @@ class RealityInCallService : InCallService() {
     }
 
     private fun startNative(call: Call) {
-        when (val result = transcription.start(onStopped = { reason ->
+        val pipeline = transcription ?: return
+        when (val result = pipeline.start(onStopped = { reason ->
             runOnMain {
                 if (CallSessionRegistry.primary() === call && call.state == Call.STATE_ACTIVE) publishFailure(call, reason)
             }
@@ -266,7 +304,8 @@ class RealityInCallService : InCallService() {
     }
 
     private fun startTwilio(call: Call) {
-        when (val result = transcription.startTwilio(onStopped = { reason ->
+        val pipeline = transcription ?: return
+        when (val result = pipeline.startTwilio(onStopped = { reason ->
             runOnMain {
                 if (CallSessionRegistry.primary() === call && call.state == Call.STATE_ACTIVE) publishFailure(call, reason)
             }
@@ -290,21 +329,19 @@ class RealityInCallService : InCallService() {
         val delays = longArrayOf(250L, 700L, 1_400L, 2_800L)
         delays.forEach { delay ->
             mainHandler.postDelayed({
-                if (CallSessionRegistry.primary() !== call || call.state != Call.STATE_ACTIVE || transcription.isRunning()) {
+                val pipeline = transcription ?: return@postDelayed
+                if (CallSessionRegistry.primary() !== call || call.state != Call.STATE_ACTIVE || pipeline.isRunning()) {
                     return@postDelayed
                 }
                 if (failedCall === call) failedCall = null
-                syncTranscription()
+                runCatching { syncTranscription() }
             }, delay)
         }
     }
 
-    /**
-     * Samsung may briefly promote its own in-call surface after Telecom accepts a new call. Reassert
-     * the default dialer's Activity during that handoff so Phone remains the visible call UI.
-     */
+    /** Keep Phone visible across OEM Telecom handoff churn. */
     private fun armCallUiForeground(call: Call) {
-        val delays = longArrayOf(120L, 420L, 900L)
+        val delays = longArrayOf(120L, 420L, 900L, 1_600L, 2_600L, 4_000L)
         delays.forEach { delay ->
             mainHandler.postDelayed({
                 if (CallSessionRegistry.primary() === call && call.state != Call.STATE_DISCONNECTED) {
@@ -346,30 +383,32 @@ class RealityInCallService : InCallService() {
     }
 
     private fun syncTranscription() {
+        val pipeline = transcription ?: return
+        val router = audioRouter ?: return
         val call = CallSessionRegistry.primary() ?: run {
-            transcription.stop()
+            pipeline.stop()
             failedCall = null
             clearLiveSession()
             return
         }
         if (call.state != Call.STATE_ACTIVE) {
-            if (transcription.isRunning()) transcription.stop()
+            if (pipeline.isRunning()) pipeline.stop()
             if (call.state == Call.STATE_DISCONNECTED) failedCall = null
             AudioRouteState.clear()
             showCallNotification()
             launchCallUi()
             return
         }
-        if (failedCall === call && !transcription.isRunning()) return
-        val decision = audioRouter.decide(twilioCallActive = TwilioFallbackState.isActive())
+        if (failedCall === call && !pipeline.isRunning()) return
+        val decision = router.decide(twilioCallActive = TwilioFallbackState.isActive())
         AudioRouteState.publish(decision)
         AudioRouteState.diagnose(applicationContext)
         when (decision.route) {
-            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> if (!transcription.isRunning()) startNative(call)
-            AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> if (!transcription.isRunning()) startTwilio(call)
-            else -> if (transcription.isRunning()) transcription.stop()
+            AudioCaptureRouter.Route.SHIZUKU_VOICE_CALL -> if (!pipeline.isRunning()) startNative(call)
+            AudioCaptureRouter.Route.TWILIO_MEDIA_STREAM -> if (!pipeline.isRunning()) startTwilio(call)
+            else -> if (pipeline.isRunning()) pipeline.stop()
         }
-        if (transcription.isRunning()) maybeStartAutoRecording(call)
+        if (pipeline.isRunning()) maybeStartAutoRecording(call)
     }
 
     private fun createCallChannel() {
@@ -439,30 +478,30 @@ class RealityInCallService : InCallService() {
             syncRinging()
             if (state == Call.STATE_DISCONNECTED) {
                 val endedNumber = CallSessionRegistry.numberFor(call).orEmpty()
-                finalizeCallEnd(call, endedNumber)
+                runCatching { finalizeCallEnd(call, endedNumber) }
                 CallSessionRegistry.removeIfDisconnected(call)
                 if (failedCall === call) failedCall = null
                 if (CallSessionRegistry.primary() == null) {
                     stopRingtone()
                     cancelCallNotification()
-                    transcription.stop()
+                    runCatching { transcription?.stop() }
                     clearLiveSession()
                 } else {
                     syncRinging()
-                    syncTranscription()
+                    if (ensureEnginesReady()) runCatching { syncTranscription() }
                     showCallNotification()
                     launchCallUi()
                 }
             } else {
                 CallSessionRegistry.add(call)
                 if (state == Call.STATE_ACTIVE) {
-                    // Treat ACTIVE as a fresh chance even if the first capture attempt happened a few
-                    // milliseconds before the route was ready.
-                    if (failedCall === call && !transcription.isRunning()) failedCall = null
-                    syncTranscription()
-                    armTranscriptionWarmup(call)
-                } else {
-                    syncTranscription()
+                    if (failedCall === call && transcription?.isRunning() != true) failedCall = null
+                    if (ensureEnginesReady()) {
+                        runCatching { syncTranscription() }
+                        armTranscriptionWarmup(call)
+                    }
+                } else if (ensureEnginesReady()) {
+                    runCatching { syncTranscription() }
                 }
                 syncRinging()
                 showCallNotification()
