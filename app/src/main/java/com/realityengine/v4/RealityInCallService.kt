@@ -70,10 +70,9 @@ class RealityInCallService : InCallService() {
 
     override fun onBringToForeground(showDialpad: Boolean) {
         super.onBringToForeground(showDialpad)
-        val call = CallSessionRegistry.primary() ?: return
+        if (CallSessionRegistry.primary() == null) return
         showCallNotification()
         launchCallUi()
-        armCallUiForeground(call)
     }
 
     override fun onCallAdded(call: Call) {
@@ -83,12 +82,13 @@ class RealityInCallService : InCallService() {
         failedCall = null
         if (CallSessionRegistry.primary() == null) clearLiveSession()
 
-        // Telecom ownership first; optional audio/AI initialization second.
+        // Once Phone owns ROLE_DIALER, Telecom owns the handoff. Launch the call UI once and let the
+        // Activity/registry update in place; repeatedly re-launching it during callbacks can race
+        // Samsung's task manager and kill the default-dialer process.
         CallSessionRegistry.add(call)
         call.registerCallback(callback)
         showCallNotification()
         launchCallUi()
-        armCallUiForeground(call)
         syncRinging()
 
         if (ensureEnginesReady()) {
@@ -107,7 +107,6 @@ class RealityInCallService : InCallService() {
             syncRinging()
             if (ensureEnginesReady()) runCatching { syncTranscription() }
             showCallNotification()
-            launchCallUi()
         } else {
             stopRingtone()
             cancelCallNotification()
@@ -128,7 +127,6 @@ class RealityInCallService : InCallService() {
             }
             if (ensureEnginesReady()) runCatching { syncTranscription() }
             showCallNotification()
-            launchCallUi()
         }
     }
 
@@ -142,14 +140,12 @@ class RealityInCallService : InCallService() {
             }
             if (ensureEnginesReady()) runCatching { syncTranscription() }
             showCallNotification()
-            launchCallUi()
         }
     }
 
     override fun onAvailableCallEndpointsChanged(endpoints: List<CallEndpoint>) {
         super.onAvailableCallEndpointsChanged(endpoints)
         availableEndpoints = endpoints.toList()
-        if (CallSessionRegistry.primary() != null) launchCallUi()
     }
 
     fun availableCallEndpointsSnapshot(): List<CallEndpoint> = availableEndpoints.toList()
@@ -186,10 +182,7 @@ class RealityInCallService : InCallService() {
         val match = ContactMediaStore.findByNumber(this, number)
         val name = match?.name?.takeIf { it.isNotBlank() } ?: number
         val started = pipeline.startRecording(number, name)
-        if (started) {
-            showCallNotification()
-            launchCallUi()
-        }
+        if (started) showCallNotification()
         return started
     }
 
@@ -288,7 +281,6 @@ class RealityInCallService : InCallService() {
             ),
         )
         showCallNotification()
-        launchCallUi()
     }
 
     private fun startNative(call: Call) {
@@ -339,18 +331,6 @@ class RealityInCallService : InCallService() {
         }
     }
 
-    /** Keep Phone visible across OEM Telecom handoff churn. */
-    private fun armCallUiForeground(call: Call) {
-        val delays = longArrayOf(120L, 420L, 900L, 1_600L, 2_600L, 4_000L)
-        delays.forEach { delay ->
-            mainHandler.postDelayed({
-                if (CallSessionRegistry.primary() === call && call.state != Call.STATE_DISCONNECTED) {
-                    launchCallUi()
-                }
-            }, delay)
-        }
-    }
-
     private fun syncRinging() {
         val call = CallSessionRegistry.primary()
         if (call == null || call.state != Call.STATE_RINGING) {
@@ -396,7 +376,6 @@ class RealityInCallService : InCallService() {
             if (call.state == Call.STATE_DISCONNECTED) failedCall = null
             AudioRouteState.clear()
             showCallNotification()
-            launchCallUi()
             return
         }
         if (failedCall === call && !pipeline.isRunning()) return
@@ -423,46 +402,48 @@ class RealityInCallService : InCallService() {
     }
 
     private fun showCallNotification() {
-        val call = CallSessionRegistry.primary() ?: return
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        val open = PendingIntent.getActivity(
-            this,
-            1,
-            Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val end = PendingIntent.getService(
-            this,
-            2,
-            Intent(this, RealityInCallService::class.java).setAction(ACTION_END_CALL),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val number = CallSessionRegistry.numberFor(call).orEmpty().ifBlank { "Active call" }
-        val rec = if (recordingActive()) " · REC" else ""
-        val notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle("Phone · Active call$rec")
-            .setContentText(number)
-            .setOngoing(true)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(open)
-            .addAction(android.R.drawable.sym_action_call, "Return to call", open)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "End call", end)
-            .build()
-        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+        runCatching {
+            val call = CallSessionRegistry.primary() ?: return@runCatching
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return@runCatching
+            val open = PendingIntent.getActivity(
+                this,
+                1,
+                Intent(this, CallActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val end = PendingIntent.getService(
+                this,
+                2,
+                Intent(this, RealityInCallService::class.java).setAction(ACTION_END_CALL),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val number = CallSessionRegistry.numberFor(call).orEmpty().ifBlank { "Active call" }
+            val rec = if (recordingActive()) " · REC" else ""
+            val notification = NotificationCompat.Builder(this, CHANNEL)
+                .setSmallIcon(android.R.drawable.sym_action_call)
+                .setContentTitle("Phone · Active call$rec")
+                .setContentText(number)
+                .setOngoing(true)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(open)
+                .addAction(android.R.drawable.sym_action_call, "Return to call", open)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "End call", end)
+                .build()
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun cancelCallNotification() {
-        getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+        runCatching { getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) }
     }
 
     private fun launchCallUi() {
-        startActivity(Intent(this, CallActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        })
+        runCatching {
+            startActivity(Intent(this, CallActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            })
+        }
     }
 
     private val callback = object : Call.Callback() {
@@ -470,7 +451,6 @@ class RealityInCallService : InCallService() {
             CallSessionRegistry.refreshDetails(call)
             syncRinging()
             showCallNotification()
-            launchCallUi()
         }
 
         override fun onStateChanged(call: Call, state: Int) {
@@ -490,7 +470,6 @@ class RealityInCallService : InCallService() {
                     syncRinging()
                     if (ensureEnginesReady()) runCatching { syncTranscription() }
                     showCallNotification()
-                    launchCallUi()
                 }
             } else {
                 CallSessionRegistry.add(call)
@@ -505,7 +484,6 @@ class RealityInCallService : InCallService() {
                 }
                 syncRinging()
                 showCallNotification()
-                launchCallUi()
             }
         }
     }
