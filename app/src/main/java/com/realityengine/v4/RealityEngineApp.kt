@@ -13,9 +13,9 @@ class RealityEngineApp : Application() {
         super.onCreate()
         registerActivityLifecycleCallbacks(RealityOperatorSkin.callbacks)
         registerActivityLifecycleCallbacks(RealityVectorIconGuard.callbacks)
-        registerActivityLifecycleCallbacks(ConversationOSNonCallCallbacks.callbacks)
+        registerActivityLifecycleCallbacks(ConversationOSOverlay.callbacks)
         registerActivityLifecycleCallbacks(LiveTranscriptLayoutOverlay.callbacks)
-        registerActivityLifecycleCallbacks(PulseDeckRuntime.callbacks)
+        registerActivityLifecycleCallbacks(SignalVisualOverlay.callbacks)
         registerActivityLifecycleCallbacks(RecordingDiscoveryOverlay.callbacks)
         registerActivityLifecycleCallbacks(PostCallReviewHandoff.callbacks)
     }

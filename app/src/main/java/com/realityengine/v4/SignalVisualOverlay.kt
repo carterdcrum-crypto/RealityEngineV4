@@ -50,7 +50,6 @@ object SignalVisualOverlay {
         private var listenerAdded = false
         private var installQueued = false
         private var attempts = 0
-        private var pulseDeck = false
 
         private val transcriptListener: (LiveTranscriptState.State) -> Unit = { state ->
             activity.runOnUiThread {
@@ -63,15 +62,10 @@ object SignalVisualOverlay {
         private val ticker = object : Runnable {
             override fun run() {
                 if (activity.isFinishing || activity.isDestroyed) return
-                if (visual?.parent == null) {
-                    visual = null
-                    install()
-                }
-                if (!pulseDeck) {
-                    dedupeVisuals()
-                    syncLayoutMode()
-                    hideLegacySignals()
-                }
+                if (visual == null) install()
+                dedupeVisuals()
+                syncLayoutMode()
+                hideLegacySignals()
                 render(LiveTranscriptState.snapshot())
                 handler.postDelayed(this, 120L)
             }
@@ -98,27 +92,10 @@ object SignalVisualOverlay {
             listenerAdded = false
             installQueued = false
             visual = null
-            pulseDeck = false
         }
 
         private fun install() {
             val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
-            val pulseDeckRoot = content.findViewWithTag<View>(CallActivity.PULSE_DECK_ROOT_TAG)
-            if (pulseDeckRoot != null) {
-                pulseDeck = true
-                val embedded = collectSignalVisuals(pulseDeckRoot).firstOrNull()
-                if (embedded == null) {
-                    if (attempts++ < 20) handler.postDelayed({ install() }, 100L)
-                    return
-                }
-                visual = embedded
-                embedded.tag = TAG_VISUAL
-                embedded.setOnClickListener { showDetails() }
-                dedupeVisuals(content)
-                render(LiveTranscriptState.snapshot())
-                return
-            }
-            pulseDeck = false
             if (dedupeVisuals(content) != null || installQueued) return
 
             installQueued = true
