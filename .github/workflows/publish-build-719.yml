@@ -1,0 +1,36 @@
+name: Publish Build 719 Release
+
+on:
+  push:
+    branches:
+      - release-publish-719
+    paths:
+      - .github/workflows/publish-build-719.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download green Build 719 APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download updater-latest \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'RealityEngineV4-latest.apk' \
+            --clobber
+          mv RealityEngineV4-latest.apk RealityEngineV4-build-719.apk
+
+      - name: Publish versioned GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create build-719 RealityEngineV4-build-719.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 7ca7d6039377b8b6aa7eade42e92338fb08e6ff2 \
+            --title 'Phone Build 719' \
+            --notes 'Green Build 719. Includes Pulse Deck visuals, Fused Core signal display, and app-wide adaptive sizing while preserving the proven call behavior.' \
+            --latest
