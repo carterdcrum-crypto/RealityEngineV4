@@ -148,7 +148,7 @@ object PulseDeckCallSkin {
             letterSpacing = .07f
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
-        val panel = findView<LiveTranscriptPanelView>(root)
+        val panel = findView(root, LiveTranscriptPanelView::class.java)
         panel?.background = PulseDeckVisuals.panel(
             activity,
             start = PulseDeckVisuals.Colors.PanelTop,
@@ -212,7 +212,7 @@ object PulseDeckCallSkin {
         panel.background = PulseDeckVisuals.panel(activity, radiusDp = 16f)
 
         val bars = mutableListOf<ProgressBar>()
-        collectViews(panel, bars)
+        collectViews(panel, ProgressBar::class.java, bars)
         val accents = intArrayOf(
             PulseDeckVisuals.Colors.Cyan,
             PulseDeckVisuals.Colors.Amber,
@@ -242,7 +242,7 @@ object PulseDeckCallSkin {
 
     private fun styleButtons(activity: CallActivity, root: View) {
         val buttons = mutableListOf<Button>()
-        collectViews(root, buttons)
+        collectViews(root, Button::class.java, buttons)
         buttons.forEach { button ->
             val label = button.text?.toString().orEmpty().trim().uppercase()
             if (label.length == 1 && label[0] in "0123456789*#") return@forEach
@@ -273,7 +273,7 @@ object PulseDeckCallSkin {
 
     private fun styleKeypad(activity: CallActivity, root: View) {
         val buttons = mutableListOf<Button>()
-        collectViews(root, buttons)
+        collectViews(root, Button::class.java, buttons)
         buttons.forEach { button ->
             val label = button.text?.toString().orEmpty().trim()
             if (label.length != 1 || label[0] !in "0123456789*#") return@forEach
@@ -300,20 +300,20 @@ object PulseDeckCallSkin {
         return null
     }
 
-    private inline fun <reified T : View> findView(root: View): T? {
-        if (root is T) return root
+    private fun <T : View> findView(root: View, clazz: Class<T>): T? {
+        if (clazz.isInstance(root)) return clazz.cast(root)
         if (root is ViewGroup) {
             for (i in 0 until root.childCount) {
-                findView<T>(root.getChildAt(i))?.let { return it }
+                findView(root.getChildAt(i), clazz)?.let { return it }
             }
         }
         return null
     }
 
-    private inline fun <reified T : View> collectViews(root: View, output: MutableList<T>) {
-        if (root is T) output += root
+    private fun <T : View> collectViews(root: View, clazz: Class<T>, output: MutableList<T>) {
+        if (clazz.isInstance(root)) output += clazz.cast(root)
         if (root is ViewGroup) {
-            for (i in 0 until root.childCount) collectViews(root.getChildAt(i), output)
+            for (i in 0 until root.childCount) collectViews(root.getChildAt(i), clazz, output)
         }
     }
 
