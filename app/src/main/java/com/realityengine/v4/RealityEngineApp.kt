@@ -11,7 +11,7 @@ import android.app.Application
 class RealityEngineApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        registerActivityLifecycleCallbacks(RealityOperatorSkin.callbacks)
+        registerActivityLifecycleCallbacks(PresentationSkinRouter.callbacks)
         registerActivityLifecycleCallbacks(RealityVectorIconGuard.callbacks)
         registerActivityLifecycleCallbacks(ConversationOSOverlay.callbacks)
         registerActivityLifecycleCallbacks(LiveTranscriptLayoutOverlay.callbacks)
