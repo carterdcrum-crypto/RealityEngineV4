@@ -21,39 +21,45 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import kotlin.math.max
 
-/** Shared premium Lucid Prism visual language for Reality Engine V4. */
+/**
+ * Shared presentation primitives for Reality Engine V4.
+ *
+ * This file intentionally owns appearance only. Telecom, call lifecycle, audio routing,
+ * transcription, and call-state behavior live elsewhere and must not be coupled to theme changes.
+ */
 object RealityVisuals {
     const val HUD_OWNED_TAG = "realityengine.hud.owned"
 
+    /** Pulse Deck palette applied to the proven pre-Pulse call/runtime structure. */
     object Colors {
-        val Background: Int = Color.rgb(3, 7, 16)
-        val BackgroundRaised: Int = Color.rgb(7, 12, 24)
-        val Panel: Int = Color.rgb(11, 17, 31)
-        val PanelStrong: Int = Color.rgb(16, 23, 41)
-        val Cyan: Int = Color.rgb(151, 208, 255)
-        val CyanSoft: Int = Color.rgb(177, 203, 237)
-        val Lilac: Int = Color.rgb(181, 164, 255)
+        val Background: Int = Color.rgb(2, 11, 16)
+        val BackgroundRaised: Int = Color.rgb(7, 20, 27)
+        val Panel: Int = Color.rgb(17, 35, 44)
+        val PanelStrong: Int = Color.rgb(20, 42, 52)
+        val Cyan: Int = Color.rgb(27, 230, 240)
+        val CyanSoft: Int = Color.rgb(85, 184, 204)
+        val Lilac: Int = Color.rgb(255, 62, 77)
         val Magenta: Int = Lilac
-        val Green: Int = Color.rgb(102, 232, 147)
-        val Amber: Int = Color.rgb(241, 190, 111)
-        val Text: Int = Color.rgb(247, 249, 255)
-        val TextDim: Int = Color.rgb(191, 203, 226)
-        val Border: Int = Color.rgb(62, 76, 110)
-        val Track: Int = Color.rgb(20, 28, 47)
-        val DangerFill: Int = Color.rgb(39, 16, 28)
+        val Green: Int = Color.rgb(48, 237, 120)
+        val Amber: Int = Color.rgb(255, 183, 12)
+        val Text: Int = Color.rgb(247, 250, 252)
+        val TextDim: Int = Color.rgb(142, 164, 179)
+        val Border: Int = Color.rgb(40, 67, 79)
+        val Track: Int = Color.rgb(28, 48, 57)
+        val DangerFill: Int = Color.rgb(45, 14, 22)
     }
 
     fun panel(
         context: Context,
         fill: Int = Colors.Panel,
         stroke: Int = Colors.Border,
-        radiusDp: Float = 20f,
+        radiusDp: Float = 18f,
         strokeDp: Int = 1,
-    ): Drawable = PrismGlassDrawable(
+    ): Drawable = PulseGlassDrawable(
         density = context.resources.displayMetrics.density,
         fill = fill,
         stroke = stroke,
-        radiusDp = radiusDp.coerceIn(8f, 34f),
+        radiusDp = radiusDp.coerceIn(3f, 34f),
         strokeDp = strokeDp.coerceAtLeast(1),
     )
 
@@ -64,13 +70,13 @@ object RealityVisuals {
     ): GradientDrawable = GradientDrawable(
         GradientDrawable.Orientation.TL_BR,
         intArrayOf(
-            withAlpha(lighten(fill, 1.12f), 244),
-            withAlpha(fill, 238),
-            withAlpha(darken(fill, .78f), 246),
+            withAlpha(lighten(fill, 1.10f), 250),
+            withAlpha(fill, 246),
+            withAlpha(darken(fill, .76f), 250),
         ),
     ).apply {
         shape = GradientDrawable.OVAL
-        setStroke(dp(context, 1), withAlpha(stroke, 170))
+        setStroke(dp(context, 1), withAlpha(stroke, 190))
     }
 
     fun styleControl(
@@ -78,37 +84,39 @@ object RealityVisuals {
         iconRes: Int,
         accent: Int = Colors.Cyan,
         destructive: Boolean = false,
-        radiusDp: Float = 20f,
+        radiusDp: Float = 18f,
     ) {
         button.apply {
-            textSize = 11f
-            letterSpacing = .018f
+            textSize = 10.5f
+            letterSpacing = .045f
             setTextColor(accent)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             background = panel(
                 context,
                 fill = if (destructive) Colors.DangerFill else Colors.Panel,
-                stroke = if (destructive) accent else mix(accent, Colors.Border, .28f),
+                stroke = if (destructive) accent else mix(accent, Colors.Border, .34f),
                 radiusDp = radiusDp,
                 strokeDp = 1,
             )
             stateListAnimator = null
             elevation = 0f
-            setAllCaps(false)
+            setAllCaps(true)
             gravity = android.view.Gravity.CENTER
-            setPadding(dp(context, 12), 0, dp(context, 12), 0)
+            minWidth = 0
+            minHeight = 0
+            setPadding(dp(context, 7), dp(context, 4), dp(context, 7), dp(context, 4))
             if (iconRes != 0) {
                 setCompoundDrawablesRelativeWithIntrinsicBounds(iconRes, 0, 0, 0)
                 compoundDrawableTintList = ColorStateList.valueOf(accent)
-                compoundDrawablePadding = dp(context, 7)
+                compoundDrawablePadding = dp(context, 6)
             }
         }
     }
 
     fun styleMicroLabel(view: TextView, accent: Int = Colors.TextDim) {
         view.apply {
-            textSize = 9.5f
-            letterSpacing = .06f
+            textSize = 9.2f
+            letterSpacing = .075f
             setTextColor(accent)
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             includeFontPadding = false
@@ -158,7 +166,8 @@ object RealityVisuals {
             .start()
     }
 
-    private class PrismGlassDrawable(
+    /** Dark cyan/graphite Pulse Deck glass without changing any view ownership or behavior. */
+    private class PulseGlassDrawable(
         private val density: Float,
         private val fill: Int,
         private val stroke: Int,
@@ -179,14 +188,14 @@ object RealityVisuals {
         }
         private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
-            strokeWidth = .85f * density
+            strokeWidth = .8f * density
             strokeCap = Paint.Cap.ROUND
         }
         private var drawableAlpha = 255
 
         override fun draw(canvas: Canvas) {
             if (bounds.isEmpty) return
-            val inset = 1.35f * density
+            val inset = 1.25f * density
             val rect = RectF(bounds).apply { inset(inset, inset) }
             val radius = radiusPx.coerceAtMost(minOf(rect.width(), rect.height()) / 2f)
             val brightFill = isBright(fill)
@@ -194,14 +203,14 @@ object RealityVisuals {
             fillPaint.shader = LinearGradient(
                 rect.left,
                 rect.top,
-                rect.left,
+                rect.right,
                 rect.bottom,
                 intArrayOf(
-                    withAlpha(lighten(fill, if (brightFill) 1.06f else 1.18f), if (brightFill) 248 else 236),
-                    withAlpha(fill, if (brightFill) 246 else 232),
-                    withAlpha(darken(fill, if (brightFill) .90f else .82f), if (brightFill) 250 else 240),
+                    withAlpha(lighten(fill, if (brightFill) 1.04f else 1.14f), if (brightFill) 250 else 244),
+                    withAlpha(fill, 246),
+                    withAlpha(darken(fill, if (brightFill) .90f else .72f), 250),
                 ),
-                floatArrayOf(0f, .42f, 1f),
+                floatArrayOf(0f, .48f, 1f),
                 Shader.TileMode.CLAMP,
             )
             fillPaint.alpha = drawableAlpha
@@ -215,11 +224,10 @@ object RealityVisuals {
                 rect.top,
                 intArrayOf(
                     Color.TRANSPARENT,
-                    withAlpha(Colors.Cyan, if (brightFill) 7 else 13),
-                    withAlpha(Colors.Lilac, if (brightFill) 9 else 17),
+                    withAlpha(Colors.Cyan, if (brightFill) 6 else 18),
                     Color.TRANSPARENT,
                 ),
-                floatArrayOf(0f, .32f, .70f, 1f),
+                floatArrayOf(0f, .58f, 1f),
                 Shader.TileMode.CLAMP,
             )
             washPaint.alpha = drawableAlpha
@@ -232,9 +240,9 @@ object RealityVisuals {
                 rect.right,
                 rect.bottom,
                 intArrayOf(
-                    withAlpha(stroke, 145),
-                    withAlpha(Colors.CyanSoft, 76),
-                    withAlpha(Colors.Lilac, 102),
+                    withAlpha(stroke, 188),
+                    withAlpha(Colors.CyanSoft, 86),
+                    withAlpha(stroke, 122),
                 ),
                 floatArrayOf(0f, .56f, 1f),
                 Shader.TileMode.CLAMP,
@@ -243,21 +251,21 @@ object RealityVisuals {
             canvas.drawRoundRect(rect, radius, radius, borderPaint)
             borderPaint.shader = null
 
-            val inner = RectF(rect).apply { inset(2.3f * density, 2.3f * density) }
-            val innerRadius = (radius - 2.3f * density).coerceAtLeast(3f * density)
-            innerPaint.color = withAlpha(Color.WHITE, if (brightFill) 30 else 16)
+            val inner = RectF(rect).apply { inset(2.2f * density, 2.2f * density) }
+            val innerRadius = (radius - 2.2f * density).coerceAtLeast(2f * density)
+            innerPaint.color = withAlpha(Color.WHITE, if (brightFill) 22 else 10)
             innerPaint.alpha = drawableAlpha
             canvas.drawRoundRect(inner, innerRadius, innerRadius, innerPaint)
 
-            val y = rect.top + 3.1f * density
-            val span = rect.width() * .27f
-            val start = rect.left + rect.width() * .13f
+            val y = rect.top + 2.9f * density
+            val span = rect.width() * .24f
+            val start = rect.left + rect.width() * .10f
             highlightPaint.shader = LinearGradient(
                 start,
                 y,
                 start + span,
                 y,
-                intArrayOf(Color.TRANSPARENT, withAlpha(Color.WHITE, 80), withAlpha(Colors.CyanSoft, 56), Color.TRANSPARENT),
+                intArrayOf(Color.TRANSPARENT, withAlpha(Colors.Cyan, 72), Color.TRANSPARENT),
                 null,
                 Shader.TileMode.CLAMP,
             )
