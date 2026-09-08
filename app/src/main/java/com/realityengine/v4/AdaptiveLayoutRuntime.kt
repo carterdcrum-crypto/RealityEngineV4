@@ -3,10 +3,12 @@ package com.realityengine.v4
 import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.TextView
 import java.util.Collections
@@ -100,6 +102,11 @@ object AdaptiveUi {
  *
  * Each concrete View is adapted once so repeated layout passes cannot compound dimensions. New
  * views added later are picked up automatically by the content-root layout listener.
+ *
+ * Android 15+ enforces edge-to-edge for targetSdk 35 apps. The Activity content root therefore also
+ * receives the real navigation-bar inset reported by Android so tappable controls never sit behind
+ * Samsung's Recents/Home/Back bar (or a side navigation bar after rotation). This is dynamic rather
+ * than device-hardcoded, so it also follows gesture/button navigation changes at runtime.
  */
 object AdaptiveLayoutRuntime {
     private val sessions = Collections.synchronizedMap(WeakHashMap<Activity, Session>())
@@ -132,10 +139,16 @@ object AdaptiveLayoutRuntime {
         private var listener: ViewTreeObserver.OnGlobalLayoutListener? = null
         private var queued = false
 
+        private var insetTarget: ViewGroup? = null
+        private var insetBaseLeft = 0
+        private var insetBaseTop = 0
+        private var insetBaseRight = 0
+        private var insetBaseBottom = 0
+
         fun resume() {
             val content = activity.findViewById<ViewGroup>(android.R.id.content) ?: return
             if (root !== content || listener == null) {
-                detach()
+                detachLayoutListener()
                 root = content
                 listener = ViewTreeObserver.OnGlobalLayoutListener { queue() }.also { current ->
                     if (content.viewTreeObserver.isAlive) {
@@ -147,15 +160,16 @@ object AdaptiveLayoutRuntime {
         }
 
         fun pause() {
-            detach()
+            detachLayoutListener()
         }
 
         fun destroy() {
-            detach()
+            detachLayoutListener()
+            clearSafeAreaInsets()
             processed.clear()
         }
 
-        private fun detach() {
+        private fun detachLayoutListener() {
             val currentRoot = root
             val currentListener = listener
             if (currentRoot != null && currentListener != null && currentRoot.viewTreeObserver.isAlive) {
@@ -173,7 +187,55 @@ object AdaptiveLayoutRuntime {
             content.post {
                 queued = false
                 if (activity.isFinishing || activity.isDestroyed) return@post
+                // Adapt first, then capture the adapted base padding before adding system insets.
                 adaptNewViews(content)
+                ensureSafeAreaInsets(content)
+            }
+        }
+
+        private fun ensureSafeAreaInsets(content: ViewGroup) {
+            if (insetTarget !== content) {
+                clearSafeAreaInsets()
+                insetTarget = content
+                insetBaseLeft = content.paddingLeft
+                insetBaseTop = content.paddingTop
+                insetBaseRight = content.paddingRight
+                insetBaseBottom = content.paddingBottom
+
+                content.setOnApplyWindowInsetsListener { view, windowInsets ->
+                    val nav = navigationBarInsets(windowInsets)
+                    view.setPadding(
+                        insetBaseLeft + nav.left,
+                        insetBaseTop,
+                        insetBaseRight + nav.right,
+                        insetBaseBottom + nav.bottom,
+                    )
+                    // Do not consume: descendant views that explicitly handle other inset types
+                    // (IME, display cutout, etc.) must still receive them.
+                    windowInsets
+                }
+            }
+            content.requestApplyInsets()
+        }
+
+        private fun clearSafeAreaInsets() {
+            insetTarget?.setOnApplyWindowInsetsListener(null)
+            insetTarget = null
+        }
+
+        private data class NavigationInsets(val left: Int, val right: Int, val bottom: Int)
+
+        private fun navigationBarInsets(windowInsets: WindowInsets): NavigationInsets {
+            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val insets = windowInsets.getInsets(WindowInsets.Type.navigationBars())
+                NavigationInsets(insets.left, insets.right, insets.bottom)
+            } else {
+                @Suppress("DEPRECATION")
+                NavigationInsets(
+                    left = windowInsets.systemWindowInsetLeft,
+                    right = windowInsets.systemWindowInsetRight,
+                    bottom = windowInsets.systemWindowInsetBottom,
+                )
             }
         }
 
