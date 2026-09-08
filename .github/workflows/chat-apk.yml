@@ -10,6 +10,8 @@ on:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,8 +24,14 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Restore updater signing key
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download updater-signing-key --pattern realityengine-updater.jks --clobber
       - name: Build debug APK
-        run: gradle --no-daemon assembleDebug --stacktrace --console=plain
+        shell: bash
+        run: GITHUB_RUN_NUMBER=716 gradle --no-daemon assembleDebug --stacktrace --console=plain
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
