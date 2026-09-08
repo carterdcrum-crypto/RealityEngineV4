@@ -6,8 +6,8 @@ import android.app.Application
  * Application entry point for Reality Engine V4.
  * Presentation observers stay behavior-safe while keeping the visual system, vector icon guard,
  * Conversation OS intelligence layer, readable live transcripts, live signal instrument,
- * saved-audio discovery, mandatory post-call recording review, and adaptive sizing available
- * across the app.
+ * saved-audio discovery, mandatory post-call recording review, adaptive sizing, and explicit
+ * user-controlled live translation available across the app.
  */
 class RealityEngineApp : Application() {
     override fun onCreate() {
@@ -15,6 +15,7 @@ class RealityEngineApp : Application() {
         registerActivityLifecycleCallbacks(PresentationSkinRouter.callbacks)
         registerActivityLifecycleCallbacks(RealityVectorIconGuard.callbacks)
         registerActivityLifecycleCallbacks(ConversationOSOverlay.callbacks)
+        registerActivityLifecycleCallbacks(TranslationControlOverlay.callbacks)
         registerActivityLifecycleCallbacks(LiveTranscriptLayoutOverlay.callbacks)
         registerActivityLifecycleCallbacks(SignalVisualOverlay.callbacks)
         registerActivityLifecycleCallbacks(RecordingDiscoveryOverlay.callbacks)
