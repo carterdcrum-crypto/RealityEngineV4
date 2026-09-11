@@ -1,6 +1,8 @@
 package com.realityengine.v4
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.text.Editable
@@ -106,6 +108,10 @@ class DialScreen(
                 contactMatch.visibility = if (name.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
             }
         })
+
+        // ACTION_DIAL / tel: links from browsers, search results, Maps, etc. are routed here by
+        // Android. Consume that URI once and prefill the keypad; never place the call automatically.
+        consumeExternalDialRequest()?.let(::setNumber)
 
         val grid = GridLayout(context).apply {
             tag = RealityVisuals.HUD_OWNED_TAG
@@ -245,6 +251,25 @@ class DialScreen(
     fun setNumber(value: String) {
         number.setText(value)
         number.setSelection(number.length())
+    }
+
+    private fun consumeExternalDialRequest(): String? {
+        val activity = context as? Activity ?: return null
+        val source = activity.intent ?: return null
+        val action = source.action
+        val data = source.data ?: return null
+        val isDialAction = action == Intent.ACTION_DIAL || action == Intent.ACTION_VIEW
+        if (!isDialAction || !data.scheme.equals("tel", ignoreCase = true)) return null
+
+        val incoming = data.schemeSpecificPart.orEmpty()
+            .substringBefore(';')
+            .substringBefore('?')
+            .trim()
+        if (incoming.isBlank()) return null
+
+        // Mark the external URI as consumed so rebuilding the Phone tab later does not reinsert it.
+        activity.setIntent(Intent(source).apply { this.data = null })
+        return incoming
     }
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density).toInt()
