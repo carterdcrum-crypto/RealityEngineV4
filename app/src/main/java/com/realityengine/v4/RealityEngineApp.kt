@@ -12,6 +12,7 @@ import android.app.Application
 class RealityEngineApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        InitialEarpieceRouteRuntime.install()
         registerActivityLifecycleCallbacks(PresentationSkinRouter.callbacks)
         registerActivityLifecycleCallbacks(RealityVectorIconGuard.callbacks)
         registerActivityLifecycleCallbacks(ConversationOSOverlay.callbacks)
